@@ -117,6 +117,8 @@ struct ipa_buf *ipa_http_req(void *http_ctx, const struct ipa_buf *req, const ch
 	}
 
 	/* Setup header, see also SGP.32, section 6.1.1 */
+	/* UPDATE for v1.2: CR111005R00 — User-Agent now has a spec-defined value;
+	 * see IPA_HTTP_USER_AGENT in onomondo/ipa/http_hdr.h. */
 	list = curl_slist_append(list, "Accept:");
 	list = curl_slist_append(list, "User-Agent: " IPA_HTTP_USER_AGENT);
 	list = curl_slist_append(list, "X-Admin-Protocol: " IPA_HTTP_X_ADMIN_PROTOCOL);

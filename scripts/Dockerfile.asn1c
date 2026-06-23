@@ -1,0 +1,28 @@
+# Build asn1c 0.9.29 from source.  The Ubuntu/Debian packaged versions are
+# 0.9.28 which lacks the -no-gen-example flag used by regenerate_libasn.sh.
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update -qq \
+ && apt-get install -y -qq --no-install-recommends \
+      autoconf automake libtool bison flex make gcc g++ libc6-dev \
+      ca-certificates git patch \
+ && rm -rf /var/lib/apt/lists/*
+
+# v0.9.28 is the last tag; master has the -no-gen-example flag that the
+# onomondo-ipa regenerate script relies on.  Pin to a known-good master
+# commit for reproducibility.
+RUN git clone https://github.com/vlm/asn1c.git /tmp/asn1c \
+ && cd /tmp/asn1c \
+ && git checkout f12568ad12b3f61ce547b7290ce9352e3e4c6a4f \
+ && test -f configure || autoreconf -iv \
+ && ./configure --prefix=/usr/local \
+ && make -j"$(nproc)" \
+ && make install \
+ && rm -rf /tmp/asn1c
+
+# Quick sanity check
+RUN asn1c -version 2>&1 | head -1
+
+WORKDIR /src

@@ -6,6 +6,29 @@
  * Author: Philipp Maier <pmaier@sysmocom.de> / sysmocom - s.f.m.c. GmbH
  *
  * See also: GSMA SGP.22, 5.7.19: Function (ES10b): eUICCMemoryReset
+ *           GSMA SGP.32, 5.9.5 (SGP.32 override — tag / fields changed).
+ *
+ * =====================================================================
+ * v1.1/v1.2 migration notes for this file (MAJOR CHANGES):
+ * =====================================================================
+ * UPDATE for v1.1: 5.9.5 — SGP.32 EuiccMemoryReset was restructured:
+ *   - Tag changed from [52] (BF34) to [100] (BF64).
+ *   - resetOptions adds deletePreLoadedTestProfiles(3), deleteProvisioningProfiles(4).
+ *   - resetEimConfigData bit shifted from (3) to (5).
+ *   - resetAutoEnableConfig renamed to resetImmediateEnableConfig and shifted
+ *     from bit (4) to (6).
+ *   - resetResult adds new error ecallActive(104).
+ *   - resetAutoEnableConfigResult renamed to resetImmediateEnableConfigResult;
+ *     the tagging is dropped (field is now untagged, relying on order).
+ * TODO v1.1: after libasn regeneration the following will change:
+ *   - SGP32_EuiccMemoryResetRequest / Response -> use the plain types
+ *     generated from the updated SGP.32 schema (still tagged [100]).
+ *   - All bit-position macros below must be renamed to match the new enum
+ *     symbol names.  Specifically resetAutoEnableConfig -> resetImmediateEnableConfig.
+ *   - The auto_enable_cfg request-struct field in struct ipa_es10b_euicc_mem_rst
+ *     should be renamed to immediate_enable_cfg (plus one more field for
+ *     deletePreLoadedTestProfiles / deleteProvisioningProfiles).
+ * =====================================================================
  */
 
 #include <stdio.h>
@@ -51,9 +74,9 @@ static const struct num_str_map sgp32_error_code_strings_resetEimResult[] = {
 };
 
 static const struct num_str_map sgp32_error_code_strings_resetAutoEnableConfigResult[] = {
-	{ SGP32_EuiccMemoryResetResponse__resetAutoEnableConfigResult_ok, "ok" },
-	{ SGP32_EuiccMemoryResetResponse__resetAutoEnableConfigResult_resetAECNotSupported, "nothingToDelete" },
-	{ SGP32_EuiccMemoryResetResponse__resetAutoEnableConfigResult_undefinedError, "eimResetNotSupported" },
+	{ SGP32_EuiccMemoryResetResponse__resetImmediateEnableConfigResult_ok, "ok" },
+	{ SGP32_EuiccMemoryResetResponse__resetImmediateEnableConfigResult_resetIECNotSupported, "nothingToDelete" },
+	{ SGP32_EuiccMemoryResetResponse__resetImmediateEnableConfigResult_undefinedError, "eimResetNotSupported" },
 	{ 0, NULL }
 };
 
@@ -90,7 +113,7 @@ static int dec_euicc_mem_rst_res_sgp32(const struct ipa_buf *es10b_res)
 								  asn->resetResult, "(unknown)"));
 	}
 
-	if (asn->resetResult != SGP32_EuiccMemoryResetResponse__resetAutoEnableConfigResult_ok) {
+	if (asn->resetResult != SGP32_EuiccMemoryResetResponse__resetImmediateEnableConfigResult_ok) {
 		IPA_LOGP_ES10X("eUICCMemoryReset", LERROR, "function failed with error code %ld=%s!\n",
 			       asn->resetResult, ipa_str_from_num(sgp32_error_code_strings_resetAutoEnableConfigResult,
 								  asn->resetResult, "(unknown)"));
@@ -140,6 +163,8 @@ int euicc_mem_rst(struct ipa_context *ctx, const struct ipa_es10b_euicc_mem_rst 
 
 	mem_rst_req.resetOptions.buf = rst_opt;
 	mem_rst_req.resetOptions.size = 1;
+	/* UPDATE for v1.1: 5.9.5 — resetOptions has 7 bits in v1.2 (was 5);
+	 * after regeneration, set bits_unused = 1 (one unused at LSB). */
 	mem_rst_req.resetOptions.bits_unused = 3;
 
 	if (req->operatnl_profiles)
@@ -148,10 +173,22 @@ int euicc_mem_rst(struct ipa_context *ctx, const struct ipa_es10b_euicc_mem_rst 
 		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_deleteFieldLoadedTestProfiles));
 	if (req->default_smdp_addr)
 		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_resetDefaultSmdpAddress));
+	/* TODO v1.1: 5.9.5 — add new options once struct ipa_es10b_euicc_mem_rst
+	 * is extended:
+	 *   if (req->pre_loaded_test_profiles)
+	 *       rst_opt[0] |= (1 << (7 - ..._deletePreLoadedTestProfiles));
+	 *   if (req->provisioning_profiles)
+	 *       rst_opt[0] |= (1 << (7 - ..._deleteProvisioningProfiles));
+	 */
 	if (req->eim_cfg_data)
+		/* UPDATE for v1.1: 5.9.5 — resetEimConfigData moved from bit (3) to bit (5). */
 		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_resetEimConfigData));
+	/* UPDATE for v1.1: 5.9.5 — resetAutoEnableConfig (bit 4) renamed to
+	 * resetImmediateEnableConfig (bit 6); after regeneration, rename the
+	 * symbol below accordingly.  Also note bits 3 and 4 are now occupied by
+	 * deletePreLoadedTestProfiles / deleteProvisioningProfiles respectively. */
 	if (req->auto_enable_cfg)
-		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_resetAutoEnableConfig));
+		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_resetImmediateEnableConfig));
 
 	es10b_req = ipa_es10x_req_enc(&asn_DEF_SGP32_EuiccMemoryResetRequest, &mem_rst_req, "eUICCMemoryReset");
 	if (!es10b_req) {

@@ -8,6 +8,48 @@
  * See also: GSMA SGP.32, section 2.11.1.2: IpaEuiccDataRequest
  * (This is not described in the procedure section, so it is not an official
  *  procedure in terms of SGP.32)
+ *
+ * =====================================================================
+ * v1.1/v1.2 migration notes for this file (see MIGRATION.md):
+ * =====================================================================
+ * UPDATE for v1.1: 2.11.1.2 — IpaEuiccDataRequest restructured:
+ *   - euiccCiPKId (SubjectKeyIdentifier) -> euiccCiPKIdentifierToBeUsed
+ *     (OCTET STRING, possibly truncated).  CAUTION: not just a rename —
+ *     the element type changed.
+ *   - searchCriteria -> searchCriteriaNotification; euiccPackageResults
+ *     branch removed from it.
+ *   - new searchCriteriaEuiccPackageResult [2] CHOICE { seqNumber [0] INTEGER }.
+ *   - new eimTransactionId [3] TransactionId OPTIONAL.
+ *
+ * UPDATE for v1.1: 2.11.2.2 — IpaEuiccDataResponse restructured (MAJOR):
+ *   - Error branch now IpaEuiccDataResponseError SEQUENCE { eimTransactionId,
+ *     ipaEuiccDataErrorCode } instead of inline INTEGER error.
+ *   - Adds named type IpaEuiccDataErrorCode with ecallActive(104).
+ *   - IpaEuiccData: restructured field layout; notificationsList moved to
+ *     tag [0] and uses new PendingNotificationList alias (not the full
+ *     SGP32-RetrieveNotificationsListResponse); defaultSmdpAddress moved
+ *     to [1]; new euiccPackageResultList [2]; euiccInfo2 now plain
+ *     EUICCInfo2 (not SGP32-EUICCInfo2); new eimTransactionId [7];
+ *     ipaCapabilities tag changed.
+ *
+ * UPDATE for v1.1: 5.9.2 — EUICCInfo2 gains euiccCiPKIdListForSigningV3,
+ *   additionalEuiccInfo, highestSvn; IoTSpecificInfo gains ecallSupported
+ *   and fallbackSupported.  Downstream consumers do not need to access these
+ *   but should tolerate their presence (asn1c handles EXTENSIBILITY IMPLIED).
+ *
+ * TODO v1.1: rewrite this function to:
+ *   1. Use ipa_euicc_data_request->euiccCiPKIdentifierToBeUsed (the new
+ *      OCTET STRING) where it currently reads ->euiccCiPKId.  The old field
+ *      is SubjectKeyIdentifier (OCTET STRING alias) so the value is
+ *      compatible at the C level, only the name changes.
+ *   2. Split the searchCriteria branch: notifications tag 0xBF2B uses
+ *      searchCriteriaNotification; euiccPackageResult seq lookups use
+ *      searchCriteriaEuiccPackageResult.
+ *   3. Build the response using the new IpaEuiccData layout; populate
+ *      eimTransactionId when the eIM supplied one.
+ *   4. On error, emit IpaEuiccDataResponseError rather than the old
+ *      inline INTEGER.
+ * =====================================================================
  */
 
 #include <stdio.h>
@@ -160,7 +202,15 @@ int ipa_proc_euicc_data_req(struct ipa_context *ctx, const struct ipa_proc_euicc
 
 	if (ipa_tag_in_taglist(0xA5, tag_list)) {
 		IPA_LOGP(SIPA, LINFO, "eIM asks for EUM certificate\n");
-		get_certs_req.req.euiccCiPKId = pars->ipa_euicc_data_request->euiccCiPKId;
+		/* UPDATE for v1.1: 2.11.1.2 — field renamed to euiccCiPKIdentifierToBeUsed
+		 * and type changed from SubjectKeyIdentifier to OCTET STRING.  At the C
+		 * level both alias to OCTET_STRING_t so the assignment still compiles,
+		 * but the source field name must be updated after libasn regeneration. */
+		/* UPDATE for v1.1: 2.11.1.2 - IpaEuiccDataRequest.euiccCiPKId renamed to
+ * euiccCiPKIdentifierToBeUsed (and type changed from SubjectKeyIdentifier to
+ * OCTET STRING; both are OCTET_STRING_t at C level).  The destination
+ * GetCertsRequest.euiccCiPKId (SGP.22) is unchanged. */
+get_certs_req.req.euiccCiPKId = pars->ipa_euicc_data_request->euiccCiPKIdentifierToBeUsed;
 		get_certs_res = ipa_es10b_get_certs(ctx, &get_certs_req);
 		if (get_certs_res && get_certs_res->eum_certificate && get_certs_res->euicc_certificate)
 			ipa_euicc_data_response.choice.ipaEuiccData.eumCertificate = get_certs_res->eum_certificate;
@@ -173,7 +223,12 @@ int ipa_proc_euicc_data_req(struct ipa_context *ctx, const struct ipa_proc_euicc
 			ipa_euicc_data_response.choice.ipaEuiccData.euiccCertificate = get_certs_res->euicc_certificate;
 		} else {
 			IPA_LOGP(SIPA, LINFO, "eIM asks for eUICC certificate\n");
-			get_certs_req.req.euiccCiPKId = pars->ipa_euicc_data_request->euiccCiPKId;
+			/* UPDATE for v1.1: 2.11.1.2 — see rename note above. */
+			/* UPDATE for v1.1: 2.11.1.2 - IpaEuiccDataRequest.euiccCiPKId renamed to
+ * euiccCiPKIdentifierToBeUsed (and type changed from SubjectKeyIdentifier to
+ * OCTET STRING; both are OCTET_STRING_t at C level).  The destination
+ * GetCertsRequest.euiccCiPKId (SGP.22) is unchanged. */
+get_certs_req.req.euiccCiPKId = pars->ipa_euicc_data_request->euiccCiPKIdentifierToBeUsed;
 			get_certs_res = ipa_es10b_get_certs(ctx, &get_certs_req);
 			if (get_certs_res && get_certs_res->eum_certificate && get_certs_res->euicc_certificate)
 				ipa_euicc_data_response.choice.ipaEuiccData.euiccCertificate = get_certs_res->euicc_certificate;
@@ -197,10 +252,29 @@ int ipa_proc_euicc_data_req(struct ipa_context *ctx, const struct ipa_proc_euicc
 	if (ipa_tag_in_taglist(0xBF2B, tag_list)) {
 		IPA_LOGP(SIPA, LINFO, "eIM asks for List of Notifications and/or eUICC Package Results\n");
 
-		retr_notif_from_lst_req.dr_search_criteria = pars->ipa_euicc_data_request->searchCriteria;
+		/* UPDATE for v1.1: 2.11.1.2 — searchCriteria renamed to
+		 * searchCriteriaNotification; the euiccPackageResults branch moved
+		 * to the sibling searchCriteriaEuiccPackageResult field (which this
+		 * code currently does not consult).  After libasn regeneration:
+		 *   retr_notif_from_lst_req.dr_search_criteria =
+		 *       pars->ipa_euicc_data_request->searchCriteriaNotification;
+		 * and emit a SEPARATE lookup for
+		 * pars->ipa_euicc_data_request->searchCriteriaEuiccPackageResult if
+		 * present, populating notificationsList and/or euiccPackageResultList
+		 * on the response accordingly. */
+		retr_notif_from_lst_req.dr_search_criteria =
+		    pars->ipa_euicc_data_request->searchCriteriaNotification;
 		retr_notif_from_lst_res = ipa_es10b_retr_notif_from_lst(ctx, &retr_notif_from_lst_req);
-		if (retr_notif_from_lst_res && retr_notif_from_lst_res->sgp32_res)
-			ipa_euicc_data_response.choice.ipaEuiccData.notificationsList = retr_notif_from_lst_res->sgp32_res;
+		if (retr_notif_from_lst_res && retr_notif_from_lst_res->sgp32_res &&
+		    retr_notif_from_lst_res->sgp32_res->present ==
+			SGP32_RetrieveNotificationsListResponse_PR_notificationList) {
+			/* UPDATE for v1.1: 2.11.2.2 - IpaEuiccData.notificationsList is
+			 * now PendingNotificationList (SEQUENCE OF PendingNotification) at
+			 * tag [0]; extract the inner notificationList from the SGP.32
+			 * retrieve response. */
+			ipa_euicc_data_response.choice.ipaEuiccData.notificationsList =
+			    &retr_notif_from_lst_res->sgp32_res->choice.notificationList;
+		}
 	}
 
 	ipa_euicc_data_response.present = IpaEuiccDataResponse_PR_ipaEuiccData;
@@ -209,7 +283,9 @@ int ipa_proc_euicc_data_req(struct ipa_context *ctx, const struct ipa_proc_euicc
 	if (!prvde_eim_pkg_rslt_res)
 		goto error;
 
-	if (ipa_euicc_data_response.present == IpaEuiccDataResponse_PR_ipaEuiccDataError)
+	/* UPDATE for v1.1: 2.11.2.2 - error branch renamed from ipaEuiccDataError
+	 * (inline INTEGER) to ipaEuiccDataResponseError (SEQUENCE). */
+	if (ipa_euicc_data_response.present == IpaEuiccDataResponse_PR_ipaEuiccDataResponseError)
 		IPA_LOGP(SIPA, LINFO, "IPA get EUICC data failed, eIM is informed about the failure!\n");
 	else
 		IPA_LOGP(SIPA, LINFO, "IPA get EUICC data succeeded!\n");

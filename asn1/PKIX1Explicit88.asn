@@ -258,7 +258,12 @@ TBSCertificate  ::=  SEQUENCE  {
 
 Version  ::=  INTEGER  {  v1(0), v2(1), v3(2)  }
 
-CertificateSerialNumber  ::=  INTEGER (0..999999999999999999999999999999999999) -- apply a range to suitable to force asn1c to uses INTEGER_t
+-- UPDATE for v1.2 migration: the original used a 36-digit range literal to
+-- force asn1c to emit INTEGER_t for this field only.  asn1c 0.9.28 cannot
+-- parse ranges beyond 2^63-1, so we bound the range just above that to get
+-- the same effect without resorting to the global -fwide-types flag (which
+-- would break the libipa code that treats small enums as plain long).
+CertificateSerialNumber  ::=  INTEGER (0..9223372036854775807) -- INT64_MAX; forces INTEGER_t
 
 Validity ::= SEQUENCE {
      notBefore      Time,

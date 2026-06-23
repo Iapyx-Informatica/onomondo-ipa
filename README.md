@@ -5,10 +5,16 @@ element in the 3GPP IoT eSIM system as described in SGP.31 and SGP.32. It interf
 and the eIM (via HTTPS) on the other side. The implementation presented here can run on a regular Linux host. It can also be used
 as a library to add IPAd functionality to an IoT device that runs an RTOS.
 
-This code currently implements SGP.32 v1.0, an early version
-of the GSMA specifications which did never get used in production.  The only SAS-SM accredited eUICCs
-implemented the later SGP.32 v1.2. For differences, see
-this [summary of SGP.32 changes](https://osmocom.org/projects/sim-card-related/wiki/GSMA_SGP32_ChangeLog).
+This code originally implemented SGP.32 v1.0.  An **in-progress migration to
+SGP.32 v1.2** is underway — see [MIGRATION.md](MIGRATION.md) for the full plan,
+per-section status, and a checklist of remaining work.  Every changed line in
+the schema and source carries an inline marker of the form
+`UPDATE for v1.1: <section>` / `UPDATE for v1.2: <CR>` / `NEW in v1.1/v1.2:
+<section>` / `TODO v1.1/v1.2: <section>` so the diff against the v1.0 baseline
+is traceable end-to-end.
+
+For the public summary of spec changes between versions, see
+the [osmocom SGP.32 changelog](https://osmocom.org/projects/sim-card-related/wiki/GSMA_SGP32_ChangeLog).
 
 Interfaces
 ----------
@@ -51,9 +57,35 @@ On a Debian system, the standard `apt-get install ...` command can be used to in
 
 ### Building
 
-Run the following steps to compile the IPAd:
+The v1.2 migration introduces two supported build paths:
+
+**1. One-command containerised build (recommended; works on Windows/macOS/Linux, needs only Docker)**
 
 ```
+./scripts/build.sh --docker
+```
+
+Builds a reproducible Ubuntu 24.04 image containing `asn1c`, regenerates
+`src/ipa/libasn/` from the updated `asn1/*.asn`, and compiles the project.
+Extract the compiled binary with:
+
+```
+docker run --rm -v "$(pwd):/host" onomondo-ipa:v1.2 cp -r /src/build /host/build-docker
+```
+
+**2. Native build (Linux, needs `asn1c`, `cmake`, `libcurl4-gnutls-dev`, `libpcsclite-dev`, `build-essential`)**
+
+```
+./scripts/build.sh
+```
+
+This runs `scripts/regen.sh` (which falls back to Docker automatically if
+`asn1c` is not in PATH) and then the usual cmake flow below.
+
+**3. Manual (equivalent to the script):**
+
+```
+./scripts/regen.sh                           # regenerate libasn from .asn sources
 cmake -S . -B build -DENABLE_SANITIZE=ON -DSHOW_ASN_OUTPUT=ON
 cmake --build build
 ```

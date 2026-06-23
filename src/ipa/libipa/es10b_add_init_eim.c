@@ -4,8 +4,25 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  *
  * Author: Philipp Maier <pmaier@sysmocom.de> / sysmocom - s.f.m.c. GmbH
- * 
+ *
  * See also: GSMA SGP.32, 5.9.4: Function (ES10b): AddInitialEim
+ *
+ * =====================================================================
+ * v1.1/v1.2 migration notes for this file:
+ * =====================================================================
+ * UPDATE for v1.1: 5.9.4 — AddInitialEimResponse error set changed:
+ *   - unsignedEimConfigDisallowed(2) was REPLACED by associatedEimAlreadyExists(2)
+ *   - new commandError(7) added.
+ *   The error table below must be updated after libasn regeneration.
+ * UPDATE for v1.2: CR12010R00 / §5.9.4 — clarified behaviour when optional
+ *   EimConfigurationData subfields are absent.  Review complete_eim_cfg()
+ *   below to ensure it matches v1.2 text (does not force presence of
+ *   optional-per-spec subfields in the emulation path).
+ * UPDATE for v1.1: 2.11.1.1.1 — EimConfigurationData gains
+ *   indirectProfileDownload [9] NULL OPTIONAL.  If the eIM advertises it in
+ *   the initial configuration, the IPA must record it and honour it in the
+ *   Indirect Profile Download path (proc_indirect_prfle_dwnld.c).
+ * =====================================================================
  */
 
 #include <stdio.h>
@@ -24,10 +41,14 @@
 
 static const struct num_str_map error_code_strings[] = {
 	{ AddInitialEimResponse__addInitialEimError_insufficientMemory, "insufficientMemory" },
-	{ AddInitialEimResponse__addInitialEimError_unsignedEimConfigDisallowed, "unsignedEimConfigDisallowed" },
+	/* UPDATE for v1.1: 5.9.4 — unsignedEimConfigDisallowed(2) was replaced by
+	 * associatedEimAlreadyExists(2). */
+	{ AddInitialEimResponse__addInitialEimError_associatedEimAlreadyExists, "associatedEimAlreadyExists" },
 	{ AddInitialEimResponse__addInitialEimError_ciPKUnknown, "ciPKUnknown" },
 	{ AddInitialEimResponse__addInitialEimError_invalidAssociationToken, "invalidAssociationToken" },
 	{ AddInitialEimResponse__addInitialEimError_counterValueOutOfRange, "counterValueOutOfRange" },
+	/* UPDATE for v1.1: 5.9.4 — new commandError(7). */
+	{ AddInitialEimResponse__addInitialEimError_commandError, "commandError" },
 	{ AddInitialEimResponse__addInitialEimError_undefinedError, "undefinedError" },
 	{ 0, NULL }
 };

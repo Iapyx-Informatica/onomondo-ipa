@@ -19,7 +19,8 @@ struct ipa_es10b_retr_notif_from_lst_req {
 	/* When the caller has access to a search searchCriteria that originates from an IpaEuiccDataRequest, the
 	 * pointer to it may be passed here. The function will then atomatically convert the searchCriteria into
 	 * the native RetrieveNotificationsListRequest format. */
-	const struct IpaEuiccDataRequest__searchCriteria *dr_search_criteria;
+	/* UPDATE for v1.1: 2.11.1.2 - renamed searchCriteria -> searchCriteriaNotification. */
+	const struct IpaEuiccDataRequest__searchCriteriaNotification *dr_search_criteria;
 };
 
 struct ipa_es10b_retr_notif_from_lst_res {

@@ -7,6 +7,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #define IPA_LEN_FQDN 255
 #define IPA_LEN_TAC 4
@@ -15,6 +16,22 @@
 
 struct ipa_context;
 struct ipa_buf;
+
+/* NEW in v1.1: SGP.32 §6.3.2.6 — StateChangeCause.  The IPA sets this on
+ * ESipa.GetEimPackage after a local state change so the eIM can correlate.
+ * Values mirror the SGP.32 v1.2 StateChangeCause enumeration; keep them in
+ * sync with the ASN.1 definition in asn1/SGP32Definitions.asn. */
+enum ipa_state_change_cause {
+	IPA_STATE_CHANGE_NONE = -1, /* IPA-internal sentinel; do not send */
+	IPA_STATE_CHANGE_OTHER_EIM = 0,
+	IPA_STATE_CHANGE_FALLBACK = 1,
+	IPA_STATE_CHANGE_EMERGENCY_PROFILE = 2,
+	IPA_STATE_CHANGE_LOCAL = 3,
+	IPA_STATE_CHANGE_RESET = 4,
+	IPA_STATE_CHANGE_IMMEDIATE_ENABLE_PROFILE = 5,
+	IPA_STATE_CHANGE_DEVICE_CHANGE = 6, /* IPAe-only */
+	IPA_STATE_CHANGE_UNDEFINED = 127,
+};
 
 /* (deprecated, see github issue #5) */
 typedef bool (*ipa_prfle_inst_consent_cb)(char *sm_dp_plus_address, char *ac_token);
@@ -66,7 +83,14 @@ struct ipa_config {
 
 	/*! When a profile rollback is performed an optional refresh flag can be set. (See also SGP.32, section 5.9.16)
 	 *  In case the IoT eUICC emulation is enabled (iot_euicc_emu_enabled), then this flag also plays a role when
-	 *  profiles are disabled or enabled. (See also SGP.22, section 5.7.16 and section 5.7.17) */
+	 *  profiles are disabled or enabled. (See also SGP.22, section 5.7.16 and section 5.7.17)
+	 *
+	 *  UPDATE for v1.1: 5.9.15 — This flag now ALSO governs ES10b.ImmediateEnable
+	 *  (formerly EnableUsingDD) and the new Emergency-Profile / Fallback
+	 *  functions (§5.9.22, §5.9.23, §5.9.20).
+	 *  UPDATE for v1.2: CR111007R00 — when refresh_flag == true the eUICC will
+	 *  reset rollback authorization during ImmediateEnable / EnableEmergencyProfile
+	 *  / DisableEmergencyProfile.  Choose with that side-effect in mind. */
 	bool refresh_flag;
 
 	/*! ID number of the cardreader that interfaces the eUICC */

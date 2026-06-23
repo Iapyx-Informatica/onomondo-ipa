@@ -27,11 +27,14 @@ struct ipa_nvstate {
 		int association_token_counter;
 		struct ipa_buf *eim_cfg_ber;
 
-		/*! Automatic Profile Enabling configuration (set via configureAutoEnable PSMO) */
+		/*! Immediate Profile Enabling configuration (set via configureImmediateEnable PSMO).
+		 * UPDATE for v1.1: 2.11.1.1.3 — renamed from configureAutoEnable.
+		 * TODO v1.1: rename struct member auto_enable -> immediate_enable once
+		 * all call sites are updated (grep repo for 'auto_enable'). */
 		struct {
-			bool flag;
-			struct ipa_buf *smdp_oid;
-			struct ipa_buf *smdp_address;
+			bool flag;           /* UPDATE for v1.1: 2.11.1.1.3 — corresponds to immediateEnableFlag */
+			struct ipa_buf *smdp_oid;     /* UPDATE for v1.1: 2.11.1.1.3 — corresponds to defaultSmdpOid */
+			struct ipa_buf *smdp_address; /* UPDATE for v1.1: 2.11.1.1.3 — corresponds to defaultSmdpAddress */
 		} auto_enable;
 	} iot_euicc_emu;
 
@@ -58,7 +61,10 @@ struct ipa_context {
 		 *  ipa_proc_eucc_pkg_dwnld_exec is called. */
 		struct ipa_buf *rollback_iccid;
 
-		/*! cached data to support the emulation of the ES10b function EnableUsingDD */
+		/*! cached data to support the emulation of the ES10b function ImmediateEnable.
+		 * UPDATE for v1.1: 5.9.15 — ES10b function renamed EnableUsingDD -> ImmediateEnable.
+		 * TODO v1.1: rename struct member auto_enable -> immediate_enable once
+		 * es10b_enable_using_dd.{c,h} is renamed. */
 		struct {
 			struct ipa_buf *smdp_oid;
 			struct ipa_buf *smdp_address;

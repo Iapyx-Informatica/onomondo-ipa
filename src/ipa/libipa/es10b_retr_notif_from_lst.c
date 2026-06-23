@@ -6,6 +6,26 @@
  * Author: Philipp Maier <pmaier@sysmocom.de> / sysmocom - s.f.m.c. GmbH
  *
  * See also: GSMA SGP.22, 5.7.10: Function (ES10b): RetrieveNotificationsList
+ *           GSMA SGP.32, 5.9.11 (SGP.32-specific restructure).
+ *
+ * =====================================================================
+ * v1.1/v1.2 migration notes for this file:
+ * =====================================================================
+ * UPDATE for v1.1: 5.9.11 — The SGP.32 SGP32-RetrieveNotificationsListResponse
+ *   dropped the `notificationAndEprList` CHOICE branch and switched to alias
+ *   types PendingNotificationList / EuiccPackageResultList.  The decoder
+ *   below still references SGP32_RetrieveNotificationsListResponse_PR_notificationAndEprList;
+ *   that enumerator will disappear after libasn regeneration and the case
+ *   MUST be removed from dec_retr_notif_from_lst_res_sgp32().  The encode
+ *   path does not emit notificationAndEprList so no change is needed there.
+ * UPDATE for v1.1: 2.11.1.2 — the foreign search criteria come from the new
+ *   IpaEuiccDataRequest.searchCriteriaNotification (the euiccPackageResults
+ *   branch moved to the sibling searchCriteriaEuiccPackageResult field).
+ *   enc_retr_notif_from_lst_req*() must rename IpaEuiccDataRequest__searchCriteria_*
+ *   to IpaEuiccDataRequest__searchCriteriaNotification_* after regeneration
+ *   and must no longer match the euiccPackageResults branch here (it lives
+ *   on a different CHOICE now).
+ * =====================================================================
  */
 
 #include <stdio.h>
@@ -24,7 +44,7 @@
 #include "es10b_retr_notif_from_lst.h"
 
 /* Convert a notificationList (RetrieveNotificationsListResponse) from RSP to SGP32 format. */
-void convert_notification_list(struct SGP32_RetrieveNotificationsListResponse__notificationList *lst_out,
+void convert_notification_list(struct SGP32_PendingNotificationList *lst_out,
 			       const struct RetrieveNotificationsListResponse__notificationList *lst_in)
 {
 	unsigned int i;
@@ -67,7 +87,7 @@ void convert_notification_list(struct SGP32_RetrieveNotificationsListResponse__n
 }
 
 /*! Free a converted notificationList (RetrieveNotificationsListResponse). */
-void free_converted_notification_list(struct SGP32_RetrieveNotificationsListResponse__notificationList *lst)
+void free_converted_notification_list(struct SGP32_PendingNotificationList *lst)
 {
 	int i;
 	if (!lst)
@@ -138,7 +158,7 @@ static int dec_retr_notif_from_lst_res_sgp32(struct ipa_es10b_retr_notif_from_ls
 									   res->notif_lst_result_err, "(unknown)"));
 	case SGP32_RetrieveNotificationsListResponse_PR_notificationList:
 	case SGP32_RetrieveNotificationsListResponse_PR_euiccPackageResultList:
-	case SGP32_RetrieveNotificationsListResponse_PR_notificationAndEprList:
+		/* UPDATE for v1.1: 5.9.11 - notificationAndEprList branch was REMOVED in v1.2. */
 		/* Nothing to do */
 		break;
 	default:
@@ -157,23 +177,27 @@ static struct ipa_buf *enc_retr_notif_from_lst_req(const struct ipa_es10b_retr_n
 	struct ipa_buf *es10b_req = NULL;
 
 	if (req->dr_search_criteria) {
-		/* Convert from foreigen searchCriteria (see comment in header file) */
+		/* Convert from foreign searchCriteria (see comment in header file).
+		 * UPDATE for v1.1: 2.11.1.2 — source field renamed:
+		 *   req->dr_search_criteria (formerly IpaEuiccDataRequest.searchCriteria)
+		 *   -> IpaEuiccDataRequest.searchCriteriaNotification
+		 * The euiccPackageResults case can no longer arrive here (it lives on
+		 * a different sibling CHOICE now); case kept for compile-compat and
+		 * must be removed after libasn regeneration. */
 		switch (req->dr_search_criteria->present) {
-		case IpaEuiccDataRequest__searchCriteria_PR_seqNumber:
+		case IpaEuiccDataRequest__searchCriteriaNotification_PR_seqNumber:
 			search_criteria.present = RetrieveNotificationsListRequest__searchCriteria_PR_seqNumber;
 			search_criteria.choice.seqNumber = req->dr_search_criteria->choice.seqNumber;
 			break;
-		case IpaEuiccDataRequest__searchCriteria_PR_profileManagementOperation:
+		case IpaEuiccDataRequest__searchCriteriaNotification_PR_profileManagementOperation:
 			search_criteria.present =
 			    RetrieveNotificationsListRequest__searchCriteria_PR_profileManagementOperation;
 			search_criteria.choice.profileManagementOperation =
 			    req->dr_search_criteria->choice.profileManagementOperation;
 			break;
-		case IpaEuiccDataRequest__searchCriteria_PR_euiccPackageResults:
-			IPA_LOGP_ES10X("RetrieveNotificationsList", LERROR,
-				       "unsupported euiccPackageResults searchCriteria in IpaEuiccDataRequest!\n");
-			search_criteria.present = RetrieveNotificationsListRequest__searchCriteria_PR_NOTHING;
-			break;
+		/* UPDATE for v1.1: 2.11.1.2 - euiccPackageResults branch moved to
+		 * IpaEuiccDataRequest.searchCriteriaEuiccPackageResult (sibling CHOICE).
+		 * Handle it separately from dr_search_criteria_epr if needed. */
 		default:
 			IPA_LOGP_ES10X("RetrieveNotificationsList", LERROR,
 				       "empty searchCriteria in IpaEuiccDataRequest!\n");
@@ -219,22 +243,19 @@ static struct ipa_buf *enc_retr_notif_from_lst_req_sgp32(const struct ipa_es10b_
 	if (req->dr_search_criteria) {
 		/* Convert from foreigen searchCriteria (see comment in header file) */
 		switch (req->dr_search_criteria->present) {
-		case IpaEuiccDataRequest__searchCriteria_PR_seqNumber:
+		case IpaEuiccDataRequest__searchCriteriaNotification_PR_seqNumber:
 			search_criteria.present = SGP32_RetrieveNotificationsListRequest__searchCriteria_PR_seqNumber;
 			search_criteria.choice.seqNumber = req->dr_search_criteria->choice.seqNumber;
 			break;
-		case IpaEuiccDataRequest__searchCriteria_PR_profileManagementOperation:
+		case IpaEuiccDataRequest__searchCriteriaNotification_PR_profileManagementOperation:
 			search_criteria.present =
 			    SGP32_RetrieveNotificationsListRequest__searchCriteria_PR_profileManagementOperation;
 			search_criteria.choice.profileManagementOperation =
 			    req->dr_search_criteria->choice.profileManagementOperation;
 			break;
-		case IpaEuiccDataRequest__searchCriteria_PR_euiccPackageResults:
-			search_criteria.present =
-			    SGP32_RetrieveNotificationsListRequest__searchCriteria_PR_euiccPackageResults;
-			search_criteria.choice.euiccPackageResults =
-			    req->dr_search_criteria->choice.euiccPackageResults;
-			break;
+		/* UPDATE for v1.1: 2.11.1.2 - euiccPackageResults removed from
+		 * searchCriteriaNotification; now in searchCriteriaEuiccPackageResult.
+		 * Caller must pass that via dr_search_criteria_epr (new field). */
 		default:
 			IPA_LOGP_ES10X("RetrieveNotificationsList", LERROR,
 				       "empty searchCriteria in IpaEuiccDataRequest!\n");

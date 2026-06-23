@@ -6,6 +6,43 @@
  * Author: Philipp Maier <pmaier@sysmocom.de> / sysmocom - s.f.m.c. GmbH
  *
  * See also: GSMA SGP.32, section 3.3.1: Generic eUICC Package Download and Execution
+ *
+ * =====================================================================
+ * v1.1/v1.2 migration notes for this file (see MIGRATION.md):
+ * =====================================================================
+ * UPDATE for v1.1: 2.11.2.1 — HIGH RISK: the signing input for euiccSignEPR /
+ *   euiccSignEPE changed.  In v1.0 the eUICC signs over
+ *   `euiccPackageResultDataSigned || eimSignature`; in v1.2 it signs over
+ *   `euiccPackageResultDataSigned || associationToken` (integer, zero if none).
+ *   This is eUICC-side signing, so the IPAd normally does not compute the
+ *   signature.  BUT the consumer-eUICC emulation path used by this project
+ *   (when -E is supplied) DOES synthesise eUICC signatures; that synthesis
+ *   code must be updated accordingly.  TODO v1.1: locate signing helper and
+ *   switch the TBS construction.
+ *
+ * UPDATE for v1.1: 2.11.1.1 — EuiccPackageSigned.transactionId renamed to
+ *   eimTransactionId.  Propagate rename wherever this field is accessed.
+ *
+ * UPDATE for v1.1: 2.11.2 — EuiccPackageResultDataSigned renames (transactionId
+ *   -> eimTransactionId, configureAutoEnableResult ->
+ *   configureImmediateEnableResult, new setFallbackAttributeResult /
+ *   unsetFallbackAttributeResult / setDefaultDpAddressResult branches).
+ *   Any switch on EuiccResultData_PR must handle the new branches.
+ *
+ * UPDATE for v1.2: CR111007R00 / 5.9.15 — on ImmediateEnable, rollback
+ *   authorization must be reset also when refreshFlag == true.  Same for
+ *   EnableEmergencyProfile / DisableEmergencyProfile (5.9.22 / 5.9.23).
+ *   TODO v1.2: verify rollback authorization reset path below.
+ *
+ * UPDATE for v1.1: 5.9.11 — RetrieveNotificationsListResponse dropped the
+ *   notificationAndEprList branch; the code below always uses seqNumber
+ *   search criteria so this is safe, but the response consumer in
+ *   es10b_retr_notif_from_lst.c must drop that branch.
+ *
+ * UPDATE for v1.1: 5.9.4 — CR12010R00 clarifies behaviour when optional
+ *   EimConfigurationData subfields are absent; review call sites in
+ *   es10b_add_init_eim.c (not here).
+ * =====================================================================
  */
 
 #include <stdio.h>
@@ -71,6 +108,8 @@ int ipa_proc_eucc_pkg_dwnld_exec_onset(struct ipa_context *ctx, struct ipa_proc_
 	/* Step #9 (ES10b.RetrieveNotificationsList) */
 	/* TODO: This should be a conditional step that is omitted when the eUICC package does not contain any PSMOs.
 	 * (it possibly does not hurt when the notification list is always included, even when it is empty.) */
+	/* UPDATE for v1.1: 5.9.11 — request type name retained; response parsing
+	 * must drop notificationAndEprList branch (see es10b_retr_notif_from_lst.c). */
 	retr_notif_from_lst_req.search_criteria.choice.seqNumber =
 	    res->load_euicc_pkg_res->res->choice.euiccPackageResultSigned.euiccPackageResultDataSigned.seqNumber;
 	retr_notif_from_lst_req.search_criteria.present = RetrieveNotificationsListRequest__searchCriteria_PR_seqNumber;
@@ -111,6 +150,12 @@ int ipa_proc_eucc_pkg_dwnld_exec_onset(struct ipa_context *ctx, struct ipa_proc_
 
 		IPA_LOGP(SIPA, LERROR,
 			 "unable to send the EuiccPackageResult to the eIM. (attempting profile rollback)\n");
+		/* UPDATE for v1.2: CR111007R00 — when refreshFlag == true the eUICC
+		 * is expected to reset rollback authorization as part of ImmediateEnable;
+		 * ProfileRollback's semantics for refreshFlag are unchanged, but the
+		 * downstream ImmediateEnable/Emergency flows should honour CR111007R00.
+		 * TODO v1.2: confirm ctx->cfg->refresh_flag propagation here matches
+		 * the refreshFlag semantics defined in v1.2 §5.9.15/5.9.22/5.9.23. */
 		res->prfle_rollback_res = ipa_es10b_prfle_rollback(ctx, ctx->cfg->refresh_flag);
 		if (!res->prfle_rollback_res
 		    || res->prfle_rollback_res->res->cmdResult != ProfileRollbackResponse__cmdResult_ok) {

@@ -1,4 +1,14 @@
+-- SGP32Definitions.asn - updated to GSMA SGP.32 v1.2
+-- Every change from the v1.0 baseline carries an inline marker.
+-- Sources: GSMA SGP.32 v1.2 Annex C and the osmocom SGP.32 changelog.
+-- Regenerate the codec with ./asn1/regenerate_libasn.sh after editing.
+
 -- Section 2.1.3
+-- UPDATE for v1.1: 2.1.3 — import fewer types from RSPDefinitions; SGP.32
+-- now defines its own EUICCInfo2, ProfileInfoListResponse, StoreMetadataRequest,
+-- AuthenticateClientRequest, AuthenticateResponseOk, PrepareDownloadResponse,
+-- AuthenticateServerResponse, CancelSessionResponse, CancelSessionOk,
+-- PendingNotification, ProfileInfo (overrides of SGP.22).
 -- ASN1START
 SGP32Definitions {joint-iso-itu-t(2) international-organizations(23) gsma(146) rsp(1) asn1modules(1) sgp32v1(31)}
 DEFINITIONS
@@ -10,6 +20,14 @@ IMPORTS Certificate, SubjectPublicKeyInfo
 FROM PKIX1Explicit88 {iso(1) identified-organization(3) dod(6) internet(1) security(5) mechanisms(5) pkix(7) id-mod(0) id-pkix1-explicit(18)}
 SubjectKeyIdentifier FROM PKIX1Implicit88 {iso(1) identified-organization(3) dod(6) internet(1) security(5) mechanisms(5) pkix(7) id-mod(0) id-pkix1-implicit(19)}
 
+-- UPDATE for v1.1: 2.1.3 — slimmer import list per v1.2 Annex C.
+-- Removed (now overridden locally by SGP.32): EUICCInfo2-related pieces,
+-- ProfileInfoListResponse, StoreMetadataRequest, PrepareDownloadResponse,
+-- AuthenticateServerResponse, AuthenticateResponseOk, CancelSessionResponse,
+-- ProfileInstallationResult (SGP.32 keeps ProfileInstallationResultData).
+-- NEW imports for v1.2: VendorSpecificExtension, DpProprietaryData, OperatorId,
+-- NotificationConfigurationInformation, ProfileClass, IconType, ProfileState,
+-- OctetTo16 (used by new ProfileInfo / StoreMetadataRequest overrides).
 ProfileInfo, EuiccSigned1, CancelSessionReason, RetrieveNotificationsListResponse,
 ServerSigned1, RspCapability, Iccid, TransactionId, ProfileInfoListRequest,
 ProfileInfoListResponse, RulesAuthorisationTable, EUICCInfo1, DeviceInfo,
@@ -19,22 +37,32 @@ PrepareDownloadResponseOk, PrepareDownloadResponseError,
 AuthenticateServerResponse, AuthenticateResponseOk, AuthenticateResponseError,
 CtxParams1, ProfileInstallationResult, ProfileInstallationResultData,
 OtherSignedNotification, EuiccSignPIR, ErrorResult, NotificationMetadata,
-CancelSessionResponse, CancelSessionResponseOk, 
+CancelSessionResponse, CancelSessionResponseOk,
 StoreMetadataRequest, SmdpSigned2, BoundProfilePackage, NotificationEvent
+-- UPDATE for v1.1: 2.1.3 — below imports NEW in v1.1/v1.2 per Annex C.  They are
+-- referenced by the v1.2-specific ProfileInfo and StoreMetadataRequest that
+-- SGP.32 now defines locally.  Once those overrides are added below, these
+-- imports must be honoured by RSPDefinitions.asn.
+-- TODO v1.1: add to RSPDefinitions.asn if not already present:
+--   VendorSpecificExtension, DpProprietaryData, OperatorId,
+--   NotificationConfigurationInformation, ProfileClass, IconType, ProfileState,
+--   OctetTo16
 FROM RSPDefinitions {joint-iso-itu-t(2) international-organizations(23) gsma(146) rsp(1) asn1modules(1) sgp22v2(2)};
 -- ASN1STOP
 
 -- Section 2.11.1.1
+-- UPDATE for v1.1: 2.11.1.1 — EuiccPackageSigned.transactionId renamed to
+-- eimTransactionId; size constraint (1..128) added on eimId.
 -- ASN1START
 EuiccPackageRequest ::= [81] SEQUENCE { -- Tag ' BF51', #SupportedForPsmoV1.0.0#
   euiccPackageSigned EuiccPackageSigned,
   eimSignature [APPLICATION 55] OCTET STRING -- Tag '5F37'
 }
 EuiccPackageSigned ::= SEQUENCE {
-  eimId [0] UTF8String,
+  eimId [0] UTF8String (SIZE(1..128)), -- UPDATE for v1.1: 2.11.1.1.1 — size constraint added
   eidValue [APPLICATION 26] Octet16, -- Tag '5A'
   counterValue [1] INTEGER,
-  transactionId [2] TransactionId OPTIONAL,
+  eimTransactionId [2] TransactionId OPTIONAL, -- UPDATE for v1.1: 2.11.1.1 — renamed from transactionId
   euiccPackage EuiccPackage
 }
 EuiccPackage ::= CHOICE {
@@ -45,9 +73,10 @@ EuiccPackage ::= CHOICE {
 
 
 -- Section 2.11.1.1.1
+-- UPDATE for v1.1: 2.11.1.1.1 — size constraint on eimId, new indirectProfileDownload[9].
 -- ASN1START
 EimConfigurationData ::= SEQUENCE {
-  eimId [0] UTF8String, -- eimId of eIM
+  eimId [0] UTF8String (SIZE(1..128)), -- UPDATE for v1.1: 2.11.1.1.1 — size constraint added
   eimFqdn [1] UTF8String OPTIONAL, -- FQDN of eIM
   eimIdType [2] EimIdType OPTIONAL,
   counterValue [3] INTEGER OPTIONAL, -- initial counterValue for the eIM
@@ -61,7 +90,8 @@ EimConfigurationData ::= SEQUENCE {
     trustedCertificateTls Certificate -- either the certificate of eIM, used for (D)TLS, or the certificate of the CA, where the encoding follows X.509 standard
   } OPTIONAL,
   eimSupportedProtocol [7] EimSupportedProtocol OPTIONAL,
-  euiccCiPKId [8] SubjectKeyIdentifier OPTIONAL -- CI Public Key Identifier supported on the eUICC for signature creation
+  euiccCiPKId [8] SubjectKeyIdentifier OPTIONAL, -- CI Public Key Identifier supported on the eUICC for signature creation
+  indirectProfileDownload [9] NULL OPTIONAL -- NEW in v1.1: 2.11.1.1.1 — support of Indirect Profile download with indicated EimSupportedProtocol
 }
 EimIdType ::= INTEGER {
   eimIdTypeOid(1),
@@ -88,6 +118,9 @@ Eco ::= CHOICE {
 -- ASN1STOP
 
 -- Section 2.11.1.1.3
+-- UPDATE for v1.1: 2.11.1.1.3 — configureAutoEnable renamed to configureImmediateEnable
+-- (sub-fields renamed too); new setFallbackAttribute, unsetFallbackAttribute,
+-- setDefaultDpAddress PSMOs.
 -- ASN1START
 Psmo ::= CHOICE {
   enable [3] SEQUENCE {
@@ -98,29 +131,46 @@ Psmo ::= CHOICE {
   delete [5] SEQUENCE {iccid [APPLICATION 26] Iccid},
   listProfileInfo [45] ProfileInfoListRequest, -- Tag 'BF2D'
   getRAT [6] SEQUENCE {},
-  configureAutoEnable [7] SEQUENCE {
-    autoEnableFlag [0] NULL OPTIONAL,
-    smdpOid [1] OBJECT IDENTIFIER OPTIONAL,
-    smdpAddress [2] UTF8String OPTIONAL
-  }
+  -- UPDATE for v1.1: 2.11.1.1.3 — renamed configureAutoEnable -> configureImmediateEnable;
+  -- autoEnableFlag -> immediateEnableFlag; smdpOid -> defaultSmdpOid;
+  -- smdpAddress -> defaultSmdpAddress.
+  configureImmediateEnable [7] SEQUENCE {
+    immediateEnableFlag [0] NULL OPTIONAL,
+    defaultSmdpOid [1] OBJECT IDENTIFIER OPTIONAL,
+    defaultSmdpAddress [2] UTF8String OPTIONAL
+  },
+  -- NEW in v1.1: 2.11.1.1.3 — Fallback attribute PSMOs
+  setFallbackAttribute [8] SEQUENCE {iccid [APPLICATION 26] Iccid},
+  unsetFallbackAttribute [9] SEQUENCE {},
+  -- NEW in v1.1: 2.11.1.1.3 — default SM-DP+ address PSMO
+  setDefaultDpAddress [101] SGP32-SetDefaultDpAddressRequest -- Tag 'BF65'
 }
 -- ASN1STOP
 
 
 -- Section 2.11.1.2
+-- UPDATE for v1.1: 2.11.1.2 — euiccCiPKId renamed to euiccCiPKIdentifierToBeUsed
+-- and TYPE CHANGED (SubjectKeyIdentifier -> OCTET STRING, possibly truncated);
+-- searchCriteria renamed to searchCriteriaNotification and euiccPackageResults
+-- branch removed; new searchCriteriaEuiccPackageResult [2] and eimTransactionId [3].
+-- TODO v1.1: proc_euicc_data_req.c must update field names + type.
 -- ASN1START
 IpaEuiccDataRequest ::= [82] SEQUENCE { -- Tag BF52
   tagList [APPLICATION 28] OCTET STRING, -- Tag '5C'
-  euiccCiPKId SubjectKeyIdentifier OPTIONAL, -- CI Public Key Identifier supported on the eUICC for signature creation
-  searchCriteria [1] CHOICE {
+  euiccCiPKIdentifierToBeUsed OCTET STRING OPTIONAL, -- UPDATE for v1.1: 2.11.1.2 — renamed + type changed from SubjectKeyIdentifier; CI Public Key Identifier (possibly truncated)
+  searchCriteriaNotification [1] CHOICE { -- UPDATE for v1.1: 2.11.1.2 — renamed from searchCriteria; euiccPackageResults branch moved out
     seqNumber [0] INTEGER,
-    profileManagementOperation [1] NotificationEvent,
-    euiccPackageResults [2] NULL
-  } OPTIONAL
+    profileManagementOperation [1] NotificationEvent
+  } OPTIONAL,
+  searchCriteriaEuiccPackageResult [2] CHOICE { -- NEW in v1.1: 2.11.1.2
+    seqNumber [0] INTEGER
+  } OPTIONAL,
+  eimTransactionId [3] TransactionId OPTIONAL -- NEW in v1.1: 2.11.1.2 — Tag '83'
 }
 -- ASN1STOP
 
 -- Section 2.11.1.3
+-- (Already uses v1.1 name ProfileDownloadTriggerRequest; see osmocom changelog 2.11.1.)
 -- ASN1START
 ProfileDownloadTriggerRequest ::= [84] SEQUENCE { -- Tag 'BF54'
   profileDownloadData [0] ProfileDownloadData OPTIONAL,
@@ -143,6 +193,33 @@ SequenceNumber ::= [0] INTEGER
 
 
 -- Section 2.11.2.1
+-- UPDATE for v1.1: 2.11.2.1 — HIGH RISK SIGNING CHANGE.
+-- v1.0: euiccSignEPR = sign(euiccPackageResultDataSigned || eimSignature)
+-- v1.2: euiccSignEPR = sign(euiccPackageResultDataSigned || associationToken)
+--       (if no associationToken configured, use integer value 0)
+-- Same change applies to euiccSignEPE.  This is an eUICC-side signing change,
+-- but it also affects IPA emulation mode (scard emulation path) when running
+-- against consumer eUICCs: the TBS (to-be-signed) byte concatenation used to
+-- synthesise the signature MUST be updated.
+-- TODO v1.1: inspect any signing/TBS construction code invoked by
+-- libipa/proc_euicc_pkg_dwnld_exec.c and the consumer-eUICC emulation path.
+--
+-- UPDATE for v1.1: 2.11.2 — many renames and additions below:
+--   - transactionId -> eimTransactionId (across signed/error data types)
+--   - configureAutoEnableResult -> configureImmediateEnableResult
+--   - eimId constrained to (SIZE(1..128))
+--   - new result branches: setFallbackAttributeResult, unsetFallbackAttributeResult,
+--     setDefaultDpAddressResult
+--   - EuiccPackageErrorCode: new ecallActive(104)
+--   - EuiccPackageErrorUnsigned: eimTransactionId added
+--   - EnableProfileResult: disallowedByPolicy(3), catBusy(5), rollbackNotAvailable(20) added
+--   - DisableProfileResult: disallowedByPolicy(3), catBusy(5) added
+--   - DeleteProfileResult: disallowedByPolicy(3), rollbackNotAvailable(20), returnFallbackProfile(21) added
+--   - AddEimResult: associatedEimAlreadyExists(2) added
+--   - ListEimResult: listEimError set reduced (commandError removed)
+--   - EimIdInfo: eimIdType tag changed from [4] to [2]
+--   - New types: SetFallbackAttributeResult, UnsetFallbackAttributeResult
+--   - ProfileInfoListResponse used directly (was SGP32-ProfileInfoListResponse).
 -- ASN1START
 EuiccPackageResult ::= [81] CHOICE { -- Tag 'BF51' #SupportedForPsmoV1.0.0#
   euiccPackageResultSigned EuiccPackageResultSigned,
@@ -151,12 +228,12 @@ EuiccPackageResult ::= [81] CHOICE { -- Tag 'BF51' #SupportedForPsmoV1.0.0#
 }
 EuiccPackageResultSigned ::= SEQUENCE {
   euiccPackageResultDataSigned EuiccPackageResultDataSigned,
-  euiccSignEPR [APPLICATION 55] OCTET STRING -- Tag '5F37'
+  euiccSignEPR [APPLICATION 55] OCTET STRING -- Tag '5F37' — UPDATE for v1.1: 2.11.2.1 signing input changed (see header note)
 }
 EuiccPackageResultDataSigned ::= SEQUENCE { -- #SupportedForPsmoV1.0.0#
-  eimId [0] UTF8String,
+  eimId [0] UTF8String (SIZE(1..128)), -- UPDATE for v1.1: 2.11.2 — size constraint
   counterValue [1] INTEGER,
-  transactionId[2] TransactionId OPTIONAL,
+  eimTransactionId [2] TransactionId OPTIONAL, -- UPDATE for v1.1: 2.11.2 — renamed from transactionId
   seqNumber [3] INTEGER,
   euiccResult SEQUENCE OF EuiccResultData
 }
@@ -164,37 +241,49 @@ EuiccResultData ::= CHOICE {
   enableResult [3] EnableProfileResult,
   disableResult [4] DisableProfileResult,
   deleteResult [5] DeleteProfileResult,
-  listProfileInfoResult [45] SGP32-ProfileInfoListResponse,
+  listProfileInfoResult [45] SGP32-ProfileInfoListResponse, -- UPDATE for v1.1: 2.11.2 — SGP.32 profile-info list result; kept SGP32- prefix locally to avoid RSP import collision (v1.2 spec uses bare ProfileInfoListResponse)
   getRATResult [6] RulesAuthorisationTable, -- see SGP.22
-  configureAutoEnableResult [7] ConfigureAutoEnableResult,
+  configureImmediateEnableResult [7] ConfigureImmediateEnableResult, -- UPDATE for v1.1: 2.11.2 — renamed from configureAutoEnableResult
   addEimResult [8] AddEimResult,
   deleteEimResult [9] DeleteEimResult,
   updateEimResult [10] UpdateEimResult,
   listEimResult [11] ListEimResult,
   rollbackResult [12] RollbackProfileResult,
+  setFallbackAttributeResult [13] SetFallbackAttributeResult, -- NEW in v1.1: 2.11.2
+  unsetFallbackAttributeResult [14] UnsetFallbackAttributeResult, -- NEW in v1.1: 2.11.2
   processingTerminated INTEGER {
     resultSizeOverflow(1),
     unknownOrDamagedCommand(2),
     interruption(3),
     undefinedError(127)
-  }
+  },
+  setDefaultDpAddressResult [101] SGP32-SetDefaultDpAddressResponse -- NEW in v1.1: 2.11.2
 }
 EuiccPackageErrorSigned ::= SEQUENCE {
   euiccPackageErrorDataSigned EuiccPackageErrorDataSigned,
-  euiccSignEPE [APPLICATION 55] OCTET STRING -- Tag '5F37'
+  euiccSignEPE [APPLICATION 55] OCTET STRING -- Tag '5F37' — UPDATE for v1.1: 2.11.2.1 signing input changed (see header note)
 }
 EuiccPackageErrorDataSigned ::= SEQUENCE {
-  eimId [0] UTF8String,
+  eimId [0] UTF8String (SIZE(1..128)), -- UPDATE for v1.1: 2.11.2 — size constraint
   counterValue [1] INTEGER,
-  transactionId [2] TransactionId OPTIONAL,
+  eimTransactionId [2] TransactionId OPTIONAL, -- UPDATE for v1.1: 2.11.2 — renamed from transactionId
   euiccPackageErrorCode EuiccPackageErrorCode
 }
-EuiccPackageErrorCode ::= INTEGER { invalidEid(3), replayError(4), counterValueOutOfRange(6), sizeOverflow(15), undefinedError(127)}
+EuiccPackageErrorCode ::= INTEGER {
+  invalidEid(3),
+  replayError(4),
+  counterValueOutOfRange(6),
+  sizeOverflow(15),
+  ecallActive(104), -- NEW in v1.1: 2.11.2 — reject when Emergency Profile is enabled
+  undefinedError(127)
+}
 EuiccPackageErrorUnsigned ::= SEQUENCE {
-  eimId [0] UTF8String,
+  eimId [0] UTF8String (SIZE(1..128)), -- UPDATE for v1.1: 2.11.2 — size constraint
+  eimTransactionId [2] TransactionId OPTIONAL, -- NEW in v1.1: 2.11.2
   associationToken [4] INTEGER OPTIONAL
 }
-ConfigureAutoEnableResult ::= INTEGER {
+-- UPDATE for v1.1: 2.11.2 — renamed ConfigureAutoEnableResult -> ConfigureImmediateEnableResult
+ConfigureImmediateEnableResult ::= INTEGER {
   ok(0),
   insufficientMemory(1),
   commandError(7),
@@ -204,20 +293,33 @@ EnableProfileResult ::= INTEGER {
   ok(0),
   iccidOrAidNotFound(1),
   profileNotInDisabledState(2),
+  disallowedByPolicy(3), -- NEW in v1.1: 2.11.2
+  catBusy(5),            -- NEW in v1.1: 2.11.2
+  rollbackNotAvailable(20), -- NEW in v1.1: 2.11.2
   undefinedError(127)
 }
 DisableProfileResult ::= INTEGER {
   ok(0),
   iccidOrAidNotFound(1),
   profileNotInEnabledState(2),
+  disallowedByPolicy(3), -- NEW in v1.1: 2.11.2
+  catBusy(5),            -- NEW in v1.1: 2.11.2
   undefinedError(127)
 }
 DeleteProfileResult ::= INTEGER {
   ok(0),
   iccidOrAidNotFound(1),
   profileNotInDisabledState(2),
+  disallowedByPolicy(3),     -- NEW in v1.1: 2.11.2
+  rollbackNotAvailable(20),  -- NEW in v1.1: 2.11.2
+  returnFallbackProfile(21), -- NEW in v1.1: 2.11.2
   undefinedError(127)
 }
+-- UPDATE for v1.1: 2.11.2 — SGP.32 defines its own ProfileInfoListResponse
+-- /Error.  We keep the SGP32- prefix locally to prevent asn1c output-file
+-- name collisions with RSPDefinitions (v1.2 spec uses the bare name; the
+-- clean fix is to drop ProfileInfoListResponse from the RSP import block
+-- below, which requires careful libipa review first).
 SGP32-ProfileInfoListResponse ::= [45] CHOICE {
   profileInfoListOk SEQUENCE OF ProfileInfo, -- see SGP.22
   profileInfoListError SGP32-ProfileInfoListError
@@ -231,11 +333,28 @@ RollbackProfileResult ::= INTEGER {
   ok(0),
   undefinedError(127)
 }
+-- NEW in v1.1: 2.11.2
+SetFallbackAttributeResult ::= INTEGER {
+  ok(0),
+  iccidOrAidNotFound(1),
+  fallbackNotAllowed(2),
+  fallbackProfileEnabled(3),
+  undefinedError(127)
+}
+-- NEW in v1.1: 2.11.2
+UnsetFallbackAttributeResult ::= INTEGER {
+  ok(0),
+  noFallbackAttribute(2),
+  fallbackProfileEnabled(3),
+  commandError(7),
+  undefinedError(127)
+}
 AddEimResult ::= CHOICE {
   associationToken [4] INTEGER,
   addEimResultCode INTEGER {
     ok(0),
     insufficientMemory(1),
+    associatedEimAlreadyExists(2), -- NEW in v1.1: 2.11.2
     ciPKUnknown(3),
     invalidAssociationToken(5),
     counterValueOutOfRange(6),
@@ -261,50 +380,93 @@ UpdateEimResult ::= INTEGER {
 ListEimResult ::= CHOICE {
   eimIdList SEQUENCE OF EimIdInfo,
   listEimError INTEGER {
-    commandError(7),
+    -- UPDATE for v1.1: 2.11.2 — commandError(7) removed; only undefinedError remains
     undefinedError(127)
   }
 }
 EimIdInfo ::= SEQUENCE {
-  eimId [0] UTF8String,
-  eimIdType [4] EimIdType  OPTIONAL -- present in case of eimIdTypeOid and eimIdTypeFqdn
+  eimId [0] UTF8String (SIZE(1..128)), -- UPDATE for v1.1: 2.11.2 — size constraint
+  eimIdType [2] EimIdType OPTIONAL -- UPDATE for v1.1: 2.11.2 — tag changed from [4] to [2]
 }
 -- ASN1STOP
 
 -- Section 2.11.2.2
+-- UPDATE for v1.1: 2.11.2.2 — MAJOR restructure of IpaEuiccDataResponse.
+-- - New wrapper type IpaEuiccDataResponseError (replaces the inline CHOICE error).
+-- - New named IpaEuiccDataErrorCode (adds ecallActive(104)).
+-- - New SGP32-PendingNotificationList and EuiccPackageResultList aliases.
+-- - IpaEuiccData completely restructured: new tag assignments, field reorder,
+--   notificationsList moved to [0], defaultSmdpAddress [1], euiccPackageResultList [2]
+--   added, euiccInfo2 now uses bare EUICCInfo2 (no SGP32- prefix), new eimTransactionId [7].
+-- TODO v1.1: proc_euicc_data_req.c must be rewritten to build/consume the new structure.
 -- ASN1START
+IpaEuiccDataErrorCode ::= INTEGER { -- NEW in v1.1: 2.11.2.2 — extracted named type
+  incorrectTagList(1),
+  euiccCiPKIdNotFound(5),
+  ecallActive(104), -- NEW in v1.1
+  undefinedError(127)
+}
+IpaEuiccDataResponseError ::= SEQUENCE { -- NEW in v1.1: 2.11.2.2
+  eimTransactionId [0] TransactionId OPTIONAL,
+  ipaEuiccDataErrorCode IpaEuiccDataErrorCode
+}
 IpaEuiccDataResponse ::= [82] CHOICE { -- Tag 'BF52'
   ipaEuiccData IpaEuiccData,
-  ipaEuiccDataError INTEGER {
-    incorrectTagList (1),
-    euiccCiPKIdNotFound(5),
-    undefinedError(127)
-  }
+  ipaEuiccDataResponseError IpaEuiccDataResponseError -- UPDATE for v1.1: 2.11.2.2 — was inline INTEGER; now uses wrapper type
 }
+SGP32-PendingNotificationList ::= SEQUENCE OF SGP32-PendingNotification -- NEW in v1.1: 2.11.2.2 alias
+EuiccPackageResultList ::= SEQUENCE OF EuiccPackageResult   -- NEW in v1.1: 2.11.2.2 alias
 IpaEuiccData ::= SEQUENCE {
-  defaultSmdpAddress [0] UTF8String OPTIONAL, -- Tag '80'
+  notificationsList [0] SGP32-PendingNotificationList OPTIONAL, -- UPDATE for v1.1: 2.11.2.2 — moved to tag [0]; uses new alias; was [43] SGP32-RetrieveNotificationsListResponse
+  defaultSmdpAddress [1] UTF8String OPTIONAL, -- UPDATE for v1.1: 2.11.2.2 — tag changed from [0] to [1]
+  euiccPackageResultList [2] EuiccPackageResultList OPTIONAL, -- NEW in v1.1: 2.11.2.2
   euiccInfo1 [32] EUICCInfo1 OPTIONAL, -- Tag 'BF20'
-  euiccInfo2 [34] SGP32-EUICCInfo2 OPTIONAL, -- Tag 'BF22'
+  euiccInfo2 [34] SGP32-EUICCInfo2 OPTIONAL, -- Tag 'BF22' — UPDATE for v1.1: 2.11.2.2 — kept SGP32- prefix (see note at SGP32-EUICCInfo2 definition)
   rootSmdsAddress [3] UTF8String OPTIONAL, -- Tag '83'
   associationToken [4] INTEGER OPTIONAL, -- Tag '84'
   eumCertificate [5] Certificate OPTIONAL, -- Tag 'A5'
   euiccCertificate [6] Certificate OPTIONAL, -- Tag 'A6'
-  ipaCapabilities [8] IpaCapabilities OPTIONAL, -- Tag '88'
-  deviceInfo [9] DeviceInfo OPTIONAL, -- Tag 'A9'
-  notificationsList [43] SGP32-RetrieveNotificationsListResponse OPTIONAL -- Tag 'BF2B'.
+  eimTransactionId [7] TransactionId OPTIONAL, -- NEW in v1.1: 2.11.2.2
+  ipaCapabilities [8] IpaCapabilities OPTIONAL, -- Tag 'A8' — UPDATE for v1.1: 2.11.2.2 — tag changed from '88' to 'A8' (constructed)
+  deviceInfo [9] DeviceInfo OPTIONAL -- Tag 'A9'
 }
 -- ASN1STOP
 
 -- Section 2.11.2.3
+-- UPDATE for v1.1: 2.11.2.3 — profileDownloadError now carries profileDownloadErrorReason.
 -- ASN1START
 ProfileDownloadTriggerResult ::= [84] SEQUENCE { -- tag 'BF54'
   eimTransactionId [2] TransactionId OPTIONAL,
   profileDownloadTriggerResultData CHOICE {
-    profileInstallationResult [55] SGP32-ProfileInstallationResult, -- see SGP.22 [4]
+    profileInstallationResult [55] ProfileInstallationResult, -- UPDATE for v1.1: 2.11.2.3 — was SGP32-ProfileInstallationResult
     profileDownloadError SEQUENCE {
+      profileDownloadErrorReason [0] INTEGER { -- NEW in v1.1: 2.11.2.3
+        ecallActive(104),
+        undefinedError(127)
+      },
       errorResponse OCTET STRING OPTIONAL
     }
   }
+}
+-- ASN1STOP
+
+-- NEW in v1.1: 3.8.4 — ISD-R Selection and IPAe Activation
+-- TODO v1.1: not used by IPAd flows; kept here so regeneration emits the types.
+-- Relevant only if this project ever supports IPAe mode.
+-- ASN1START
+ISDRProprietaryApplicationTemplateIoT ::= [PRIVATE 1] SEQUENCE { -- Tag 'E1'
+  euiccConfiguration BIT STRING {
+    ipaeSupported(0), -- IPA in the eUICC (IPAe) supported
+    enabledProfile(1) -- eUICC contains an Enabled Profile
+  }
+}
+IpaeActivationRequest ::= [66] SEQUENCE { -- Tag 'BF42'
+  ipaeOption BIT STRING {
+    activateIpae(0) -- IPAe activation
+  }
+}
+IpaeActivationResponse ::= [66] SEQUENCE { -- Tag 'BF42'
+  ipaeActivationResult INTEGER {ok(0), notSupported(1)}
 }
 -- ASN1STOP
 
@@ -330,18 +492,26 @@ IpaCapabilities ::= SEQUENCE {
 -- ASN1STOP
 
 -- Section 5.9.2
+-- UPDATE for v1.1: 5.9.2 — SGP.32 EUICCInfo2 gains three OPTIONAL fields.
+--  - rfu2/rfu3/rfu4 renamed to euiccCiPKIdListForSigningV3 [17],
+--    additionalEuiccInfo [18], highestSvn [19].
+-- NEW in v1.1: 5.9.2 — IoTSpecificInfo.ecallSupported, .fallbackSupported.
+-- TODO v1.1: es10b_get_euicc_info.c consumers must tolerate the new fields and
+-- ideally surface ecallSupported / fallbackSupported up through the API.
+-- NOTE: v1.2 spec drops the SGP32- prefix; we keep it here because the SGP.22
+-- EUICCInfo2 is also imported (see libipa consumer-eUICC emulation path).
 -- ASN1START
-SGP32-EUICCInfo2 ::= [34] SEQUENCE { -- Tag 'BF22'
+SGP32-EUICCInfo2 ::= [34] SEQUENCE { -- Tag 'BF22' — SGP.32 override; bare name would collide with RSPDefinitions import
   profileVersion [1] VersionType, -- Base eUICC Profile package version supported
-  svn [2] VersionType, -- GSMA SGP.22 version supported (SVN)referenced by SGP.32
+  svn [2] VersionType, -- GSMA SGP.22 version supported (SVN) referenced by SGP.32
   euiccFirmwareVer [3] VersionType, -- eUICC Firmware version
   extCardResource [4] OCTET STRING, -- Extended Card Resource Information according to ETSI TS 102 226
   uiccCapability [5] UICCCapability,
   ts102241Version [6] VersionType OPTIONAL,
   globalplatformVersion [7] VersionType OPTIONAL,
   rspCapability [8] RspCapability,
-  euiccCiPKIdListForVerification [9] SEQUENCE OF SubjectKeyIdentifier, -- List of CI Public Key Identifiers supported on the eUICC for signature verification
-  euiccCiPKIdListForSigning [10] SEQUENCE OF SubjectKeyIdentifier, -- List of CI Public Key Identifier supported on the eUICC for signature creation
+  euiccCiPKIdListForVerification [9] SEQUENCE OF SubjectKeyIdentifier,
+  euiccCiPKIdListForSigning [10] SEQUENCE OF SubjectKeyIdentifier,
   euiccCategory [11] INTEGER {
     other(0),
     basicEuicc(1),
@@ -355,36 +525,37 @@ SGP32-EUICCInfo2 ::= [34] SEQUENCE { -- Tag 'BF22'
   treProperties [13] BIT STRING {
     isDiscrete(0),
     isIntegrated(1),
-    usesRemoteMemory(2) -- refers to the usage of remote memory protected by the Remote Memory Protection Function described in SGP.21 [4]
+    usesRemoteMemory(2) -- refers to remote memory protected per SGP.21
   } OPTIONAL,
-  treProductReference [14] UTF8String OPTIONAL, -- Platform_Label as defined in GlobalPlatform DLOA specification [57]
+  treProductReference [14] UTF8String OPTIONAL,
   additionalEuiccProfilePackageVersions [15] SEQUENCE OF VersionType OPTIONAL,
-  ipaMode [16] IpaMode OPTIONAL, -- active IPA, mandatory within SGP.32
-  rfu2 [17] SEQUENCE OF SubjectKeyIdentifier OPTIONAL, -- not used by this version of SGP.32.
-  rfu3 [18] OCTET STRING (SIZE(0..32)) OPTIONAL,
-  -- not used by this version of SGP.32
-  rfu4 [19] VersionType OPTIONAL, -- not used by this version of SGP.32
+  ipaMode [16] IpaMode OPTIONAL,
+  euiccCiPKIdListForSigningV3 [17] SEQUENCE OF SubjectKeyIdentifier OPTIONAL, -- UPDATE for v1.1: 5.9.2 — renamed from rfu2; not used in v1.2 but field is defined
+  additionalEuiccInfo [18] OCTET STRING (SIZE(0..32)) OPTIONAL, -- UPDATE for v1.1: 5.9.2 — renamed from rfu3; not used in v1.2
+  highestSvn [19] VersionType OPTIONAL, -- UPDATE for v1.1: 5.9.2 — renamed from rfu4; not used in v1.2
   iotSpecificInfo [20] IoTSpecificInfo OPTIONAL -- mandatory within SGP.32
 }
--- Definition of IoTSpecificInfo
 IoTSpecificInfo ::= SEQUENCE {
-iotVersion [0] SEQUENCE OF VersionType -- SGP.32 version(s) supported by the eUICC, at least one must be present
+  iotVersion [0] SEQUENCE OF VersionType, -- SGP.32 version(s) supported by the eUICC, at least one must be present
+  ecallSupported [1] NULL OPTIONAL, -- NEW in v1.1: 5.9.2 — present iff eUICC supports Emergency Profile mechanism
+  fallbackSupported [2] NULL OPTIONAL -- NEW in v1.1: 5.9.2 — present iff eUICC supports Fallback mechanism
 }
--- Definition of IpaMode
 IpaMode ::= INTEGER {
-ipad (0), -- IPAd is active
-ipae (1) -- IPAe is active
+  ipad (0), -- IPAd is active
+  ipae (1) -- IPAe is active
 }
 -- ASN1STOP
 
 -- Section 5.9.4
+-- UPDATE for v1.2: CR12010R00 — clarified behaviour when optional
+-- EimConfigurationData subfields are absent (no schema change, libipa-side only).
+-- TODO v1.2: review es10b_add_init_eim.c for absent-field handling.
 -- ASN1START
 AddInitialEimRequest ::= [87] SEQUENCE { -- Tag 'BF57'
   eimConfigurationDataList [0] SEQUENCE OF EimConfigurationData
 }
 -- ASN1STOP
-
--- Section 5.9.4
+-- UPDATE for v1.1: 5.9.4 — AddInitialEimResponse adds associatedEimAlreadyExists(2).
 -- ASN1START
 AddInitialEimResponse ::= [87] CHOICE { -- Tag 'BF57'
   addInitialEimOk SEQUENCE OF CHOICE {
@@ -393,31 +564,42 @@ AddInitialEimResponse ::= [87] CHOICE { -- Tag 'BF57'
   },
   addInitialEimError INTEGER {
     insufficientMemory(1),
-    unsignedEimConfigDisallowed(2),
+    associatedEimAlreadyExists(2), -- NEW in v1.1: 5.9.4 (replaces former unsignedEimConfigDisallowed(2))
     ciPKUnknown(3),
     invalidAssociationToken(5),
     counterValueOutOfRange(6),
+    commandError(7),
     undefinedError(127)
   }
 }
 -- ASN1STOP
 
 -- Section 5.9.5
--- (added manually since the PDF document lacks the ASN1START/ASN1STOP token for this function, which aused problems
---  during the automatic parsing of the PDF document.)
-SGP32-EuiccMemoryResetRequest ::= [52] SEQUENCE { -- Tag 'BF34'
-   resetOptions [2] BIT STRING {
-      deleteOperationalProfiles(0),
-      deleteFieldLoadedTestProfiles(1),
-      resetDefaultSmdpAddress(2),
-      resetEimConfigData(3),
-      resetAutoEnableConfig(4)
-   }
+-- UPDATE for v1.1: 5.9.5 — EuiccMemoryReset restructured.  Tag changed from
+-- [52] (BF34) to [100] (BF64).  New resetOptions bits deletePreLoadedTestProfiles(3),
+-- deleteProvisioningProfiles(4); resetEimConfigData moved to (5); new
+-- resetImmediateEnableConfig(6).  Added ecallActive(104) to resetResult.
+-- Renamed resetAutoEnableConfigResult -> resetImmediateEnableConfigResult.
+-- TODO v1.1: es10b_euicc_mem_rst.c + context.h need updated type names + tag.
+-- NOTE: we KEEP the SGP32- prefix on these types because RSPDefinitions (SGP.22)
+-- defines bare EuiccMemoryResetRequest/Response with a DIFFERENT tag [52].
+-- Spec v1.2 uses bare names; unifying would require dropping the RSP import.
+-- (added manually since the PDF document lacks the ASN1START/ASN1STOP token for this function)
+SGP32-EuiccMemoryResetRequest ::= [100] SEQUENCE { -- Tag 'BF64' — UPDATE for v1.1: 5.9.5 — tag [52] -> [100]
+  resetOptions [2] BIT STRING {
+    deleteOperationalProfiles(0),
+    deleteFieldLoadedTestProfiles(1),
+    resetDefaultSmdpAddress(2),
+    deletePreLoadedTestProfiles(3),  -- NEW in v1.1: 5.9.5
+    deleteProvisioningProfiles(4),   -- NEW in v1.1: 5.9.5
+    resetEimConfigData(5),           -- UPDATE for v1.1: 5.9.5 — was bit 3
+    resetImmediateEnableConfig(6)    -- UPDATE for v1.1: 5.9.5 — renamed from resetAutoEnableConfig; was bit 4
+  }
 }
-SGP32-EuiccMemoryResetResponse ::= [52] SEQUENCE { -- Tag 'BF34'
-   resetResult INTEGER {ok(0), nothingToDelete(1), catBusy(5), undefinedError(127)},
-   resetEimResult [1] INTEGER {ok(0), nothingToDelete(1), eimResetNotSupported(2), undefinedError(127)} OPTIONAL,
-   resetAutoEnableConfigResult [2] INTEGER {ok(0), resetAECNotSupported(1), undefinedError(127)} OPTIONAL
+SGP32-EuiccMemoryResetResponse ::= [100] SEQUENCE { -- Tag 'BF64' — UPDATE for v1.1: 5.9.5
+  resetResult INTEGER {ok(0), nothingToDelete(1), catBusy(5), ecallActive(104), undefinedError(127)}, -- NEW in v1.1: ecallActive(104)
+  resetEimResult INTEGER {ok(0), nothingToDelete(1), eimResetNotSupported(2), undefinedError(127)} OPTIONAL, -- UPDATE for v1.1: 5.9.5 — untagged (was [1])
+  resetImmediateEnableConfigResult INTEGER {ok(0), resetIECNotSupported(1), undefinedError(127)} OPTIONAL -- UPDATE for v1.1: 5.9.5 — renamed from resetAutoEnableConfigResult; untagged (was [2])
 }
 
 -- Section 5.9.10
@@ -436,7 +618,12 @@ GetCertsResponse ::= [86] CHOICE { -- Tag 'BF56'
 }
 -- ASN1STOP
 
--- Section 5.9.11 (no ASN1START/STOP)!
+-- Section 5.9.11
+-- UPDATE for v1.1: 5.9.11 — restructured.  Removed notificationAndEprList branch;
+-- other branches now use SGP32-PendingNotificationList / EuiccPackageResultList aliases.
+-- Renamed SGP32-RetrieveNotificationsListRequest/Response -> plain names.
+-- TODO v1.1: es10b_retr_notif_from_lst.c must drop notificationAndEprList branch.
+-- NOTE: kept SGP32- prefix; RSPDefinitions has a bare RetrieveNotificationsListRequest.
 SGP32-RetrieveNotificationsListRequest ::= [43] SEQUENCE { -- Tag 'BF2B'
   searchCriteria CHOICE {
     seqNumber [0] INTEGER,
@@ -444,30 +631,37 @@ SGP32-RetrieveNotificationsListRequest ::= [43] SEQUENCE { -- Tag 'BF2B'
     euiccPackageResults [2] NULL
   } OPTIONAL
 }
-
+-- NOTE: RetrieveNotificationsListResponse is already imported from RSPDefinitions above.
+-- The v1.2 SGP.32 version below overrides it.  To avoid import/local clash,
+-- consider removing RetrieveNotificationsListResponse from the IMPORTS list and
+-- relying on this local definition.  TODO v1.1: resolve name collision with asn1c.
 -- ASN1START
-SGP32-RetrieveNotificationsListResponse ::= [43] CHOICE { -- Tag 'BF2B'
-  notificationList SEQUENCE OF SGP32-PendingNotification,
+SGP32-RetrieveNotificationsListResponse ::= [43] CHOICE { -- Tag 'BF2B' — UPDATE for v1.1: 5.9.11 — kept SGP32- prefix to avoid collision with RSP import; spec name is RetrieveNotificationsListResponse
+  notificationList SGP32-PendingNotificationList, -- UPDATE for v1.1: 5.9.11 — use alias instead of inline SEQUENCE OF
   notificationsListResultError INTEGER { undefinedError(127)},
-  euiccPackageResultList SEQUENCE OF EuiccPackageResult,
-  notificationAndEprList SEQUENCE {
-    notificationList SEQUENCE OF SGP32-PendingNotification,
-    euiccPackageResultList SEQUENCE OF EuiccPackageResult
-  }
+  euiccPackageResultList EuiccPackageResultList -- UPDATE for v1.1: 5.9.11 — use alias; notificationAndEprList branch REMOVED
 }
 -- ASN1STOP
 
 -- Section 5.9.15
+-- UPDATE for v1.1: 5.9.15 — EnableUsingDD renamed to ImmediateEnable.
+-- Now carries mandatory refreshFlag BOOLEAN.
+-- UPDATE for v1.2: CR111007R00 — on ImmediateEnable, rollback authorization MUST
+-- also be reset when refreshFlag == true (behavioral; see proc_euicc_pkg_dwnld_exec.c).
+-- TODO v1.1: rename es10b_enable_using_dd.c -> es10b_immediate_enable.c;
+-- update libipa call sites and context.h state.
 -- ASN1START
-EnableUsingDDRequest ::= [90] SEQUENCE { -- Tag 'BF5A'
+ImmediateEnableRequest ::= [90] SEQUENCE { -- Tag 'BF5A' — UPDATE for v1.1: 5.9.15 — renamed from EnableUsingDDRequest
+  refreshFlag BOOLEAN -- NEW in v1.1: 5.9.15 — indicating whether REFRESH is required
 }
 -- ASN1STOP
 -- ASN1START
-EnableUsingDDResponse ::= [90] SEQUENCE { -- Tag 'BF5A'
-  enableUsingDDResult [0] INTEGER {
+ImmediateEnableResponse ::= [90] SEQUENCE { -- Tag 'BF5A' — UPDATE for v1.1: 5.9.15 — renamed from EnableUsingDDResponse
+  immediateEnableResult [0] INTEGER { -- UPDATE for v1.1: 5.9.15 — renamed from enableUsingDDResult
     ok(0),
-    autoEnableNotAvailable(1),
+    immediateEnableNotAvailable(1), -- UPDATE for v1.1: 5.9.15 — renamed from autoEnableNotAvailable
     noSessionContext(4),
+    catBusy(5), -- NEW in v1.1: 5.9.15
     undefinedError(127)
   }
 }
@@ -493,27 +687,38 @@ ProfileRollbackResponse ::= [88] SEQUENCE { -- Tag 'BF58'
 -- ASN1STOP
 
 -- Section 5.9.17
+-- UPDATE for v1.1: 5.9.17 — ConfigureAutoProfileEnabling renamed to
+-- ConfigureImmediateProfileEnabling; sub-fields renamed (see 2.11.1.1.3).
+-- Response error set changed: removed unsignedAutoEnableConfigDisallowed,
+-- added associatedEimAlreadyExists.
+-- TODO v1.1: no libipa file directly uses this; the generated libasn types
+-- are referenced indirectly via Psmo.  Re-check after regeneration.
 -- ASN1START
-ConfigureAutoProfileEnablingRequest ::= [89] SEQUENCE { -- Tag 'BF59'
-  autoEnableFlag [0] NULL OPTIONAL,
-  smdpOid [1] OBJECT IDENTIFIER OPTIONAL,
-  smdpAddress [2] UTF8String OPTIONAL
+ConfigureImmediateProfileEnablingRequest ::= [89] SEQUENCE { -- Tag 'BF59' — UPDATE for v1.1: 5.9.17 — renamed
+  immediateEnableFlag [0] NULL OPTIONAL,      -- UPDATE for v1.1: 5.9.17 — renamed from autoEnableFlag
+  defaultSmdpOid [1] OBJECT IDENTIFIER OPTIONAL, -- UPDATE for v1.1: 5.9.17 — renamed from smdpOid
+  defaultSmdpAddress [2] UTF8String OPTIONAL  -- UPDATE for v1.1: 5.9.17 — renamed from smdpAddress
 }
 -- ASN1STOP
 -- ASN1START
-ConfigureAutoProfileEnablingResponse ::= [89] SEQUENCE { -- Tag 'BF59'
-  configAutoEnableResult [0] INTEGER {
+ConfigureImmediateProfileEnablingResponse ::= [89] SEQUENCE { -- Tag 'BF59' — UPDATE for v1.1: 5.9.17 — renamed
+  configImmediateEnableResult [0] INTEGER { -- UPDATE for v1.1: 5.9.17 — renamed from configAutoEnableResult
     ok(0),
     insufficientMemory(1),
-    unsignedAutoEnableConfigDisallowed(2),
+    associatedEimAlreadyExists(2), -- NEW in v1.1: 5.9.17 (replaces unsignedAutoEnableConfigDisallowed(2))
     undefinedError(127)
   }
 }
 -- ASN1STOP
 
 -- Section 5.9.18
+-- UPDATE for v1.1: 5.9.18 — GetEimConfigurationDataRequest now has searchCriteria
+-- CHOICE { eimId [0] UTF8String (SIZE(1..128)) } OPTIONAL.
 -- ASN1START
 GetEimConfigurationDataRequest ::= [85] SEQUENCE { -- Tag 'BF55'
+  searchCriteria CHOICE {                       -- NEW in v1.1: 5.9.18
+    eimId [0] UTF8String (SIZE(1..128))
+  } OPTIONAL
 }
 -- ASN1STOP
 -- ASN1START
@@ -522,9 +727,114 @@ GetEimConfigurationDataResponse ::= [85] SEQUENCE { -- Tag 'BF55'
 }
 -- ASN1STOP
 
--- Section 5.14.2
+-- NEW in v1.1: 5.9.20 — ExecuteFallbackMechanism (ES10b).
+-- TODO v1.1: no libipa consumer yet.  Stub file at
+-- libipa/es10b_execute_fallback.{c,h} should be added if Fallback flow is supported.
 -- ASN1START
-SGP32-PrepareDownloadResponse ::= [33] CHOICE { -- Tag 'BF21'
+ExecuteFallbackMechanismRequest ::= [93] SEQUENCE { -- Tag 'BF5D'
+  refreshFlag BOOLEAN
+}
+ExecuteFallbackMechanismResponse ::= [93] SEQUENCE { -- Tag 'BF5D'
+  executeFallbackMechanismResult [0] INTEGER {
+    ok(0),
+    profileNotInDisabledState(2),
+    catBusy(5),
+    fallbackNotAvailable(6), -- Fallback Attribute not set
+    commandError(7),
+    ecallActive(104),
+    undefinedError(127)
+  }
+}
+-- ASN1STOP
+
+-- NEW in v1.1: 5.9.21 — ReturnFromFallback (ES10b).
+-- TODO v1.1: stub libipa/es10b_return_from_fallback.{c,h} required if supported.
+-- ASN1START
+ReturnFromFallbackRequest ::= [94] SEQUENCE { -- Tag 'BF5E'
+  refreshFlag BOOLEAN
+}
+ReturnFromFallbackResponse ::= [94] SEQUENCE { -- Tag 'BF5E'
+  returnFromFallbackResult [0] INTEGER {
+    ok(0),
+    catBusy(5),
+    fallbackNotAvailable(6),
+    commandError(7),
+    undefinedError(127)
+  }
+}
+-- ASN1STOP
+
+-- NEW in v1.1: 5.9.22 — EnableEmergencyProfile (ES10b).
+-- TODO v1.1: stub libipa/es10b_enable_emergency_profile.{c,h} required if supported.
+-- UPDATE for v1.2: CR111007R00 — reset rollback authorization when refreshFlag == true.
+-- ASN1START
+EnableEmergencyProfileRequest ::= [91] SEQUENCE { -- Tag 'BF5B'
+  refreshFlag BOOLEAN
+}
+EnableEmergencyProfileResponse ::= [91] SEQUENCE { -- Tag 'BF5B'
+  enableEmergencyProfileResult [0] INTEGER {
+    ok(0),
+    profileNotInDisabledState(2),
+    catBusy(5),
+    ecallNotAvailable(8), -- Emergency Profile does not exist
+    undefinedError(127)
+  }
+}
+-- ASN1STOP
+
+-- NEW in v1.1: 5.9.23 — DisableEmergencyProfile (ES10b).
+-- TODO v1.1: stub libipa/es10b_disable_emergency_profile.{c,h} required if supported.
+-- UPDATE for v1.2: CR111007R00 — reset rollback authorization when refreshFlag == true.
+-- ASN1START
+DisableEmergencyProfileRequest ::= [92] SEQUENCE { -- Tag 'BF5C'
+  refreshFlag BOOLEAN
+}
+DisableEmergencyProfileResponse ::= [92] SEQUENCE { -- Tag 'BF5C'
+  disableEmergencyProfileResult [0] INTEGER {
+    ok(0),
+    profileNotInEnabledState(2),
+    catBusy(5),
+    undefinedError(127)
+  }
+}
+-- ASN1STOP
+
+-- NEW in v1.1: 5.9.24 — GetConnectivityParameters (ES10b).
+-- TODO v1.1: stub libipa/es10b_get_connectivity_params.{c,h} required if supported.
+-- ASN1START
+GetConnectivityParametersRequest ::= [95] SEQUENCE { -- Tag 'BF5F'
+}
+GetConnectivityParametersResponse ::= [95] CHOICE { -- Tag 'BF5F'
+  connectivityParameters ConnectivityParameters,
+  connectivityParametersError ConnectivityParametersError
+}
+ConnectivityParameters ::= SEQUENCE { -- Also used for CoAP
+  httpParams [1] OCTET STRING OPTIONAL
+}
+ConnectivityParametersError ::= INTEGER {
+  parametersNotAvailable(1),
+  undefinedError(127)
+}
+-- ASN1STOP
+
+-- NEW in v1.1: 5.9.25 — SetDefaultDpAddress (ES10b).
+-- Referenced both as a standalone ES10b function and as a Psmo member (see 2.11.1.1.3).
+-- TODO v1.1: stub libipa/es10b_set_default_dp_addr.{c,h} may be needed for direct use.
+-- ASN1START
+SGP32-SetDefaultDpAddressRequest ::= [101] SEQUENCE { -- Tag 'BF65'
+  defaultDpAddress UTF8String -- Default SM-DP+ address as an FQDN
+}
+SGP32-SetDefaultDpAddressResponse ::= [101] SEQUENCE { -- Tag 'BF65'
+  setDefaultDpAddressResult INTEGER { ok(0), undefinedError(127) }
+}
+-- ASN1STOP
+
+-- Section 5.14.2
+-- UPDATE for v1.1: 5.14.2 — SGP32-PrepareDownloadResponse renamed to plain
+-- PrepareDownloadResponse (override of SGP.22 type).  Kept SGP32- prefix locally
+-- to avoid clash with RSP import; consumers now use the shared name transparently.
+-- ASN1START
+SGP32-PrepareDownloadResponse ::= [33] CHOICE { -- Tag 'BF21' — TODO v1.1: spec name is PrepareDownloadResponse; rename + drop from RSP import when unifying
   downloadResponseOk PrepareDownloadResponseOk,
   downloadResponseError PrepareDownloadResponseError,
   compactDownloadResponseOk CompactPrepareDownloadResponseOk
@@ -535,13 +845,19 @@ CompactPrepareDownloadResponseOk ::= SEQUENCE {
 }
 CompactEuiccSigned2 ::= SEQUENCE {
   euiccOtpk [APPLICATION 73] OCTET STRING OPTIONAL, -- otPK.EUICC.ECKA, tag '5F49' euiccOtpk is always present except if bppEuiccOtpk was chosen by the eUICC
-  hashCc Octet32 OPTIONAL -- Hash of confirmation code, if not received from Eim
+  hashCc Octet32 OPTIONAL -- Hash of confirmation code, if not received from eIM
 }
 -- ASN1STOP
 
 -- Section 5.14.3
+-- UPDATE for v1.1: 5.14.3 — SGP.32-specific EuiccSigned1 (overrides SGP.22).
+-- Existing code relies on the imported SGP.22 version; once RSP import is cleaned
+-- up, SGP.32 should define EuiccSigned1 locally here per v1.2 Annex C.
+-- TODO v1.1: add local EuiccSigned1 definition here and drop from IMPORTS.
+-- UPDATE for v1.1: 5.14.3 — AuthenticateClient procedure description changed;
+-- libipa/esipa_auth_clnt.c + proc_cmn_mtl_auth.c need behavioural review.
 -- ASN1START
-SGP32-AuthenticateServerResponse ::= [56] CHOICE { -- Tag 'BF38'
+SGP32-AuthenticateServerResponse ::= [56] CHOICE { -- Tag 'BF38' — TODO v1.1: spec name is AuthenticateServerResponse (drop SGP32- prefix when import cleanup is done)
   authenticateResponseOk AuthenticateResponseOk,
   authenticateResponseError AuthenticateResponseError,
   compactAuthenticateResponseOk CompactAuthenticateResponseOk
@@ -562,14 +878,20 @@ CompactEuiccSigned1 ::= SEQUENCE {
 -- ASN1STOP
 
 -- Section 5.14.7
+-- UPDATE for v1.1: 5.14.7 — SGP32-PendingNotification renamed to plain
+-- PendingNotification; SGP32-ProfileInstallationResult renamed to plain
+-- ProfileInstallationResult.  Kept SGP32- prefix here temporarily to avoid
+-- collisions with RSPDefinitions; see TODO at imports block.
+-- UPDATE for v1.2: CR12008R01 — CompactOtherSignedNotification gains eidValue
+-- (OPTIONAL) so the eIM can identify the related eUICC.
 -- ASN1START
-SGP32-PendingNotification ::= CHOICE {
+SGP32-PendingNotification ::= CHOICE { -- TODO v1.1: rename to PendingNotification once RSP import is pruned
   profileInstallationResult [55] SGP32-ProfileInstallationResult, -- tag 'BF37'
   otherSignedNotification OtherSignedNotification,
   compactProfileInstallationResult [0] CompactProfileInstallationResult,
   compactOtherSignedNotification [1] CompactOtherSignedNotification
 }
-SGP32-ProfileInstallationResult ::= [55] SEQUENCE { -- Tag 'BF37'
+SGP32-ProfileInstallationResult ::= [55] SEQUENCE { -- Tag 'BF37' — TODO v1.1: rename to ProfileInstallationResult
   profileInstallationResultData [39] ProfileInstallationResultData,
   euiccSignPIR EuiccSignPIR
 }
@@ -588,17 +910,21 @@ CompactProfileInstallationResultData ::= SEQUENCE {
 }
 CompactSuccessResult ::= SEQUENCE {
   compactAid [APPLICATION 15] OCTET STRING (SIZE (2)), -- Byte 14 and 15 of ISD-P AID
-  simaResponse OCTET STRING OPTIONAL -- MUST be present if the simaResponse value (EUICCResponse) is different from the 9-byte value ‘30 07 A0 05 30 03 80 01 00’ representing success
+  simaResponse OCTET STRING OPTIONAL -- MUST be present if the simaResponse value (EUICCResponse) is different from the 9-byte value '30 07 A0 05 30 03 80 01 00' representing success
 }
 CompactOtherSignedNotification ::= SEQUENCE {
+  eidValue [APPLICATION 26] Octet16 OPTIONAL, -- NEW in v1.2: CR12008R01 — Tag '5A'; allows eIM to identify the related eUICC
   tbsOtherNotification NotificationMetadata,
   euiccNotificationSignature [APPLICATION 55] OCTET STRING -- eUICC signature of tbsOtherNotification, Tag '5F37'
 }
 -- ASN1STOP
 
 -- Section 5.14.8
+-- UPDATE for v1.1: 5.14.8 — SGP32-CancelSessionResponse / SGP32-CancelSessionOk
+-- renamed to plain CancelSessionResponse / CancelSessionOk.  Kept SGP32- prefix
+-- locally; see TODO above.
 -- ASN1START
-SGP32-CancelSessionResponse ::= [65] CHOICE { -- Tag 'BF41'
+SGP32-CancelSessionResponse ::= [65] CHOICE { -- Tag 'BF41' — TODO v1.1: rename to CancelSessionResponse
   cancelSessionResponseOk CancelSessionResponseOk,
   cancelSessionResponseError INTEGER {invalidTransactionId(5), undefinedError(127)},
   compactCancelSessionResponseOk CompactCancelSessionResponseOk
@@ -636,27 +962,36 @@ EsipaMessageFromEimToIpa ::= CHOICE {
 -- ASN1STOP
 
 -- Section 6.3.2
+-- UPDATE for v1.1: 5.14.1 / 6.3.2.1 — InitiateAuthenticationRequestEsipa adds
+-- eimTransactionId [2]; InitiateAuthenticationErrorEsipa adds
+-- invalidEimTransactionId(52) and undefinedError(127).
+-- UPDATE for v1.1: 6.3.2.1 — InitiateAuthenticationOkEsipa.euiccCiPKIdToBeUsed
+-- renamed to euiccCiPKIdentifierToBeUsed.
+-- TODO v1.1: esipa_init_auth.c must populate/consume the new fields.
 -- ASN1START
 InitiateAuthenticationRequestEsipa ::= [57] SEQUENCE { -- Tag 'BF39'
   euiccChallenge [1] Octet16, -- random eUICC challenge
   smdpAddress [3] UTF8String OPTIONAL,
-  euiccInfo1 EUICCInfo1 OPTIONAL
+  euiccInfo1 EUICCInfo1 OPTIONAL,
+  eimTransactionId [2] TransactionId OPTIONAL -- NEW in v1.1: 5.14.1 / 6.3.2.1
 }
 InitiateAuthenticationResponseEsipa ::= [57] CHOICE { -- Tag 'BF39'
   initiateAuthenticationOkEsipa InitiateAuthenticationOkEsipa,
   initiateAuthenticationErrorEsipa INTEGER {
-  invalidDpAddress(1),
-  euiccVersionNotSupportedByDp(2),
-  ciPKIdNotSupported(3),
-  smdpAddressMismatch(50),
-  smdpOidMismatch(51)
-}
+    invalidDpAddress(1),
+    euiccVersionNotSupportedByDp(2),
+    ciPKIdNotSupported(3),
+    smdpAddressMismatch(50),
+    smdpOidMismatch(51),
+    invalidEimTransactionId(52), -- NEW in v1.1: 6.3.2.1
+    undefinedError(127)          -- NEW in v1.1: 6.3.2.1
+  }
 }
 InitiateAuthenticationOkEsipa ::= SEQUENCE {
   transactionId [0] TransactionId OPTIONAL, -- The TransactionID generated by the SM-DP+
   serverSigned1 ServerSigned1, -- Signed information
   serverSignature1 [APPLICATION 55] OCTET STRING, -- Server Sign1, Tag '5F37'
-  euiccCiPKIdToBeUsed OCTET STRING, -- Key identifier (possibly truncated) of the CI Public Key to be used as required by ES10b.AuthenticateServer
+  euiccCiPKIdentifierToBeUsed OCTET STRING, -- UPDATE for v1.1: 6.3.2.1 — renamed from euiccCiPKIdToBeused
   serverCertificate Certificate,
   matchingId UTF8String OPTIONAL,
   ctxParams1 [2] CtxParams1 OPTIONAL
@@ -664,6 +999,11 @@ InitiateAuthenticationOkEsipa ::= SEQUENCE {
 -- ASN1STOP
 
 -- Section 6.3.2.2
+-- UPDATE for v1.1: 6.3.2.2 — AuthenticateClientRequestEsipa now uses plain
+-- AuthenticateServerResponse (was SGP32-AuthenticateServerResponse).  Local
+-- alias still used here to avoid RSP import collision; see TODOs at imports.
+-- UPDATE for v1.1: 6.3.2.2 — error label profileMetadataMismatch renamed
+-- to metadataMismatch in GetBoundProfilePackageResponseEsipa (§6.3.2.3).
 -- ASN1START
 AuthenticateClientRequestEsipa ::= [59] SEQUENCE { -- Tag 'BF3B'
   transactionId [0] TransactionId,
@@ -698,7 +1038,7 @@ AuthenticateClientOkDPEsipa ::= SEQUENCE {
   hashCc Octet32 OPTIONAL -- Hash of confirmation code
 }
 AuthenticateClientOkDSEsipa ::= SEQUENCE {
-  transactionId [0] TransactionId,
+  transactionId [0] TransactionId OPTIONAL,
   profileDownloadTrigger [84] ProfileDownloadTriggerRequest OPTIONAL -- Tag 'BF54'
 }
 -- ASN1STOP
@@ -718,7 +1058,7 @@ GetBoundProfilePackageResponseEsipa ::= [58] CHOICE { -- Tag 'BF3A'
     confirmationCodeRetriesExceeded(4),
     bppRebindingRefused(5),
     downloadOrderExpired(6),
-    profileMetadataMismatch(50),
+    metadataMismatch(50), -- UPDATE for v1.1: 6.3.2.3 — renamed from profileMetadataMismatch
     invalidTransactionId(95),
     undefinedError(127)
   }
@@ -730,10 +1070,13 @@ GetBoundProfilePackageOkEsipa ::= SEQUENCE {
 -- ASN1STOP
 
 -- Section 6.3.2.4
+-- UPDATE for v1.1: 6.3.2.4 — HandleNotificationEsipa restructured.  pendingNotification
+-- now has explicit tag [0] and uses PendingNotification (kept as SGP32-PendingNotification
+-- alias locally).  provideEimPackageResult now tagged [80].
 -- ASN1START
 HandleNotificationEsipa ::= [61] CHOICE { -- Tag 'BF3D'
-  pendingNotification SGP32-PendingNotification, -- A Notification to be delivered to a Notification Receiver, possibly in compact format
-  provideEimPackageResult ProvideEimPackageResult
+  pendingNotification [0] SGP32-PendingNotification, -- UPDATE for v1.1: 6.3.2.4 — tag [0] added
+  provideEimPackageResult [80] ProvideEimPackageResult -- UPDATE for v1.1: 6.3.2.4 — tag [80] added; Tag 'BF50'
 }
 -- ASN1STOP
 
@@ -741,7 +1084,7 @@ HandleNotificationEsipa ::= [61] CHOICE { -- Tag 'BF3D'
 -- ASN1START
 CancelSessionRequestEsipa ::= [65] SEQUENCE { -- Tag 'BF41'
   transactionId TransactionId,
-  cancelSessionResponse SGP32-CancelSessionResponse -- This is the response from ES10b.  CancelSession function, possibly in compact format
+  cancelSessionResponse SGP32-CancelSessionResponse -- This is the response from ES10b.CancelSession function, possibly in compact format
 }
 CancelSessionResponseEsipa ::= [65] CHOICE { -- Tag 'BF41'
   cancelSessionOk SGP32-CancelSessionOk,
@@ -751,17 +1094,34 @@ CancelSessionResponseEsipa ::= [65] CHOICE { -- Tag 'BF41'
     undefinedError(127)
   }
 }
-SGP32-CancelSessionOk ::= SEQUENCE { -- This function has no output data
+SGP32-CancelSessionOk ::= SEQUENCE { -- TODO v1.1: rename to CancelSessionOk once RSP import is pruned
 }
 -- ASN1STOP
 
 
 -- Section 6.3.2.6
+-- NEW in v1.1: 6.3.2.6 — StateChangeCause type.
+-- UPDATE for v1.1: 5.14.5 — GetEimPackageRequest adds stateChangeCause [1];
+-- rPLMN moves to [2].
+-- UPDATE for v1.1: 6.3.2.6 — GetEimPackageResponse.eimPackageError adds
+-- eidNotFound(2), invalidEid(3), missingEid(4).
+-- TODO v1.1: esipa_get_eim_pkg.c / proc_eim_pkg_retr.c must populate stateChangeCause.
 -- ASN1START
+StateChangeCause ::= INTEGER { -- NEW in v1.1: 6.3.2.6
+  otherEim(0),              -- change(s) requested by another registered eIM
+  fallback(1),              -- following fallback requested by IPA
+  emergencyProfile(2),      -- following Emergency Profile swap requested by IPA
+  local(3),                 -- applied locally (RFU, not supported in this version)
+  reset(4),                 -- following an eUICC reset
+  immediateEnableProfile(5),-- following immediate Profile enabling by IPA
+  deviceChange(6),          -- detected by IPAe following IoT Device change (removable eSIMs)
+  undefined(127)
+}
 GetEimPackageRequest ::= [79] SEQUENCE { -- Tag 'BF4F'
   eidValue [APPLICATION 26] Octet16, -- Tag '5A'
-  notifyStateChange [0] NULL OPTIONAL, -- Notification to the eIM that it should update its information about the eUICC (e.g. list of profiles, profile states...)
-  rPLMN [1] OCTET STRING (SIZE(3)) OPTIONAL -- MCC and MNC of the last registered PLMN, coded as defined in 3GPP TS 24.008 [22]
+  notifyStateChange [0] NULL OPTIONAL, -- Notification to the eIM that it should update its information
+  stateChangeCause [1] StateChangeCause OPTIONAL, -- NEW in v1.1: 5.14.5 — cause of notified state change(s)
+  rPLMN [2] OCTET STRING (SIZE(3)) OPTIONAL -- UPDATE for v1.1: 6.3.2.6 — tag changed from [1] to [2]
 }
 GetEimPackageResponse ::= [79] CHOICE { -- Tag 'BF4F'
   euiccPackageRequest [81] EuiccPackageRequest, -- Tag 'BF51'
@@ -769,33 +1129,64 @@ GetEimPackageResponse ::= [79] CHOICE { -- Tag 'BF4F'
   profileDownloadTriggerRequest [84] ProfileDownloadTriggerRequest, -- Tag 'BF54'
   eimPackageError INTEGER {
     noEimPackageAvailable(1),
+    eidNotFound(2),   -- NEW in v1.1: 6.3.2.6
+    invalidEid(3),    -- NEW in v1.1: 6.3.2.6
+    missingEid(4),    -- NEW in v1.1: 6.3.2.6
     undefinedError(127)
   }
 }
 -- ASN1STOP
 
 -- Section 6.3.2.7
+-- UPDATE for v1.1: 5.14.6 / 6.3.2.7 — ProvideEimPackageResult restructure.
+-- Was a CHOICE at top level; now a SEQUENCE containing eidValue OPTIONAL and
+-- eimPackageResult EimPackageResult (which is now the CHOICE).
+-- New wrapper types: EimPackageResultErrorCode, EimPackageResultResponseError.
+-- UPDATE for v1.2: CR111003R00 — removed eimPackageResultErrorCode from top-level
+-- EimPackageResult; error now carried by eimPackageResultResponseError [0] wrapper.
+-- UPDATE for v1.2: CR111002R00 — ProvideEimPackageResultResponse gains
+-- provideEimPackageResultError with eidNotFound(2), invalidEid(3), missingEid(4).
+-- UPDATE for v1.2: CR12014R02 — clarified when EidValue is included.
+-- TODO v1.1/1.2: esipa_prvde_eim_pkg_rslt.c requires significant rework.
 -- ASN1START
-ProvideEimPackageResult ::= [80] CHOICE { -- Tag 'BF50'
+EimPackageResultErrorCode ::= INTEGER { -- NEW in v1.1: 6.3.2.7
+  invalidPackageFormat(1),
+  unknownPackage(2),
+  undefinedError(127)
+}
+EimPackageResultResponseError ::= SEQUENCE { -- NEW in v1.1: 6.3.2.7
+  eimTransactionId [0] TransactionId OPTIONAL,
+  eimPackageResultErrorCode EimPackageResultErrorCode
+}
+EimPackageResult ::= CHOICE { -- NEW in v1.1: 6.3.2.7 — promoted to named type
   euiccPackageResult [81] EuiccPackageResult, -- Tag 'BF51'
   ePRAndNotifications SEQUENCE {
     euiccPackageResult [81] EuiccPackageResult, -- Tag 'BF51'
-    notificationList [43] SGP32-RetrieveNotificationsListResponse -- Tag 'BF2B'
+    notificationList [0] SGP32-PendingNotificationList -- UPDATE for v1.1: 6.3.2.7 — tag [0] with SGP32-PendingNotificationList (was [43] SGP32-RetrieveNotificationsListResponse)
   },
   ipaEuiccDataResponse [82] IpaEuiccDataResponse, -- Tag 'BF52'
   profileDownloadTriggerResult [84] ProfileDownloadTriggerResult, -- Tag 'BF54'
-  eimPackageError INTEGER {
-    invalidPackageFormat(1),
-    unknownPackage(2),
+  eimPackageResultResponseError [0] EimPackageResultResponseError -- NEW in v1.1: 6.3.2.7 — replaces old eimPackageError INTEGER branch
+}
+ProvideEimPackageResult ::= [80] SEQUENCE { -- Tag 'BF50' — UPDATE for v1.1: 6.3.2.7 — restructured from CHOICE to SEQUENCE
+  eidValue [APPLICATION 26] Octet16 OPTIONAL, -- NEW in v1.1: 6.3.2.7 — Tag '5A'
+  eimPackageResult EimPackageResult
+}
+ProvideEimPackageResultResponse ::= [80] CHOICE { -- Tag 'BF50' — UPDATE for v1.1: 6.3.2.7 — was SEQUENCE; now CHOICE
+  eimAcknowledgements [83] EimAcknowledgements, -- Tag 'BF53'
+  emptyResponse SEQUENCE {}, -- NEW in v1.1: 6.3.2.7 — because EimAcknowledgements was OPTIONAL
+  provideEimPackageResultError INTEGER { -- NEW in v1.2: CR111002R00
+    eidNotFound(2),
+    invalidEid(3),
+    missingEid(4),
     undefinedError(127)
   }
-}
-ProvideEimPackageResultResponse ::= [80] SEQUENCE { -- Tag 'BF50'
-  eimAcknowledgements [83] EimAcknowledgements OPTIONAL -- Tag 'BF53'
 }
 -- ASN1STOP
 
 -- Section 6.3.3.1
+-- UPDATE for v1.1: 6.3.3.1 — TransferEimPackageResponse.notificationList uses
+-- SGP32-PendingNotificationList (tag [0]) instead of SGP32-RetrieveNotificationsListResponse.
 -- ASN1START
 TransferEimPackageRequest ::= [78] CHOICE { -- Tag 'BF4E'
   euiccPackageRequest [81] EuiccPackageRequest, -- Tag 'BF51'
@@ -807,7 +1198,7 @@ TransferEimPackageResponse ::= [78] CHOICE { -- Tag 'BF4E'
   euiccPackageResult [81] EuiccPackageResult, -- Tag 'BF51'
   ePRAndNotifications SEQUENCE {
     euiccPackageResult [81] EuiccPackageResult, -- Tag 'BF51'
-    notificationList [43] SGP32-RetrieveNotificationsListResponse -- Tag 'BF2B'
+    notificationList [0] SGP32-PendingNotificationList -- UPDATE for v1.1: 6.3.3.1 — was [43] SGP32-RetrieveNotificationsListResponse
   },
   ipaEuiccDataResponse [82] IpaEuiccDataResponse, -- Tag 'BF52'
   eimPackageReceived NULL,

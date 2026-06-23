@@ -6,6 +6,27 @@
  * Author: Philipp Maier <pmaier@sysmocom.de> / sysmocom - s.f.m.c. GmbH
  *
  * See also: GSMA SGP.32, section 3.1.1.1: eIM Package Retrieval
+ *
+ * =====================================================================
+ * v1.1/v1.2 migration notes for this file:
+ * =====================================================================
+ * UPDATE for v1.1: 5.14.5 / 6.3.2.6 — GetEimPackage request/response changed:
+ *   - Request adds optional stateChangeCause (tag [1]) and shifts rPLMN to [2].
+ *   - Response gains eidNotFound(2), invalidEid(3), missingEid(4) errors.
+ *   The IPA should populate stateChangeCause when polling the eIM after a
+ *   local state change (Fallback, Emergency swap, immediate-enable, reset,
+ *   another eIM modified state).  TODO v1.1: thread a cause value down from
+ *   ipad.c into ipa_esipa_get_eim_pkg().
+ * UPDATE for v1.1: 3.5.2 — "More error conditions specified in the procedure".
+ *   Review v1.2 §3.5.2 for new failure modes the retrieval loop should handle.
+ * UPDATE for v1.1: 3.2.3.1 — Start Conditions changed.  The preconditions
+ *   under which this procedure is entered (device power-on, timer, event)
+ *   differ; cross-reference ipad.c trigger points against v1.2 §3.2.3.1.
+ * UPDATE for v1.2: CR111006R00 / §3.2.3.1 — Step 10 of direct profile download
+ *   was clarified to resolve an SGP.22 / SGP.32 conflict.  That procedure is
+ *   not entered from this file, but if an eIM package points to a direct
+ *   download the dispatch to proc_prfle_dwnld.c must honour the clarification.
+ * =====================================================================
  */
 
 #include <stdio.h>

@@ -4,8 +4,24 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  *
  * Author: Philipp Maier <pmaier@sysmocom.de> / sysmocom - s.f.m.c. GmbH
- * 
+ *
  * See also: GSMA SGP.32, section 5.14.3: Function: (Esipa) AuthenticateClient
+ *
+ * =====================================================================
+ * v1.1/v1.2 migration notes for this file:
+ * =====================================================================
+ * UPDATE for v1.1: 5.14.3 — AuthenticateClient procedure description changed.
+ *   SGP.32 now defines its own EuiccSigned1 (overrides the SGP.22 type) and
+ *   its own AuthenticateResponseOk.  This client forwards the eUICC's
+ *   AuthenticateServer response; once libasn is regenerated against the
+ *   updated .asn, the embedded signed structures will carry the SGP.32 shape
+ *   automatically — but review the procedure text to confirm there are no
+ *   new required steps (e.g. extra signature checks) on the IPA side.
+ * UPDATE for v1.1: 5.6.1 — SGP.32 also defines its own AuthenticateClientRequest
+ *   (§5.6.1); the code here uses AuthenticateClientRequestEsipa which is
+ *   unchanged, but anywhere the raw AuthenticateClientRequest is referenced
+ *   must be reviewed after regeneration.
+ * =====================================================================
  */
 
 #include <stdint.h>

@@ -6,6 +6,30 @@
  * Author: Philipp Maier <pmaier@sysmocom.de> / sysmocom - s.f.m.c. GmbH
  *
  * See also: GSMA SGP.22, 5.7.8: Function (ES10b): GetEUICCInfo
+ *           GSMA SGP.32, 5.9.2 (SGP.32 override of EUICCInfo2).
+ *
+ * =====================================================================
+ * v1.1/v1.2 migration notes for this file:
+ * =====================================================================
+ * UPDATE for v1.1: 5.9.2 — The SGP.32 EUICCInfo2 gained three new OPTIONAL
+ *   fields (replacing placeholders in v1.0):
+ *     - euiccCiPKIdListForSigningV3 [17] (was rfu2)
+ *     - additionalEuiccInfo         [18] (was rfu3)
+ *     - highestSvn                  [19] (was rfu4)
+ *   These are not functionally used by v1.2 (OPTIONAL / "not used by this
+ *   version") but the field names change.  convert_euicc_info_2() below
+ *   must be updated to propagate them when present.
+ * UPDATE for v1.1: 5.9.2 — IoTSpecificInfo gains ecallSupported and
+ *   fallbackSupported.  These flags tell the eIM whether the eUICC supports
+ *   the Emergency-Profile / Fallback mechanisms; IPA should ideally surface
+ *   them to the API consumer and include them in IpaEuiccData responses.
+ * TODO v1.1: extend ipa_es10b_euicc_info to carry the new IoTSpecificInfo
+ *   flags; update convert_euicc_info_2() to copy the new fields; verify
+ *   downstream consumers (proc_euicc_data_req.c) pass them through.
+ * NOTE: once SGP32Definitions.asn is regenerated, SGP32_EUICCInfo2 gains
+ *   the new fields automatically; convert_euicc_info_2() currently stops
+ *   at certificationDataObject and therefore *drops* the new fields.
+ * =====================================================================
  */
 
 #include <stdio.h>
@@ -95,6 +119,29 @@ static void convert_euicc_info_2(struct SGP32_EUICCInfo2 *euicc_info_out, const 
 	euicc_info_out->ppVersion = euicc_info_in->ppVersion;
 	euicc_info_out->sasAcreditationNumber = euicc_info_in->sasAcreditationNumber;
 	euicc_info_out->certificationDataObject = euicc_info_in->certificationDataObject;
+	/* UPDATE for v1.1: 5.9.2 - new SGP.32-specific EUICCInfo2 fields.  These
+	 * replace v1.0's rfu2/rfu3/rfu4 placeholders.  All three are OPTIONAL and
+	 * documented as "not used by this version of SGP.32", so when we are
+	 * emulating (the source is a consumer SGP.22 eUICC) we leave them NULL. */
+	/* euicc_info_out->euiccCiPKIdListForSigningV3 / additionalEuiccInfo /
+	 * highestSvn are left NULL in emulation mode by the memset(0) above. */
+
+	/* UPDATE for v1.1: 5.9.2 - iotSpecificInfo is MANDATORY within SGP.32
+	 * (SHALL be present).  When emulating with a consumer eUICC the source
+	 * EUICCInfo2 does not carry it, so we synthesise one advertising the
+	 * SGP.32 version that this IPA implements (v1.2.0).  ecallSupported and
+	 * fallbackSupported are left absent (OPTIONAL) because a consumer eUICC
+	 * does not support Emergency Profile / Fallback mechanisms. */
+	{
+		static IoTSpecificInfo_t iot_specific_info;
+		static VersionType_t iot_version_buf;
+		static uint8_t iot_version_bytes[3] = { 0x01, 0x02, 0x00 }; /* SGP.32 v1.2.0 */
+		memset(&iot_specific_info, 0, sizeof(iot_specific_info));
+		iot_version_buf.buf = iot_version_bytes;
+		iot_version_buf.size = sizeof(iot_version_bytes);
+		ASN_SEQUENCE_ADD(&iot_specific_info.iotVersion.list, &iot_version_buf);
+		euicc_info_out->iotSpecificInfo = &iot_specific_info;
+	}
 }
 
 static int dec_get_euicc_info2(struct ipa_es10b_euicc_info *euicc_info, const struct ipa_buf *es10b_res)

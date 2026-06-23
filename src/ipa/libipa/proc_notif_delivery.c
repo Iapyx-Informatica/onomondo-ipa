@@ -6,6 +6,25 @@
  * Author: Philipp Maier <pmaier@sysmocom.de> / sysmocom - s.f.m.c. GmbH
  *
  * See also: GSMA SGP.32, section 3.7: Notification Delivery to Notification Receivers
+ *           GSMA SGP.32, section 5.7.4 (HandleNotification, expanded description).
+ *
+ * =====================================================================
+ * v1.1/v1.2 migration notes for this file:
+ * =====================================================================
+ * UPDATE for v1.1: 5.7.4 — HandleNotification procedure text was expanded;
+ *   review against v1.2 to ensure the order of operations matches (this
+ *   implementation batches and forwards; v1.2 may require per-notification
+ *   delivery semantics).
+ * UPDATE for v1.2: CR12008R01 / §5.14.7 — CompactOtherSignedNotification now
+ *   carries an optional eidValue.  When the IPA forwards such a notification
+ *   it must populate eidValue so the eIM can identify the originating eUICC.
+ *   TODO v1.2: when constructing / forwarding CompactOtherSignedNotification
+ *   instances in this procedure, set .eidValue from ctx->eid.
+ * UPDATE for v1.1: 5.9.11 — the underlying RetrieveNotificationsList response
+ *   dropped the notificationAndEprList branch; see es10b_retr_notif_from_lst.c
+ *   for the code affected.  This procedure only reads notificationList so the
+ *   change is transparent here after libasn regeneration.
+ * =====================================================================
  */
 
 #include <stdio.h>

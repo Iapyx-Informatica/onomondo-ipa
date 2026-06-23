@@ -221,7 +221,7 @@ void ipa_asn1c_dump(const struct asn_TYPE_descriptor_s *td, const void *struct_p
 	buf.printbuf = IPA_ALLOC_N_ZERO(IPA_LEN_ASN1_PRINTER_BUF);
 	buf.printbuf_ptr = buf.printbuf;
 	buf.printbuf_size = IPA_LEN_ASN1_PRINTER_BUF;
-	td->op->print_struct(td, struct_ptr, 1, ipa_asn1c_dump_consume, &buf);
+	td->print_struct(td, struct_ptr, 1, ipa_asn1c_dump_consume, &buf);
 
 	char *token = strtok(buf.printbuf, "\n");
 

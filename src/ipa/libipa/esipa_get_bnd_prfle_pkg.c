@@ -36,8 +36,9 @@ static const struct num_str_map error_code_strings[] = {
 	 "bppRebindingRefused" },
 	{ GetBoundProfilePackageResponseEsipa__getBoundProfilePackageErrorEsipa_downloadOrderExpired,
 	 "downloadOrderExpired" },
-	{ GetBoundProfilePackageResponseEsipa__getBoundProfilePackageErrorEsipa_profileMetadataMismatch,
-	 "profileMetadataMismatch" },
+	/* UPDATE for v1.1: 6.3.2.3 - renamed profileMetadataMismatch -> metadataMismatch. */
+	{ GetBoundProfilePackageResponseEsipa__getBoundProfilePackageErrorEsipa_metadataMismatch,
+	 "metadataMismatch" },
 	{ GetBoundProfilePackageResponseEsipa__getBoundProfilePackageErrorEsipa_invalidTransactionId,
 	 "invalidTransactionId" },
 	{ GetBoundProfilePackageResponseEsipa__getBoundProfilePackageErrorEsipa_undefinedError, "undefinedError" },

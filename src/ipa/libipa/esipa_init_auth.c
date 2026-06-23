@@ -1,11 +1,25 @@
 /*
- * Copyrighct (c) 2025 Onomondo ApS. All rights reserved.
+ * Copyright (c) 2025 Onomondo ApS. All rights reserved.
  *
  * SPDX-License-Identifier: AGPL-3.0-only
  *
  * Author: Philipp Maier <pmaier@sysmocom.de> / sysmocom - s.f.m.c. GmbH
  *
  * See also: GSMA SGP.32, section 5.14.1: Function (ESipa): InitiateAuthentication
+ *
+ * =====================================================================
+ * v1.1/v1.2 migration notes for this file:
+ * =====================================================================
+ * UPDATE for v1.1: 5.14.1 / 6.3.2.1 — InitiateAuthenticationRequestEsipa adds
+ *   optional eimTransactionId [2] TransactionId.  If the IPA has an
+ *   outstanding transaction it should echo it back here.
+ * UPDATE for v1.1: 6.3.2.1 — InitiateAuthenticationErrorEsipa gains
+ *   invalidEimTransactionId(52) and undefinedError(127).  Error table below
+ *   must be extended after libasn regeneration.
+ * UPDATE for v1.1: 6.3.2.1 — InitiateAuthenticationOkEsipa.euiccCiPKIdToBeused
+ *   renamed to euiccCiPKIdentifierToBeUsed.  Downstream consumers accessing
+ *   this field must be updated.
+ * =====================================================================
  */
 
 #include <stdint.h>
@@ -32,6 +46,10 @@ static const struct num_str_map error_code_strings[] = {
 	{ InitiateAuthenticationResponseEsipa__initiateAuthenticationErrorEsipa_smdpAddressMismatch,
 	 "smdpAddressMismatch" },
 	{ InitiateAuthenticationResponseEsipa__initiateAuthenticationErrorEsipa_smdpOidMismatch, "smdpOidMismatch" },
+	/* UPDATE for v1.1: 6.3.2.1 - new error codes. */
+	{ InitiateAuthenticationResponseEsipa__initiateAuthenticationErrorEsipa_invalidEimTransactionId,
+	 "invalidEimTransactionId" },
+	{ InitiateAuthenticationResponseEsipa__initiateAuthenticationErrorEsipa_undefinedError, "undefinedError" },
 	{ 0, NULL }
 };
 
@@ -54,6 +72,14 @@ static struct ipa_buf *enc_init_auth_req(const struct ipa_esipa_init_auth_req *r
 
 	/* eUICC info */
 	msg_to_eim.choice.initiateAuthenticationRequestEsipa.euiccInfo1 = (EUICCInfo1_t *) req->euicc_info_1;
+
+	/* TODO v1.1: 5.14.1 / 6.3.2.1 — populate optional eimTransactionId when
+	 * the IPA has a currently outstanding eIM transaction, e.g.:
+	 *   if (ctx->eim_transaction_id_present) {
+	 *       msg_to_eim.choice.initiateAuthenticationRequestEsipa.eimTransactionId =
+	 *           &ctx->eim_transaction_id;
+	 *   }
+	 * Requires new plumbing in struct ipa_esipa_init_auth_req and context. */
 
 	/* Encode */
 	return ipa_esipa_msg_to_eim_enc(&msg_to_eim, "InitiateAuthentication");

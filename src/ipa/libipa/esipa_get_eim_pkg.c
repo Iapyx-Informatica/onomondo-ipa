@@ -6,6 +6,21 @@
  * Author: Philipp Maier <pmaier@sysmocom.de> / sysmocom - s.f.m.c. GmbH
  *
  * See also: GSMA SGP.32, section 5.14.5: Function (ESipa): GetEimPackage
+ *
+ * =====================================================================
+ * v1.1/v1.2 migration notes for this file:
+ * =====================================================================
+ * UPDATE for v1.1: 5.14.5 — GetEimPackage now carries optional stateChangeCause.
+ *   When the IPA calls this after a local state change (e.g. Fallback,
+ *   Emergency swap, immediate-enable, reset) it SHALL populate the cause.
+ *   Requires plumbing a StateChangeCause_t through ipa_esipa_get_eim_pkg().
+ * UPDATE for v1.1: 6.3.2.6 — GetEimPackageResponse.eimPackageError gains
+ *   eidNotFound(2), invalidEid(3), missingEid(4).  Error table must be
+ *   extended after libasn regeneration.
+ * UPDATE for v1.1: 6.3.2.6 — rPLMN moved from tag [1] to tag [2] because the
+ *   new stateChangeCause takes tag [1].  Purely a wire-format change handled
+ *   by asn1c regeneration; no action needed here beyond regenerating.
+ * =====================================================================
  */
 
 #include <stdint.h>
@@ -22,6 +37,10 @@
 
 static const struct num_str_map error_code_strings[] = {
 	{ GetEimPackageResponse__eimPackageError_noEimPackageAvailable, "noEimPackageAvailable" },
+	/* UPDATE for v1.1: 6.3.2.6 - new eIM error codes covering EID handling. */
+	{ GetEimPackageResponse__eimPackageError_eidNotFound, "eidNotFound" },
+	{ GetEimPackageResponse__eimPackageError_invalidEid, "invalidEid" },
+	{ GetEimPackageResponse__eimPackageError_missingEid, "missingEid" },
 	{ GetEimPackageResponse__eimPackageError_undefinedError, "undefinedError" },
 	{ 0, NULL }
 };
@@ -33,6 +52,14 @@ static struct ipa_buf *enc_get_eim_pkg_req(const uint8_t *eid_value)
 	msg_to_eim.present = EsipaMessageFromIpaToEim_PR_getEimPackageRequest;
 	msg_to_eim.choice.getEimPackageRequest.eidValue.buf = (uint8_t *) eid_value;
 	msg_to_eim.choice.getEimPackageRequest.eidValue.size = IPA_LEN_EID;
+
+	/* TODO v1.1: 5.14.5 — populate optional stateChangeCause when a local
+	 * state change preceded this poll.  Example skeleton (once regenerated
+	 * types are available):
+	 *   StateChangeCause_t cause = StateChangeCause_immediateEnableProfile;
+	 *   msg_to_eim.choice.getEimPackageRequest.stateChangeCause = &cause;
+	 * The cause value should be derived from ctx state (fallback active,
+	 * emergency swap, reset, immediate-enable, etc.). */
 
 	return ipa_esipa_msg_to_eim_enc(&msg_to_eim, "GetEimPackage");
 }

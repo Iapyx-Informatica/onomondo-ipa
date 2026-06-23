@@ -1,11 +1,29 @@
 /*
- * Copyrighct (c) 2025 Onomondo ApS. All rights reserved.
+ * Copyright (c) 2025 Onomondo ApS. All rights reserved.
  *
  * SPDX-License-Identifier: AGPL-3.0-only
  *
  * Author: Philipp Maier <pmaier@sysmocom.de> / sysmocom - s.f.m.c. GmbH
  *
  * See also: GSMA SGP.22, section 3.0.1: Common Mutual Authentication Procedure
+ *           GSMA SGP.32, section 5.14.3 (AuthenticateClient SGP.32 override).
+ *
+ * =====================================================================
+ * v1.1/v1.2 migration notes for this file:
+ * =====================================================================
+ * UPDATE for v1.1: 5.14.3 / 5.6.1 — SGP.32 now defines its own EuiccSigned1,
+ *   AuthenticateResponseOk, and AuthenticateClientRequest (overrides of SGP.22).
+ *   After libasn regeneration the local types generated from SGP32Definitions.asn
+ *   will have the SGP.32 shape.  Review the server-signature verification and
+ *   the ctxParams1 generation path for any field changes.
+ * UPDATE for v1.1: 6.3.2.1 — InitiateAuthenticationOkEsipa.euiccCiPKIdentifierToBeUsed
+ *   renamed to euiccCiPKIdentifierToBeUsed.  The code below currently reads
+ *   this via the esipa_init_auth response; after regeneration the struct field
+ *   will rename and any reference here must be updated.
+ * UPDATE for v1.1: 5.14.1 / 6.3.2.1 — InitiateAuthentication now carries an
+ *   optional eimTransactionId both on the request (from IPA to eIM) and the
+ *   new invalidEimTransactionId(52) error case must be handled on the response.
+ * =====================================================================
  */
 
 #include <stdio.h>
@@ -68,9 +86,12 @@ static int check_certificate(const struct ipa_buf *allowed_ca, const Certificate
 	 * received from the eIM, since this value is the same as the value in the Subject Key Identifier of the
 	 * eSIM RootCA certificate. */
 	if (allowed_ca) {
-		const asn_oid_arc_t id_ce_authorityKeyIdentifier[4] = { 2, 5, 29, 35 };
-		asn_oid_arc_t extension_arcs[256];
-		size_t extension_arcs_len;
+		/* UPDATE for v1.2 asn1c regen: asn_oid_arc_t alias is gone;
+		 * OBJECT_IDENTIFIER_get_arcs() now takes a plain unsigned int array
+		 * plus the element size and slot count. */
+		const unsigned int id_ce_authorityKeyIdentifier[4] = { 2, 5, 29, 35 };
+		unsigned int extension_arcs[256];
+		int extension_arcs_len;
 		const struct Extensions *extensions;
 		bool allowed_ca_present = false;
 		int i;
@@ -88,8 +109,9 @@ static int check_certificate(const struct ipa_buf *allowed_ca, const Certificate
 		for (i = 0; i < extensions->list.count; i++) {
 			extension_arcs_len =
 			    OBJECT_IDENTIFIER_get_arcs(&extensions->list.array[i]->extnID, extension_arcs,
+						       sizeof(extension_arcs[0]),
 						       IPA_ARRAY_SIZE(extension_arcs));
-			if (extension_arcs_len == IPA_ARRAY_SIZE(id_ce_authorityKeyIdentifier) &&
+			if (extension_arcs_len == (int)IPA_ARRAY_SIZE(id_ce_authorityKeyIdentifier) &&
 			    memcmp(extension_arcs, id_ce_authorityKeyIdentifier,
 				   sizeof(id_ce_authorityKeyIdentifier)) == 0) {
 				if (IPA_ASN_STR_CMP_BUF
@@ -204,7 +226,11 @@ struct ipa_esipa_auth_clnt_res *ipa_proc_cmn_mtl_auth(struct ipa_context *ctx,
 	auth_serv_req.req.serverSignature1.size =
 	    ipa_strip_tlv_envelope(auth_serv_req.req.serverSignature1.buf, auth_serv_req.req.serverSignature1.size,
 				   0x5f37);
-	auth_serv_req.req.euiccCiPKIdToBeUsed = init_auth_res->init_auth_ok->euiccCiPKIdToBeUsed;
+	/* UPDATE for v1.1: 6.3.2.1 - InitiateAuthenticationOkEsipa renamed
+	 * euiccCiPKIdToBeused -> euiccCiPKIdentifierToBeUsed.
+	 * The sibling AuthenticateServerRequest (SGP.22, ES10b) still uses the
+	 * old euiccCiPKIdToBeUsed on the request side. */
+	auth_serv_req.req.euiccCiPKIdToBeUsed = init_auth_res->init_auth_ok->euiccCiPKIdentifierToBeUsed;
 	auth_serv_req.req.euiccCiPKIdToBeUsed.size =
 	    ipa_strip_tlv_envelope(auth_serv_req.req.euiccCiPKIdToBeUsed.buf,
 				   auth_serv_req.req.euiccCiPKIdToBeUsed.size, 0x04);

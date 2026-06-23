@@ -1,5 +1,5 @@
 /*
- * Copyrighct (c) 2025 Onomondo ApS. All rights reserved.
+ * Copyright (c) 2025 Onomondo ApS. All rights reserved.
  *
  * SPDX-License-Identifier: AGPL-3.0-only
  *
