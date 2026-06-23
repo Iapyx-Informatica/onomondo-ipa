@@ -347,8 +347,8 @@ SGP32-ProfileInfo ::= [PRIVATE 3] SEQUENCE { -- Tag 'E3'
   profilePolicyRules [25] PprIds OPTIONAL, -- Tag '99'
   serviceSpecificDataStoredInEuicc [34] VendorSpecificExtension OPTIONAL, -- Tag 'BF22'
   ...,
-  fallbackAttribute [103] NULL OPTIONAL, -- Tag '9F67' — NEW in SGP.32 §4.4
-  emergencyCallAttribute [123] NULL OPTIONAL -- Tag '9F7B' — NEW in SGP.32 §4.4
+  emergencyCallAttribute [123] NULL OPTIONAL, -- Tag '9F7B' — NEW in SGP.32 §4.4
+  fallbackAttribute [103] NULL OPTIONAL -- Tag '9F67' — NEW in SGP.32 §4.4
 }
 -- ASN1STOP
 
