@@ -76,10 +76,17 @@ static size_t store_response_cb(void *ptr, size_t size, size_t nmemb, void *clie
  *  \returns HTTP response on success, NULL on failure. */
 struct ipa_buf *ipa_http_req(void *http_ctx, const struct ipa_buf *req, const char *url)
 {
+	return ipa_http_req_with_ct(http_ctx, req, url, NULL);
+}
+
+struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req,
+				     const char *url, const char *content_type)
+{
 	struct http_ctx *ctx = http_ctx;
 	CURLcode rc;
 	struct curl_slist *list = NULL;
 	struct ipa_buf *res = ipa_buf_alloc(IPA_LEN_HTTP_RESPONSE_BUF);
+	char ct_header[128];
 
 	assert(ctx->initialized);
 
