@@ -75,6 +75,20 @@ if [ -f Time.h ]; then
   grep -l '"Time\.h"' ./*.c ./*.h 2>/dev/null | xargs -r sed -i 's|"Time\.h"|"PKIX_Time.h"|g'
   echo "[regen] renamed PKIX Time.{c,h} -> PKIX_Time.{c,h} (avoid clash with system <time.h>)"
 fi
+
+# asn1c master escapes the C++ keyword `delete` as a capitalised member
+# name `Delete` in the Psmo union (e.g. `} Delete;`), while asn1c 0.9.28
+# leaves it lowercase.  Normalise to lowercase so libipa caller code can
+# use `psmo->choice.delete` regardless of which asn1c generated the headers.
+# Detection: look for the capitalised member declaration specifically — the
+# struct type name is `Psmo__delete` (lowercase) in BOTH versions, so checking
+# for `Psmo__Delete` misses the master case.
+if [ -f Psmo.h ] && grep -qE '\} Delete;' Psmo.h 2>/dev/null; then
+  sed -i 's/\.Delete\b/.delete/g; s/\} Delete;/} delete;/g; s/choice\.Delete\b/choice.delete/g' \
+    Psmo.h Psmo.c
+  echo "[regen] normalised Psmo.Delete -> Psmo.delete (asn1c-version compat)"
+fi
+
 cd ../../../
 
 # Regenerate CMakeLists.txt so it picks up the renamed files.

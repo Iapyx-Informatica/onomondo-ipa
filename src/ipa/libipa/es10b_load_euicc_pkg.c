@@ -608,9 +608,12 @@ struct ipa_es10b_load_euicc_pkg_res *load_euicc_pkg_iot_emu(struct ipa_context *
 				psmo_result = iot_emo_do_disable_psmo(ctx, &psmo->choice.disable);
 				break;
 			case Psmo_PR_delete:
-				/* UPDATE for v1.2 asn1c regen: C union member is now
-				 * lowercase `delete` (was capitalised `Delete` under the
-				 * older generator to avoid C++ keyword collision). */
+				/* `delete` is a C++ keyword, so asn1c master escapes the
+				 * generated field name as `Delete` (capital) while asn1c 0.9.28
+				 * leaves it lowercase.  regenerate_libasn.sh normalises both
+				 * to lowercase `delete` post-regen, so caller code can always
+				 * reference it this way regardless of which asn1c produced
+				 * the headers. */
 				psmo_result = iot_emo_do_delete_psmo(ctx, &psmo->choice.delete);
 				break;
 			case Psmo_PR_listProfileInfo:

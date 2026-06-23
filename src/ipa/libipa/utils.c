@@ -221,7 +221,14 @@ void ipa_asn1c_dump(const struct asn_TYPE_descriptor_s *td, const void *struct_p
 	buf.printbuf = IPA_ALLOC_N_ZERO(IPA_LEN_ASN1_PRINTER_BUF);
 	buf.printbuf_ptr = buf.printbuf;
 	buf.printbuf_size = IPA_LEN_ASN1_PRINTER_BUF;
+	/* asn1c API compatibility.  CMake detects the TYPE descriptor layout
+	 * and defines ASN1C_TYPE_HAS_OP when method pointers live in an `op`
+	 * sub-struct (asn1c master); otherwise they are direct members (0.9.28). */
+#ifdef ASN1C_TYPE_HAS_OP
+	td->op->print_struct(td, struct_ptr, 1, ipa_asn1c_dump_consume, &buf);
+#else
 	td->print_struct(td, struct_ptr, 1, ipa_asn1c_dump_consume, &buf);
+#endif
 
 	char *token = strtok(buf.printbuf, "\n");
 
