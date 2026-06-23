@@ -28,25 +28,20 @@ SubjectKeyIdentifier FROM PKIX1Implicit88 {iso(1) identified-organization(3) dod
 -- NEW imports for v1.2: VendorSpecificExtension, DpProprietaryData, OperatorId,
 -- NotificationConfigurationInformation, ProfileClass, IconType, ProfileState,
 -- OctetTo16 (used by new ProfileInfo / StoreMetadataRequest overrides).
-ProfileInfo, EuiccSigned1, CancelSessionReason, RetrieveNotificationsListResponse,
+-- ProfileInfo is now defined locally below (SGP.32 §4.4 override).
+EuiccSigned1, CancelSessionReason, RetrieveNotificationsListResponse,
 ServerSigned1, RspCapability, Iccid, TransactionId, ProfileInfoListRequest,
 ProfileInfoListResponse, RulesAuthorisationTable, EUICCInfo1, DeviceInfo,
 VersionType, UICCCapability, PprIds,
-CertificationDataObject, Octet1, Octet16, Octet32, PrepareDownloadResponse,
+CertificationDataObject, Octet1, Octet16, OctetTo16, Octet32, PrepareDownloadResponse,
 PrepareDownloadResponseOk, PrepareDownloadResponseError,
 AuthenticateServerResponse, AuthenticateResponseOk, AuthenticateResponseError,
 CtxParams1, ProfileInstallationResult, ProfileInstallationResultData,
 OtherSignedNotification, EuiccSignPIR, ErrorResult, NotificationMetadata,
 CancelSessionResponse, CancelSessionResponseOk,
-StoreMetadataRequest, SmdpSigned2, BoundProfilePackage, NotificationEvent
--- UPDATE for v1.1: 2.1.3 — below imports NEW in v1.1/v1.2 per Annex C.  They are
--- referenced by the v1.2-specific ProfileInfo and StoreMetadataRequest that
--- SGP.32 now defines locally.  Once those overrides are added below, these
--- imports must be honoured by RSPDefinitions.asn.
--- TODO v1.1: add to RSPDefinitions.asn if not already present:
---   VendorSpecificExtension, DpProprietaryData, OperatorId,
---   NotificationConfigurationInformation, ProfileClass, IconType, ProfileState,
---   OctetTo16
+StoreMetadataRequest, SmdpSigned2, BoundProfilePackage, NotificationEvent,
+VendorSpecificExtension, DpProprietaryData, OperatorId,
+NotificationConfigurationInformation, ProfileClass, IconType, ProfileState
 FROM RSPDefinitions {joint-iso-itu-t(2) international-organizations(23) gsma(146) rsp(1) asn1modules(1) sgp22v2(2)};
 -- ASN1STOP
 
@@ -315,13 +310,55 @@ DeleteProfileResult ::= INTEGER {
   returnFallbackProfile(21), -- NEW in v1.1: 2.11.2
   undefinedError(127)
 }
+-- Section 4.4
+-- SGP.32 v1.1/v1.2 override of SGP.22 ProfileInfo.  All base fields are
+-- identical to SGP.22; two IoT-specific extension additions are appended:
+--   fallbackAttribute [103] / Tag '9F67': present iff this profile has been
+--     designated as the fallback profile via the setFallbackAttribute PSMO
+--     (§2.11.1.1.3).  Cleared by unsetFallbackAttribute.
+--   emergencyCallAttribute [123] / Tag '9F7B': present iff this profile has
+--     been enabled as the emergency call (eCall) profile via
+--     EnableEmergencyProfile (§5.9.22).  Cleared by DisableEmergencyProfile.
+-- IMPORTANT: both fields are part of the TBS signed by the eUICC as
+-- euiccSignEPR / euiccSignEPE (§2.11.2.1).  Any decode/re-encode path in
+-- the IPAd that touches euiccPackageResultDataSigned MUST preserve them.
+-- Previously the IPAd imported ProfileInfo from RSPDefinitions (SGP.22),
+-- which had no named extension additions; the asn1c BER decoder therefore
+-- silently dropped 9F67 and 9F7B, breaking euiccSignEPR verification at
+-- the eIM.  This local definition fixes that by naming the extensions so
+-- the codec stores and re-emits them faithfully.
+-- NOTE: if the field name or type for emergencyCallAttribute [123] differs
+-- from the spec, update the name/type here and regenerate libasn; the binary
+-- encoding (tag 9F7B, primitive, NULL) is authoritative.
+-- ASN1START
+ProfileInfo ::= [PRIVATE 3] SEQUENCE { -- Tag 'E3'
+  iccid Iccid OPTIONAL,
+  isdpAid [APPLICATION 15] OctetTo16 OPTIONAL, -- Tag '4F'
+  profileState [112] ProfileState OPTIONAL, -- Tag '9F70'
+  profileNickname [16] UTF8String (SIZE(0..64)) OPTIONAL, -- Tag '90'
+  serviceProviderName [17] UTF8String (SIZE(0..32)) OPTIONAL, -- Tag '91'
+  profileName [18] UTF8String (SIZE(0..64)) OPTIONAL, -- Tag '92'
+  iconType [19] IconType OPTIONAL, -- Tag '93'
+  icon [20] OCTET STRING (SIZE(0..1024)) OPTIONAL, -- Tag '94'
+  profileClass [21] ProfileClass OPTIONAL, -- Tag '95'
+  notificationConfigurationInfo [22] SEQUENCE OF NotificationConfigurationInformation OPTIONAL, -- Tag 'B6'
+  profileOwner [23] OperatorId OPTIONAL, -- Tag 'B7'
+  dpProprietaryData [24] DpProprietaryData OPTIONAL, -- Tag 'B8'
+  profilePolicyRules [25] PprIds OPTIONAL, -- Tag '99'
+  serviceSpecificDataStoredInEuicc [34] VendorSpecificExtension OPTIONAL, -- Tag 'BF22'
+  ...,
+  fallbackAttribute [103] NULL OPTIONAL, -- Tag '9F67' — NEW in SGP.32 §4.4
+  emergencyCallAttribute [123] NULL OPTIONAL -- Tag '9F7B' — NEW in SGP.32 §4.4
+}
+-- ASN1STOP
+
 -- UPDATE for v1.1: 2.11.2 — SGP.32 defines its own ProfileInfoListResponse
 -- /Error.  We keep the SGP32- prefix locally to prevent asn1c output-file
 -- name collisions with RSPDefinitions (v1.2 spec uses the bare name; the
 -- clean fix is to drop ProfileInfoListResponse from the RSP import block
 -- below, which requires careful libipa review first).
 SGP32-ProfileInfoListResponse ::= [45] CHOICE {
-  profileInfoListOk SEQUENCE OF ProfileInfo, -- see SGP.22
+  profileInfoListOk SEQUENCE OF ProfileInfo, -- SGP.32 §4.4 local override
   profileInfoListError SGP32-ProfileInfoListError
 }
 SGP32-ProfileInfoListError ::= INTEGER {

@@ -45,7 +45,7 @@
  *   2. Split the searchCriteria branch: notifications tag 0xBF2B uses
  *      searchCriteriaNotification; euiccPackageResult seq lookups use
  *      searchCriteriaEuiccPackageResult.
- *   3. Build the response using the new IpaEuiccData layout; populate
+ *   3. [DONE] Build the response using the new IpaEuiccData layout; populate
  *      eimTransactionId when the eIM supplied one.
  *   4. On error, emit IpaEuiccDataResponseError rather than the old
  *      inline INTEGER.
@@ -276,6 +276,17 @@ get_certs_req.req.euiccCiPKId = pars->ipa_euicc_data_request->euiccCiPKIdentifie
 			    &retr_notif_from_lst_res->sgp32_res->choice.notificationList;
 		}
 	}
+
+	/* FIX (SGP.32 §2.11.2.2, TODO item 3): echo the eimTransactionId from the
+	 * request into the IpaEuiccData response field [7].  The eIM uses this
+	 * value to correlate the response with its original request and to verify
+	 * that the signed response covers the same transaction.  Both
+	 * IpaEuiccDataRequest.eimTransactionId and IpaEuiccData.eimTransactionId
+	 * are TransactionId_t * (OCTET STRING alias), so a pointer copy is correct.
+	 * When the eIM sent no eimTransactionId the pointer is NULL and asn1c omits
+	 * the OPTIONAL field from the DER encoding automatically. */
+	ipa_euicc_data_response.choice.ipaEuiccData.eimTransactionId =
+	    pars->ipa_euicc_data_request->eimTransactionId;
 
 	ipa_euicc_data_response.present = IpaEuiccDataResponse_PR_ipaEuiccData;
 	prvde_eim_pkg_rslt_req.ipa_euicc_data_resp = &ipa_euicc_data_response;
