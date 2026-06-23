@@ -97,4 +97,4 @@ tests/testsuite.log
 
 # Application
 src/ipa/ipa
-
+nvstate.bin
