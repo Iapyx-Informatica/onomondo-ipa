@@ -81,9 +81,17 @@ static int dec_load_euicc_pkg_res(struct ipa_es10b_load_euicc_pkg_res *res, cons
 {
 	struct EuiccPackageResult *asn = NULL;
 
+	/* Preserve the raw BER bytes before decoding so the caller can forward
+	 * them verbatim to the eIM.  A BER→DER re-encode round-trip may alter
+	 * the byte representation of euiccPackageResultDataSigned, which would
+	 * break the eUICC's euiccSignEPR signature verification at the eIM. */
+	res->raw_res = ipa_buf_copy(es10b_res);
+
 	asn = ipa_es10x_res_dec(&asn_DEF_EuiccPackageResult, es10b_res, "LoadEuiccPackage");
-	if (!asn)
+	if (!asn) {
+		IPA_FREE(res->raw_res);
 		return -EINVAL;
+	}
 
 	res->res = asn;
 	return 0;
@@ -760,5 +768,9 @@ struct ipa_es10b_load_euicc_pkg_res *ipa_es10b_load_euicc_pkg(struct ipa_context
  *  \param[in] res pointer to function result. */
 void ipa_es10b_load_euicc_pkg_res_free(struct ipa_es10b_load_euicc_pkg_res *res)
 {
-	IPA_ES10X_RES_FREE(asn_DEF_EuiccPackageResult, res);
+	if (!res)
+		return;
+	IPA_FREE(res->raw_res);
+	ASN_STRUCT_FREE(asn_DEF_EuiccPackageResult, res->res);
+	IPA_FREE(res);
 }

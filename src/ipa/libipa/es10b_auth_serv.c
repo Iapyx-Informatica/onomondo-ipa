@@ -84,9 +84,17 @@ struct ipa_es10b_auth_serv_res *ipa_es10b_auth_serv(struct ipa_context *ctx, con
 		goto error;
 	}
 
+	/* Preserve raw BER bytes before decoding discards them.  These are
+	 * forwarded verbatim in AuthenticateClientRequest so that the SM-DP+
+	 * can verify euiccSignature1 against the original euiccSigned1 byte
+	 * representation without a BER→DER re-encode corrupting it. */
+	res->raw_res = ipa_buf_copy(es10b_res);
+
 	rc = dec_auth_serv_res(res, es10b_res);
-	if (rc < 0)
+	if (rc < 0) {
+		IPA_FREE(res->raw_res);
 		goto error;
+	}
 
 	IPA_FREE(es10b_req);
 	IPA_FREE(es10b_res);
@@ -102,5 +110,9 @@ error:
  *  \param[in] res pointer to function result. */
 void ipa_es10b_auth_serv_res_free(struct ipa_es10b_auth_serv_res *res)
 {
-	IPA_ES10X_RES_FREE(asn_DEF_AuthenticateServerResponse, res);
+	if (!res)
+		return;
+	IPA_FREE(res->raw_res);
+	ASN_STRUCT_FREE(asn_DEF_AuthenticateServerResponse, res->res);
+	IPA_FREE(res);
 }

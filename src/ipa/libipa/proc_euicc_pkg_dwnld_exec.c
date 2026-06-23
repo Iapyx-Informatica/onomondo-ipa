@@ -122,10 +122,18 @@ int ipa_proc_eucc_pkg_dwnld_exec_onset(struct ipa_context *ctx, struct ipa_proc_
 		goto error;
 
 	/* Step #10-#14 (ESipa.ProvideEimPackageResult) */
-	if (res->prfle_rollback_res && res->prfle_rollback_res->res->eUICCPackageResult)
+	if (res->prfle_rollback_res && res->prfle_rollback_res->res->eUICCPackageResult) {
+		/* Rollback result comes from a separate command; no raw bytes available. */
 		prvde_eim_pkg_rslt_req.euicc_package_result = res->prfle_rollback_res->res->eUICCPackageResult;
-	else
+		prvde_eim_pkg_rslt_req.raw_euicc_package_result = NULL;
+	} else {
 		prvde_eim_pkg_rslt_req.euicc_package_result = res->load_euicc_pkg_res->res;
+		/* Pass raw BER bytes from the eUICC verbatim so the eIM can verify
+		 * euiccSignEPR without a BER→DER re-encode corrupting the signed
+		 * euiccPackageResultDataSigned content.  NULL on the emulation path
+		 * (load_euicc_pkg_iot_emu does not populate raw_res). */
+		prvde_eim_pkg_rslt_req.raw_euicc_package_result = res->load_euicc_pkg_res->raw_res;
+	}
 	prvde_eim_pkg_rslt_req.sgp32_notification_list = retr_notif_from_lst_res->sgp32_res;
 	prvde_eim_pkg_rslt_res = ipa_esipa_prvde_eim_pkg_rslt(ctx, &prvde_eim_pkg_rslt_req);
 

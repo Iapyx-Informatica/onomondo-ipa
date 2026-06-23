@@ -11,10 +11,19 @@
 #include <OCTET_STRING.h>
 #include <AuthenticateClientOkDPEsipa.h>
 #include <AuthenticateClientOkDSEsipa.h>
+struct ipa_buf;
 struct ipa_context;
 
 struct ipa_esipa_auth_clnt_req {
 	struct AuthenticateClientRequestEsipa req;
+
+	/*! Raw BER bytes of the AuthenticateServerResponse as received from the
+	 *  eUICC (populated by es10b_auth_serv).  When non-NULL these bytes are
+	 *  embedded verbatim as the authenticateServerResponse field so that the
+	 *  SM-DP+ can verify euiccSignature1 against the original euiccSigned1
+	 *  byte representation without a BER→DER re-encoding round-trip
+	 *  corrupting it.  NULL on the error and IoT-emulation paths. */
+	const struct ipa_buf *raw_authenticate_server_response;
 };
 
 struct ipa_esipa_auth_clnt_res {

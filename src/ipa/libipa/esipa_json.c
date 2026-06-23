@@ -425,12 +425,23 @@ struct ipa_buf *ipa_esipa_json_enc_auth_clnt_req(const struct ipa_esipa_auth_cln
 	if (!tid_hex) { json_decref(obj); return NULL; }
 	json_object_set_new(obj, "transactionId", json_string(tid_hex));
 	IPA_FREE(tid_hex);
-	/* authenticateServerResponse: base64(DER) */
-	if (json_set_asn1_b64(obj, "authenticateServerResponse",
-			      &asn_DEF_AuthenticateServerResponse,
-			      &req->req.authenticateServerResponse) < 0) {
-		json_decref(obj);
-		return NULL;
+	/* authenticateServerResponse: base64 of raw bytes when available (to
+	 * preserve euiccSigned1 byte representation for euiccSignature1
+	 * verification at the SM-DP+), or base64(DER) on the fallback path. */
+	if (req->raw_authenticate_server_response) {
+		if (json_set_bytes_b64(obj, "authenticateServerResponse",
+				       req->raw_authenticate_server_response->data,
+				       req->raw_authenticate_server_response->len) < 0) {
+			json_decref(obj);
+			return NULL;
+		}
+	} else {
+		if (json_set_asn1_b64(obj, "authenticateServerResponse",
+				      &asn_DEF_AuthenticateServerResponse,
+				      &req->req.authenticateServerResponse) < 0) {
+			json_decref(obj);
+			return NULL;
+		}
 	}
 	struct ipa_buf *buf = json_dump_to_buf(obj);
 	json_decref(obj);
@@ -618,43 +629,61 @@ struct ipa_buf *ipa_esipa_json_enc_prvde_eim_pkg_rslt_req(const struct ipa_conte
 		json_object_set_new(obj, "eidValue", json_string(eid_str));
 	}
 
-	/* eimPackageResult: base64(DER(EimPackageResult)).  EimPackageResult is
-	 * the CHOICE defined in §6.3.2.7 — we already build one of its arms
-	 * inside the existing ASN.1 encoder.  Rather than duplicate, build a
-	 * transient ProvideEimPackageResult SEQUENCE like the ASN.1 path does,
-	 * extract its .eimPackageResult, and DER-encode that. */
-	struct ProvideEimPackageResult pepr;
-	struct EimPackageResult *epr;
-	memset(&pepr, 0, sizeof(pepr));
-	epr = &pepr.eimPackageResult;
-	if (req->eim_pkg_err != 0) {
-		epr->present = EimPackageResult_PR_eimPackageResultResponseError;
-		epr->choice.eimPackageResultResponseError.eimPackageResultErrorCode = req->eim_pkg_err;
-	} else if (req->euicc_package_result && req->sgp32_notification_list) {
-		epr->present = EimPackageResult_PR_ePRAndNotifications;
-		epr->choice.ePRAndNotifications.euiccPackageResult = *req->euicc_package_result;
-		if (req->sgp32_notification_list->present ==
-		    SGP32_RetrieveNotificationsListResponse_PR_notificationList)
-			epr->choice.ePRAndNotifications.notificationList =
-			    req->sgp32_notification_list->choice.notificationList;
-	} else if (req->euicc_package_result) {
-		epr->present = EimPackageResult_PR_euiccPackageResult;
-		epr->choice.euiccPackageResult = *req->euicc_package_result;
-	} else if (req->ipa_euicc_data_resp) {
-		epr->present = EimPackageResult_PR_ipaEuiccDataResponse;
-		epr->choice.ipaEuiccDataResponse = *req->ipa_euicc_data_resp;
-	} else if (req->prfle_dwnld_trig_req_rslt) {
-		epr->present = EimPackageResult_PR_profileDownloadTriggerResult;
-		epr->choice.profileDownloadTriggerResult = *req->prfle_dwnld_trig_req_rslt;
+	/* eimPackageResult: base64(EimPackageResult bytes).
+	 * When raw eUICC bytes are available (real eUICC, non-error, non-rollback
+	 * path) embed them verbatim so the eUICC's euiccSignEPR signature over
+	 * euiccPackageResultDataSigned is not broken by a BER→DER re-encode. */
+	if (req->raw_euicc_package_result && req->eim_pkg_err == 0) {
+		struct ipa_buf *eim_der = ipa_esipa_build_eim_pkg_result_der(
+		    req->raw_euicc_package_result, req->sgp32_notification_list);
+		if (!eim_der) {
+			json_decref(obj);
+			return NULL;
+		}
+		int rc = json_set_bytes_b64(obj, "eimPackageResult",
+					    eim_der->data, eim_der->len);
+		IPA_FREE(eim_der);
+		if (rc < 0) {
+			json_decref(obj);
+			return NULL;
+		}
 	} else {
-		epr->present = EimPackageResult_PR_eimPackageResultResponseError;
-		epr->choice.eimPackageResultResponseError.eimPackageResultErrorCode =
-		    EimPackageResultErrorCode_undefinedError;
-	}
-	if (json_set_asn1_b64(obj, "eimPackageResult",
-			      &asn_DEF_EimPackageResult, epr) < 0) {
-		json_decref(obj);
-		return NULL;
+		/* Emulation / rollback / error path: re-encode from the decoded
+		 * C struct (BER→DER round-trip acceptable when no signature
+		 * integrity is required on the euiccPackageResultDataSigned). */
+		struct ProvideEimPackageResult pepr;
+		struct EimPackageResult *epr;
+		memset(&pepr, 0, sizeof(pepr));
+		epr = &pepr.eimPackageResult;
+		if (req->eim_pkg_err != 0) {
+			epr->present = EimPackageResult_PR_eimPackageResultResponseError;
+			epr->choice.eimPackageResultResponseError.eimPackageResultErrorCode = req->eim_pkg_err;
+		} else if (req->euicc_package_result && req->sgp32_notification_list) {
+			epr->present = EimPackageResult_PR_ePRAndNotifications;
+			epr->choice.ePRAndNotifications.euiccPackageResult = *req->euicc_package_result;
+			if (req->sgp32_notification_list->present ==
+			    SGP32_RetrieveNotificationsListResponse_PR_notificationList)
+				epr->choice.ePRAndNotifications.notificationList =
+				    req->sgp32_notification_list->choice.notificationList;
+		} else if (req->euicc_package_result) {
+			epr->present = EimPackageResult_PR_euiccPackageResult;
+			epr->choice.euiccPackageResult = *req->euicc_package_result;
+		} else if (req->ipa_euicc_data_resp) {
+			epr->present = EimPackageResult_PR_ipaEuiccDataResponse;
+			epr->choice.ipaEuiccDataResponse = *req->ipa_euicc_data_resp;
+		} else if (req->prfle_dwnld_trig_req_rslt) {
+			epr->present = EimPackageResult_PR_profileDownloadTriggerResult;
+			epr->choice.profileDownloadTriggerResult = *req->prfle_dwnld_trig_req_rslt;
+		} else {
+			epr->present = EimPackageResult_PR_eimPackageResultResponseError;
+			epr->choice.eimPackageResultResponseError.eimPackageResultErrorCode =
+			    EimPackageResultErrorCode_undefinedError;
+		}
+		if (json_set_asn1_b64(obj, "eimPackageResult",
+				      &asn_DEF_EimPackageResult, epr) < 0) {
+			json_decref(obj);
+			return NULL;
+		}
 	}
 
 	struct ipa_buf *buf = json_dump_to_buf(obj);
@@ -757,12 +786,22 @@ struct ipa_buf *ipa_esipa_json_enc_transfer_eim_pkg_rsp(const struct ipa_esipa_p
 		   req->sgp32_notification_list->present ==
 		       SGP32_RetrieveNotificationsListResponse_PR_notificationList) {
 		json_t *sub = json_object();
-		/* euiccPackageResult */
-		if (json_set_asn1_b64(sub, "euiccPackageResult",
-				      &asn_DEF_EuiccPackageResult,
-				      req->euicc_package_result) < 0) {
-			json_decref(sub);
-			goto err;
+		/* euiccPackageResult: use raw bytes when available to preserve the
+		 * signed euiccPackageResultDataSigned byte representation. */
+		if (req->raw_euicc_package_result) {
+			if (json_set_bytes_b64(sub, "euiccPackageResult",
+					       req->raw_euicc_package_result->data,
+					       req->raw_euicc_package_result->len) < 0) {
+				json_decref(sub);
+				goto err;
+			}
+		} else {
+			if (json_set_asn1_b64(sub, "euiccPackageResult",
+					      &asn_DEF_EuiccPackageResult,
+					      req->euicc_package_result) < 0) {
+				json_decref(sub);
+				goto err;
+			}
 		}
 		/* notificationList as PendingNotificationList */
 		if (json_set_asn1_b64(sub, "notificationList",
@@ -773,10 +812,18 @@ struct ipa_buf *ipa_esipa_json_enc_transfer_eim_pkg_rsp(const struct ipa_esipa_p
 		}
 		json_object_set_new(obj, "ePRAndNotifications", sub);
 	} else if (req->euicc_package_result) {
-		if (json_set_asn1_b64(obj, "euiccPackageResult",
-				      &asn_DEF_EuiccPackageResult,
-				      req->euicc_package_result) < 0)
-			goto err;
+		/* Use raw bytes when available for the same signature-preservation reason. */
+		if (req->raw_euicc_package_result) {
+			if (json_set_bytes_b64(obj, "euiccPackageResult",
+					       req->raw_euicc_package_result->data,
+					       req->raw_euicc_package_result->len) < 0)
+				goto err;
+		} else {
+			if (json_set_asn1_b64(obj, "euiccPackageResult",
+					      &asn_DEF_EuiccPackageResult,
+					      req->euicc_package_result) < 0)
+				goto err;
+		}
 	} else if (req->ipa_euicc_data_resp) {
 		if (json_set_asn1_b64(obj, "ipaEuiccDataResponse",
 				      &asn_DEF_IpaEuiccDataResponse,

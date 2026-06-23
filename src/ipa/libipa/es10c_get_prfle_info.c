@@ -12,6 +12,8 @@
 #include <assert.h>
 #include <string.h>
 #include <errno.h>
+#include <stdint.h>
+#include <asn_application.h>
 #include <onomondo/ipa/mem.h>
 #include <onomondo/ipa/utils.h>
 #include <onomondo/ipa/scard.h>

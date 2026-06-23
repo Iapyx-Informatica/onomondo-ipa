@@ -8,6 +8,7 @@
 
 #include <EuiccPackageRequest.h>
 #include <EuiccPackageResult.h>
+#include <onomondo/ipa/utils.h>
 struct ipa_context;
 
 struct ipa_es10b_load_euicc_pkg_req {
@@ -16,6 +17,13 @@ struct ipa_es10b_load_euicc_pkg_req {
 
 struct ipa_es10b_load_euicc_pkg_res {
 	struct EuiccPackageResult *res;
+
+	/*! Raw BER bytes of the EuiccPackageResult as received from the eUICC.
+	 *  Populated only on the real-eUICC path (not IoT emulation).  When
+	 *  non-NULL these bytes are forwarded verbatim to the eIM so that the
+	 *  eUICC signature over euiccPackageResultDataSigned is not broken by a
+	 *  BER → DER re-encoding round-trip. */
+	struct ipa_buf *raw_res;
 
 	/*! set to true in case the EuiccPackageRequest contains an enable PSMO that executed successfully, which
 	 *  means that a profile change actually took place. */

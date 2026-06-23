@@ -25,10 +25,14 @@
  */
 
 #include <stdint.h>
+#include <string.h>
+#include <assert.h>
 #include <errno.h>
 #include <onomondo/ipa/http.h>
+#include <onomondo/ipa/mem.h>
 #include <onomondo/ipa/log.h>
 #include <onomondo/ipa/ipad.h>
+#include <onomondo/ipa/utils.h>
 #include <EsipaMessageFromIpaToEim.h>
 #include <AuthenticateClientResponseEsipa.h>
 #include "utils.h"
@@ -59,6 +63,96 @@ static struct ipa_buf *enc_auth_clnt_req(const struct ipa_esipa_auth_clnt_req *r
 
 	/* Encode */
 	return ipa_esipa_msg_to_eim_enc(&msg_to_eim, "AuthenticateClient");
+}
+
+/*
+ * DER length helpers (kept private to this file).
+ */
+static size_t auth_clnt_der_length_size(size_t val)
+{
+	if (val < 0x80) return 1;
+	if (val < 0x100) return 2;
+	if (val < 0x10000) return 3;
+	if (val < 0x1000000) return 4;
+	return 5;
+}
+
+static size_t auth_clnt_der_write_length(uint8_t *p, size_t val)
+{
+	if (val < 0x80) { p[0] = (uint8_t)val; return 1; }
+	if (val < 0x100) { p[0] = 0x81; p[1] = (uint8_t)val; return 2; }
+	if (val < 0x10000) {
+		p[0] = 0x82; p[1] = (uint8_t)(val >> 8); p[2] = (uint8_t)val;
+		return 3;
+	}
+	if (val < 0x1000000) {
+		p[0] = 0x83; p[1] = (uint8_t)(val >> 16);
+		p[2] = (uint8_t)(val >> 8); p[3] = (uint8_t)val;
+		return 4;
+	}
+	p[0] = 0x84; p[1] = (uint8_t)(val >> 24); p[2] = (uint8_t)(val >> 16);
+	p[3] = (uint8_t)(val >> 8); p[4] = (uint8_t)val;
+	return 5;
+}
+
+/*
+ * Build AuthenticateClientRequestEsipa manually so that the eUICC's
+ * AuthenticateServerResponse bytes are embedded verbatim (not re-encoded).
+ *
+ * Wire format (ASN.1/BER binding):
+ *
+ *   BF3B <len>             EsipaMessageFromIpaToEim [59] (== outer tag of
+ *                          AuthenticateClientRequestEsipa SEQUENCE)
+ *     80 <tid_len> <tid>   transactionId [0] IMPLICIT OCTET STRING
+ *     BF38 ...             authenticateServerResponse — raw bytes from eUICC
+ *                          (AuthenticateServerResponse outer tag = BF38, which
+ *                          is identical to SGP32_AuthenticateServerResponse
+ *                          outer tag used in AuthenticateClientRequestEsipa)
+ *
+ * The raw bytes already carry the correct BF38 tag — no re-wrapping needed.
+ */
+static struct ipa_buf *enc_auth_clnt_req_passthru(const struct ipa_esipa_auth_clnt_req *req)
+{
+	const struct ipa_buf *raw = req->raw_authenticate_server_response;
+
+	/* transactionId field: 0x80 <len> <bytes>
+	 * Access .buf/.size directly on the OCTET_STRING value — avoids any
+	 * pointer-to-typedef type mismatch with struct TransactionId. */
+	size_t tid_body_len = req->req.transactionId.size;
+	size_t tid_hdr_len  = 1 + auth_clnt_der_length_size(tid_body_len);
+	size_t tid_tlv_len  = tid_hdr_len + tid_body_len;
+
+	/* inner content of BF3B = tid TLV + raw authenticateServerResponse */
+	size_t inner_len = tid_tlv_len + raw->len;
+
+	/* outer BF3B header: tag is 2 bytes (BF 3B) + length */
+	size_t outer_hdr_len = 2 + auth_clnt_der_length_size(inner_len);
+	size_t total_len = outer_hdr_len + inner_len;
+
+	struct ipa_buf *msg = ipa_buf_alloc(total_len);
+	if (!msg)
+		return NULL;
+
+	size_t off = 0;
+
+	/* BF3B outer tag (context [59] constructed, multi-byte) */
+	msg->data[off++] = 0xBF;
+	msg->data[off++] = 0x3B;
+	off += auth_clnt_der_write_length(msg->data + off, inner_len);
+
+	/* transactionId [0] IMPLICIT OCTET STRING = tag 0x80 */
+	msg->data[off++] = 0x80;
+	off += auth_clnt_der_write_length(msg->data + off, tid_body_len);
+	memcpy(msg->data + off, req->req.transactionId.buf, tid_body_len);
+	off += tid_body_len;
+
+	/* authenticateServerResponse: raw BF38 bytes verbatim */
+	memcpy(msg->data + off, raw->data, raw->len);
+	off += raw->len;
+
+	assert(off == total_len);
+	msg->len = total_len;
+	return msg;
 }
 
 static struct ipa_esipa_auth_clnt_res *dec_auth_clnt_res(const struct ipa_buf *msg_to_ipa_encoded,
@@ -130,7 +224,13 @@ struct ipa_esipa_auth_clnt_res *ipa_esipa_auth_clnt(struct ipa_context *ctx, con
 		goto error;
 	}
 
-	esipa_req = enc_auth_clnt_req(req);
+	/* ASN.1/BER binding: use passthru encoder when raw eUICC bytes are
+	 * available to avoid breaking euiccSignature1 via BER→DER re-encode. */
+	if (req->raw_authenticate_server_response) {
+		esipa_req = enc_auth_clnt_req_passthru(req);
+	} else {
+		esipa_req = enc_auth_clnt_req(req);
+	}
 	if (!esipa_req) {
 		IPA_LOGP_ESIPA("AuthenticateClient", LERROR, "failed to encode the AuthenticateClient request!\n");
 		goto error;
