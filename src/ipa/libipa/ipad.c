@@ -157,6 +157,8 @@ int eim_init(struct ipa_context *ctx)
 
 	if (eim_cfg_data_item->eimFqdn)
 		ctx->eim_fqdn = IPA_STR_FROM_ASN(eim_cfg_data_item->eimFqdn);
+	else if (*eim_cfg_data_item->eimIdType == 2)
+		ctx->eim_fqdn = IPA_STR_FROM_ASN(&eim_cfg_data_item->eimId);
 	else
 		goto error;
 
