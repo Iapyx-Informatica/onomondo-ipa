@@ -85,6 +85,8 @@ static struct ipa_esipa_cancel_session_res *dec_cancel_session_res(const struct 
 	return res;
 }
 
+struct ipa_buf *ipa_esipa_json_enc_cancel_session_req(const struct ipa_esipa_cancel_session_req *);
+
 /*! Function (ESipa): CancelSession.
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] req pointer to struct that holds the function parameters.
