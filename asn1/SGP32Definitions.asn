@@ -331,7 +331,7 @@ DeleteProfileResult ::= INTEGER {
 -- from the spec, update the name/type here and regenerate libasn; the binary
 -- encoding (tag 9F7B, primitive, NULL) is authoritative.
 -- ASN1START
-ProfileInfo ::= [PRIVATE 3] SEQUENCE { -- Tag 'E3'
+SGP32-ProfileInfo ::= [PRIVATE 3] SEQUENCE { -- Tag 'E3'
   iccid Iccid OPTIONAL,
   isdpAid [APPLICATION 15] OctetTo16 OPTIONAL, -- Tag '4F'
   profileState [112] ProfileState OPTIONAL, -- Tag '9F70'
@@ -358,7 +358,7 @@ ProfileInfo ::= [PRIVATE 3] SEQUENCE { -- Tag 'E3'
 -- clean fix is to drop ProfileInfoListResponse from the RSP import block
 -- below, which requires careful libipa review first).
 SGP32-ProfileInfoListResponse ::= [45] CHOICE {
-  profileInfoListOk SEQUENCE OF ProfileInfo, -- SGP.32 §4.4 local override
+  profileInfoListOk SEQUENCE OF SGP32-ProfileInfo, -- SGP.32 §4.4 local override
   profileInfoListError SGP32-ProfileInfoListError
 }
 SGP32-ProfileInfoListError ::= INTEGER {

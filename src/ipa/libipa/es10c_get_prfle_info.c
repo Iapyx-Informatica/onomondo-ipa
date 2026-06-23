@@ -35,12 +35,18 @@ static const struct num_str_map error_code_strings_sgp32[] = {
 	{ 0, NULL }
 };
 
-/* Convert the response into SGP32 format */
+/* Convert the response into SGP32 format.
+ * Each ProfileInfo element is re-encoded as DER and decoded as SGP32_ProfileInfo
+ * so that the extension fields (fallbackAttribute, emergencyCallAttribute) default
+ * to NULL for consumer eUICCs that do not set them. */
 static struct SGP32_ProfileInfoListResponse *convert_res_to_sgp32(struct ProfileInfoListResponse *res)
 {
 	struct SGP32_ProfileInfoListResponse *sgp32_res;
-	struct ProfileInfo *prfle_info_item;
+	struct SGP32_ProfileInfo *prfle_info_item;
 	unsigned int i;
+	uint8_t enc_buf[4096];
+	asn_enc_rval_t enc_rval;
+	asn_dec_rval_t dec_rval;
 
 	if (!res)
 		return NULL;
@@ -51,11 +57,26 @@ static struct SGP32_ProfileInfoListResponse *convert_res_to_sgp32(struct Profile
 	switch (res->present) {
 	case ProfileInfoListResponse_PR_profileInfoListOk:
 		for (i = 0; i < res->choice.profileInfoListOk.list.count; i++) {
-			prfle_info_item = IPA_ALLOC(struct ProfileInfo);
-			*prfle_info_item = *res->choice.profileInfoListOk.list.array[i];
+			prfle_info_item = NULL;
+			enc_rval = der_encode_to_buffer(&asn_DEF_ProfileInfo,
+					res->choice.profileInfoListOk.list.array[i],
+					enc_buf, sizeof(enc_buf));
+			if (enc_rval.encoded < 0) {
+				IPA_LOGP_ES10X("GetProfilesInfo", LERROR,
+					"unable to DER-encode ProfileInfo element %u\n", i);
+				continue;
+			}
+			dec_rval = ber_decode(0, &asn_DEF_SGP32_ProfileInfo,
+					(void **)&prfle_info_item,
+					enc_buf, (size_t)enc_rval.encoded);
+			if (dec_rval.code != RC_OK) {
+				IPA_LOGP_ES10X("GetProfilesInfo", LERROR,
+					"unable to decode ProfileInfo element %u as SGP32-ProfileInfo\n", i);
+				ASN_STRUCT_FREE(asn_DEF_SGP32_ProfileInfo, prfle_info_item);
+				continue;
+			}
 			ASN_SEQUENCE_ADD(&sgp32_res->choice.profileInfoListOk.list, prfle_info_item);
 		}
-
 		sgp32_res->present = SGP32_ProfileInfoListResponse_PR_profileInfoListOk;
 		break;
 	case ProfileInfoListResponse_PR_profileInfoListError:
@@ -66,8 +87,8 @@ static struct SGP32_ProfileInfoListResponse *convert_res_to_sgp32(struct Profile
 		default:
 			sgp32_res->choice.profileInfoListError = ProfileInfoListError_undefinedError;
 		}
-		break;
 		sgp32_res->present = SGP32_ProfileInfoListResponse_PR_profileInfoListError;
+		break;
 	default:
 		sgp32_res->present = SGP32_ProfileInfoListResponse_PR_NOTHING;
 	}
@@ -134,7 +155,7 @@ static int dec_get_prfle_info_res_sgp32(struct ipa_es10c_get_prfle_info_res *res
 static void find_currently_active_prfle(struct ipa_es10c_get_prfle_info_res *res)
 {
 	unsigned int i;
-	struct ProfileInfo *prfle_info;
+	struct SGP32_ProfileInfo *prfle_info;
 	res->currently_active_prfle = NULL;
 
 	if (res->sgp32_res->present != SGP32_ProfileInfoListResponse_PR_profileInfoListOk)
@@ -214,7 +235,8 @@ void ipa_es10c_get_prfle_info_res_free(struct ipa_es10c_get_prfle_info_res *res)
 		if (res->sgp32_res) {
 			if (res->sgp32_res->present == SGP32_ProfileInfoListResponse_PR_profileInfoListOk) {
 				for (i = 0; i < res->sgp32_res->choice.profileInfoListOk.list.count; i++)
-					IPA_FREE(res->sgp32_res->choice.profileInfoListOk.list.array[i]);
+					ASN_STRUCT_FREE(asn_DEF_SGP32_ProfileInfo,
+							res->sgp32_res->choice.profileInfoListOk.list.array[i]);
 				IPA_FREE(res->sgp32_res->choice.profileInfoListOk.list.array);
 			}
 			IPA_FREE(res->sgp32_res);

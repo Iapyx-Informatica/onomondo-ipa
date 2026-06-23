@@ -9,6 +9,7 @@
 #include <ProfileInfoListRequest.h>
 #include <ProfileInfoListResponse.h>
 #include <SGP32-ProfileInfoListResponse.h>
+#include <SGP32-ProfileInfo.h>
 struct ipa_context;
 
 struct ipa_es10c_get_prfle_info_req {
@@ -18,7 +19,7 @@ struct ipa_es10c_get_prfle_info_req {
 struct ipa_es10c_get_prfle_info_res {
 	struct ProfileInfoListResponse *res;
 	struct SGP32_ProfileInfoListResponse *sgp32_res;
-	struct ProfileInfo *currently_active_prfle;
+	struct SGP32_ProfileInfo *currently_active_prfle;
 	long prfle_info_list_err;
 
 	/*! When the IoT eUICC emulation is enabled, this function will retrieve the ProfileInfoListResponse
