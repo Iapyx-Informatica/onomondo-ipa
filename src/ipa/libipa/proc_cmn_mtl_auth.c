@@ -86,11 +86,18 @@ static int check_certificate(const struct ipa_buf *allowed_ca, const Certificate
 	 * received from the eIM, since this value is the same as the value in the Subject Key Identifier of the
 	 * eSIM RootCA certificate. */
 	if (allowed_ca) {
-		/* UPDATE for v1.2 asn1c regen: asn_oid_arc_t alias is gone;
-		 * OBJECT_IDENTIFIER_get_arcs() now takes a plain unsigned int array
-		 * plus the element size and slot count. */
-		const unsigned int id_ce_authorityKeyIdentifier[4] = { 2, 5, 29, 35 };
-		unsigned int extension_arcs[256];
+		/* asn1c API compatibility: OBJECT_IDENTIFIER_get_arcs has two
+		 * signatures depending on asn1c version.  CMake detects the header
+		 * layout and sets ASN1C_OID_GET_ARCS_4ARG for 0.9.28.  Also note
+		 * 0.9.28 does NOT emit the asn_oid_arc_t typedef — so we use plain
+		 * unsigned int (the underlying type in both versions). */
+#ifdef ASN1C_OID_GET_ARCS_4ARG
+		typedef unsigned int oid_arc_t;
+#else
+		typedef asn_oid_arc_t oid_arc_t;
+#endif
+		const oid_arc_t id_ce_authorityKeyIdentifier[4] = { 2, 5, 29, 35 };
+		oid_arc_t extension_arcs[256];
 		int extension_arcs_len;
 		const struct Extensions *extensions;
 		bool allowed_ca_present = false;
@@ -107,10 +114,16 @@ static int check_certificate(const struct ipa_buf *allowed_ca, const Certificate
 		memcpy(allowed_ca_tlv->data + 4, allowed_ca->data, allowed_ca->len);
 		extensions = certificate->tbsCertificate.extensions;
 		for (i = 0; i < extensions->list.count; i++) {
+#ifdef ASN1C_OID_GET_ARCS_4ARG
 			extension_arcs_len =
 			    OBJECT_IDENTIFIER_get_arcs(&extensions->list.array[i]->extnID, extension_arcs,
 						       sizeof(extension_arcs[0]),
 						       IPA_ARRAY_SIZE(extension_arcs));
+#else
+			extension_arcs_len = (int)
+			    OBJECT_IDENTIFIER_get_arcs(&extensions->list.array[i]->extnID, extension_arcs,
+						       IPA_ARRAY_SIZE(extension_arcs));
+#endif
 			if (extension_arcs_len == (int)IPA_ARRAY_SIZE(id_ce_authorityKeyIdentifier) &&
 			    memcmp(extension_arcs, id_ce_authorityKeyIdentifier,
 				   sizeof(id_ce_authorityKeyIdentifier)) == 0) {
