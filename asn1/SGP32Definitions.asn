@@ -1038,7 +1038,7 @@ AuthenticateClientOkDPEsipa ::= SEQUENCE {
   hashCc Octet32 OPTIONAL -- Hash of confirmation code
 }
 AuthenticateClientOkDSEsipa ::= SEQUENCE {
-  transactionId [0] TransactionId OPTIONAL,
+  transactionId [0] TransactionId, -- v1.2: mandatory (not OPTIONAL)
   profileDownloadTrigger [84] ProfileDownloadTriggerRequest OPTIONAL -- Tag 'BF54'
 }
 -- ASN1STOP
