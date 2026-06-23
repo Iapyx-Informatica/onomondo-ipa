@@ -11,6 +11,6 @@
  * running as IPAe).  Additional free-form information MAY follow a semicolon.
  * The original v1.0 value "Onomondo IPAd / 1.0.0 via libcurl" was not
  * compliant and would cause interop failures against a strict eIM. */
-#define IPA_HTTP_USER_AGENT "gsma-rsp-ipad; Onomondo IPAd / 1.0.0 via libcurl"
+#define IPA_HTTP_USER_AGENT "gsma-rsp-ipad"
 #define IPA_HTTP_X_ADMIN_PROTOCOL "gsma/rsp/v2.1.0"
 #define IPA_HTTP_CONTENT_TYPE "application/x-gsma-rsp-asn1"

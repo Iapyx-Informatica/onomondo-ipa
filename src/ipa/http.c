@@ -125,11 +125,18 @@ struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req,
 
 	/* Setup header, see also SGP.32, section 6.1.1 */
 	/* UPDATE for v1.2: CR111005R00 — User-Agent now has a spec-defined value;
-	 * see IPA_HTTP_USER_AGENT in onomondo/ipa/http_hdr.h. */
+	 * see IPA_HTTP_USER_AGENT in onomondo/ipa/http_hdr.h.
+	 * NEW v1.2 §6.4: content_type may be passed explicitly (JSON binding);
+	 * falls back to the ASN.1 default when NULL. */
 	list = curl_slist_append(list, "Accept:");
 	list = curl_slist_append(list, "User-Agent: " IPA_HTTP_USER_AGENT);
 	list = curl_slist_append(list, "X-Admin-Protocol: " IPA_HTTP_X_ADMIN_PROTOCOL);
-	list = curl_slist_append(list, "Content-Type: " IPA_HTTP_CONTENT_TYPE);
+	if (content_type && *content_type) {
+		snprintf(ct_header, sizeof(ct_header), "Content-Type: %s", content_type);
+		list = curl_slist_append(list, ct_header);
+	} else {
+		list = curl_slist_append(list, "Content-Type: " IPA_HTTP_CONTENT_TYPE);
+	}
 	rc = curl_easy_setopt(ctx->curl, CURLOPT_HTTPHEADER, list);
 	if (rc != CURLE_OK) {
 		IPA_LOGP(SHTTP, LERROR, "internal HTTP-client failure: %s\n", curl_easy_strerror(rc));
