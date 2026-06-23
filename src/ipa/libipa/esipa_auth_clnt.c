@@ -35,6 +35,7 @@
 #include "length.h"
 #include "context.h"
 #include "esipa.h"
+#include "esipa_json.h"
 #include "esipa_auth_clnt.h"
 
 static const struct num_str_map error_code_strings[] = {
@@ -118,6 +119,16 @@ struct ipa_esipa_auth_clnt_res *ipa_esipa_auth_clnt(struct ipa_context *ctx, con
 	struct ipa_esipa_auth_clnt_res *res = NULL;
 
 	IPA_LOGP_ESIPA("AuthenticateClient", LINFO, "Requesting client authentication\n");
+
+	/* NEW v1.2 §6.4: JSON binding dispatcher. */
+	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON) {
+		esipa_req = ipa_esipa_json_enc_auth_clnt_req(req);
+		if (!esipa_req) goto error;
+		esipa_res = ipa_esipa_req(ctx, esipa_req, "AuthenticateClient");
+		if (!esipa_res) goto error;
+		res = ipa_esipa_json_dec_auth_clnt_res(esipa_res, req);
+		goto error;
+	}
 
 	esipa_req = enc_auth_clnt_req(req);
 	if (!esipa_req) {

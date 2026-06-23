@@ -46,6 +46,34 @@ PATH (requires a running Docker daemon).
 (cd build && ctest --output-on-failure)
 ```
 
+## Selecting the ESipa binding (ASN.1 vs JSON)
+
+SGP.32 v1.2 §6.4 defines two wire bindings for the ESipa interface.
+The IPA supports both:
+
+- **ASN.1 binding (default)** — `application/x-gsma-rsp-asn1`, single endpoint
+  `/gsma/rsp2/asn1`.  Most compact, recommended for NB-IoT / cat-M uplinks.
+- **JSON binding** — `application/json;charset=UTF-8`, per-function endpoints
+  `/gsma/rsp2/esipa/<functionName>`.  Easier to inspect with curl / Wireshark;
+  typical for backend / cloud-hosted eIMs.
+
+Both are v1.2-compliant.  Select at init time:
+
+```c
+struct ipa_config cfg = { 0 };
+/* ... other fields ... */
+cfg.esipa_binding = IPA_ESIPA_BINDING_JSON; /* or _ASN1 (default) */
+```
+
+The JSON binding requires `libjansson-dev` at build time (auto-detected by
+CMake).  Without jansson, the binding compiles to a stub and only the
+ASN.1 path is functional — the ASN.1 build is unaffected.
+
+Note: the JSON encoders and decoders are compile-verified but have not yet
+been interop-tested against a real JSON-speaking eIM.  A first-pass run
+against your target eIM would be very useful for closing remaining edge
+cases (error-code wrappers, `eimTransactionId` correlation, etc.).
+
 ## Running against a real eIM / eUICC
 
 This implementation is a working IPAd — it polls an eIM over HTTPS and talks

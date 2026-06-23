@@ -21,6 +21,7 @@
 #include "length.h"
 #include "context.h"
 #include "esipa.h"
+#include "esipa_json.h"
 #include "esipa_get_bnd_prfle_pkg.h"
 
 static const struct num_str_map error_code_strings[] = {
@@ -127,6 +128,17 @@ struct ipa_esipa_get_bnd_prfle_pkg_res *ipa_esipa_get_bnd_prfle_pkg(struct ipa_c
 	struct ipa_esipa_get_bnd_prfle_pkg_res *res = NULL;
 
 	IPA_LOGP_ESIPA("GetBoundProfilePackage", LINFO, "Preparing encoded profile package request\n");
+
+	/* NEW v1.2 §6.4: JSON binding dispatcher. */
+	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON) {
+		esipa_req = ipa_esipa_json_enc_get_bnd_prfle_pkg_req(req);
+		if (!esipa_req) goto error;
+		esipa_res = ipa_esipa_req(ctx, esipa_req, "GetBoundProfilePackage");
+		if (!esipa_res) goto error;
+		res = ipa_esipa_json_dec_get_bnd_prfle_pkg_res(esipa_res);
+		goto error;
+	}
+
 	esipa_req = enc_get_bnd_prfle_pkg_req(req);
 	if (!esipa_req)
 		goto error;

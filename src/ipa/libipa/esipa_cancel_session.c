@@ -98,6 +98,18 @@ struct ipa_esipa_cancel_session_res *ipa_esipa_cancel_session(struct ipa_context
 
 	IPA_LOGP_ESIPA("CancelSession", LINFO, "Requesting cancellation of session\n");
 
+	/* NEW v1.2 §6.4: JSON binding dispatcher — CancelSession has no response
+	 * body in the JSON binding. */
+	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON) {
+		esipa_req = ipa_esipa_json_enc_cancel_session_req(req);
+		if (!esipa_req) goto error;
+		esipa_res = ipa_esipa_req(ctx, esipa_req, "CancelSession");
+		if (!esipa_res) goto error;
+		res = IPA_ALLOC_ZERO(struct ipa_esipa_cancel_session_res);
+		if (res) res->cancel_session_ok = true;
+		goto error;
+	}
+
 	esipa_req = enc_cancel_session_req(req);
 	if (!esipa_req)
 		goto error;

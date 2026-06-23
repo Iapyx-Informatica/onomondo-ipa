@@ -35,6 +35,7 @@
 #include "length.h"
 #include "context.h"
 #include "esipa.h"
+#include "esipa_json.h"
 #include "esipa_init_auth.h"
 
 static const struct num_str_map error_code_strings[] = {
@@ -132,6 +133,17 @@ struct ipa_esipa_init_auth_res *ipa_esipa_init_auth(struct ipa_context *ctx, con
 
 	IPA_LOGP_ESIPA("InitiateAuthentication", LINFO, "Requesting authentication with eUICC challenge: %s\n",
 		       ipa_hexdump(req->euicc_challenge, IPA_LEN_EUICC_CHLG));
+
+	/* NEW v1.2 §6.4: JSON binding dispatcher.  Encode + decode using the
+	 * JSON helpers when the caller opted in; fall through to ASN.1 otherwise. */
+	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON) {
+		esipa_req = ipa_esipa_json_enc_init_auth_req(req);
+		if (!esipa_req) goto error;
+		esipa_res = ipa_esipa_req(ctx, esipa_req, "InitiateAuthentication");
+		if (!esipa_res) goto error;
+		res = ipa_esipa_json_dec_init_auth_res(esipa_res);
+		goto error; /* single return path via error: free buffers */
+	}
 
 	esipa_req = enc_init_auth_req(req);
 	if (!esipa_req)

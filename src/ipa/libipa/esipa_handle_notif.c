@@ -19,6 +19,7 @@
 #include "length.h"
 #include "context.h"
 #include "esipa.h"
+#include "esipa_json.h"
 #include "esipa_handle_notif.h"
 
 static struct ipa_buf *enc_handle_notif_req(const struct ipa_esipa_handle_notif_req *req)
@@ -74,6 +75,17 @@ int ipa_esipa_handle_notif(struct ipa_context *ctx, const struct ipa_esipa_handl
 	int rc = -EINVAL;
 
 	IPA_LOGP_ESIPA("HandleNotification", LINFO, "Sending notification to eIM\n");
+
+	/* NEW v1.2 §6.4: JSON binding dispatcher — HandleNotification has no
+	 * response body in either binding. */
+	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON) {
+		esipa_req = ipa_esipa_json_enc_handle_notif_req(req);
+		if (!esipa_req) goto error;
+		esipa_res = ipa_esipa_req(ctx, esipa_req, "HandleNotification");
+		if (!esipa_res) goto error;
+		rc = 0;
+		goto error;
+	}
 
 	esipa_req = enc_handle_notif_req(req);
 	if (!esipa_req)

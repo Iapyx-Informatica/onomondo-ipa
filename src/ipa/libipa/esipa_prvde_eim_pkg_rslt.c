@@ -72,6 +72,7 @@
 #include "length.h"
 #include "context.h"
 #include "esipa.h"
+#include "esipa_json.h"
 #include "esipa_prvde_eim_pkg_rslt.h"
 
 static struct ipa_buf *enc_prvde_eim_pkg_rslt_req(const struct ipa_context *ctx,
@@ -196,6 +197,16 @@ struct ipa_esipa_prvde_eim_pkg_rslt_res *ipa_esipa_prvde_eim_pkg_rslt(struct ipa
 
 	IPA_LOGP_ESIPA("ProvideEimPackageResult", LINFO,
 		       "Providing eUICC package result and eUICC notifications to eIM\n");
+
+	/* NEW v1.2 §6.4: JSON binding dispatcher. */
+	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON) {
+		esipa_req = ipa_esipa_json_enc_prvde_eim_pkg_rslt_req(ctx, req);
+		if (!esipa_req) goto error;
+		esipa_res = ipa_esipa_req(ctx, esipa_req, "ProvideEimPackageResult");
+		if (!esipa_res) goto error;
+		res = ipa_esipa_json_dec_prvde_eim_pkg_rslt_res(esipa_res);
+		goto error;
+	}
 
 	esipa_req = enc_prvde_eim_pkg_rslt_req(ctx, req);
 	if (!esipa_req)

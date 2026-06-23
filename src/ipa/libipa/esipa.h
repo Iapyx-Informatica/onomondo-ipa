@@ -18,6 +18,7 @@ struct ipa_buf;
 #define IPA_ESIPA_URL_MAXLEN 1024
 
 char *ipa_esipa_get_eim_url(struct ipa_context *ctx);
+char *ipa_esipa_get_eim_url_for(struct ipa_context *ctx, const char *function_name);
 struct EsipaMessageFromEimToIpa *ipa_esipa_msg_to_ipa_dec(const struct ipa_buf *msg_to_ipa_encoded,
 							  const char *function_name,
 							  enum EsipaMessageFromEimToIpa_PR epected_res_type);

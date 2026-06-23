@@ -4,6 +4,7 @@
 add_library(libipa STATIC
   activation_code.c
   bpp_segments.c
+  esipa_json.c
   es10a_get_euicc_cfg_addr.c
   es10b_add_init_eim.c
   es10b_auth_serv.c
@@ -53,6 +54,23 @@ add_library(libipa STATIC
 target_include_directories(libipa PUBLIC ${CMAKE_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(libipa PUBLIC libasn)
 target_compile_options(libipa PRIVATE -Wall)
+
+# Jansson for the v1.2 §6.4 JSON binding on ESipa.  Optional — if not found,
+# the JSON dispatcher compiles to a stub that rejects with an error, and
+# IPA_ESIPA_BINDING_ASN1 still works unchanged.
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+  pkg_check_modules(JANSSON QUIET jansson)
+endif()
+if(JANSSON_FOUND)
+  message(STATUS "jansson found; ESipa JSON binding enabled")
+  target_compile_definitions(libipa PUBLIC IPA_HAVE_JANSSON=1)
+  target_include_directories(libipa PRIVATE ${JANSSON_INCLUDE_DIRS})
+  target_link_libraries(libipa PUBLIC ${JANSSON_LIBRARIES})
+  target_link_directories(libipa PUBLIC ${JANSSON_LIBRARY_DIRS})
+else()
+  message(STATUS "jansson NOT found; ESipa JSON binding will be a compile-time stub (install libjansson-dev to enable)")
+endif()
 if (M32)
   set_target_properties(libipa PROPERTIES COMPILE_FLAGS "-m32" LINK_FLAGS "-m32")
 endif()

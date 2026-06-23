@@ -14,5 +14,11 @@ struct ipa_buf;
 
 void *ipa_http_init(const char *cabundle, bool no_verif);
 struct ipa_buf *ipa_http_req(void *http_ctx, const struct ipa_buf *req, const char *url);
+/* NEW v1.2 §6.4: variant taking an explicit Content-Type header so the
+ * JSON binding can request application/json while the ASN.1 binding keeps
+ * application/x-gsma-rsp-asn1.  Passing NULL content_type behaves identically
+ * to ipa_http_req() (ASN.1 default). */
+struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req,
+				     const char *url, const char *content_type);
 void ipa_http_close(void *http_ctx);
 void ipa_http_free(void *http_ctx);

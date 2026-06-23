@@ -14,6 +14,7 @@
 #include <onomondo/ipa/log.h>
 #include <onomondo/ipa/http.h>
 #include "esipa.h"
+#include "esipa_json.h"
 #include "context.h"
 #include "utils.h"
 #include "length.h"
@@ -27,29 +28,41 @@
  *  \returns pointer to eIM URL (statically allocated, do not free). */
 char *ipa_esipa_get_eim_url(struct ipa_context *ctx)
 {
+	return ipa_esipa_get_eim_url_for(ctx, NULL);
+}
+
+/* NEW v1.2 §6.4: per-function URL selection.  ASN.1 binding always uses the
+ * single /gsma/rsp2/asn1 endpoint (function is discriminated inside the DER);
+ * JSON binding uses a per-function path /gsma/rsp2/esipa/<functionName>.
+ * function_name is ignored for the ASN.1 binding. */
+char *ipa_esipa_get_eim_url_for(struct ipa_context *ctx, const char *function_name)
+{
 	static char eim_url[IPA_ESIPA_URL_MAXLEN];
+	const char *suffix = SUFFIX;
 	size_t url_len = 0;
 
 	memset(eim_url, 0, sizeof(eim_url));
-
-	/* Make sure we have a reasonable minimum of space available */
 	assert(sizeof(eim_url) > 255);
+
+	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON && function_name) {
+		const char *p = ipa_esipa_json_url_path(function_name);
+		if (p) suffix = p;
+	}
 
 	if (ctx->cfg->eim_disable_ssl)
 		strcpy(eim_url, PREFIX_HTTP);
 	else
 		strcpy(eim_url, PREFIX_HTTPS);
 
-	/* Be sure we don't accidentally overrun the buffer */
 	url_len = strlen(eim_url);
 	if (!ctx->eim_fqdn)
 		return NULL;
 	url_len += strlen(ctx->eim_fqdn);
-	url_len += strlen(SUFFIX);
+	url_len += strlen(suffix);
 	assert(url_len < sizeof(eim_url));
 
 	strcat(eim_url, ctx->eim_fqdn);
-	strcat(eim_url, SUFFIX);
+	strcat(eim_url, suffix);
 
 	return eim_url;
 }
@@ -156,7 +169,11 @@ struct ipa_buf *ipa_esipa_req(struct ipa_context *ctx, const struct ipa_buf *esi
 	for (i = 0; i < ctx->cfg->esipa_req_retries + 1; i++) {
 		IPA_LOGP_ESIPA(function_name, LDEBUG, "sending %zu bytes to eIM (buffer size: %zu bytes)\n",
 			       esipa_req->len, esipa_req->data_len);
-		esipa_res = ipa_http_req(ctx->http_ctx, esipa_req, ipa_esipa_get_eim_url(ctx));
+		/* NEW v1.2 §6.4: per-function JSON URL + JSON Content-Type when
+		 * the caller opted in via ctx->cfg->esipa_binding. */
+		esipa_res = ipa_http_req_with_ct(ctx->http_ctx, esipa_req,
+						 ipa_esipa_get_eim_url_for(ctx, function_name),
+						 ipa_esipa_content_type(ctx->cfg->esipa_binding));
 		if (!esipa_res && ctx->cfg->esipa_req_retries == 0) {
 			IPA_LOGP_ESIPA(function_name, LERROR, "eIM request failed!\n");
 			goto error;

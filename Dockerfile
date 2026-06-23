@@ -20,7 +20,9 @@ RUN apt-get update \
       cmake \
       libcurl4-gnutls-dev \
       libpcsclite-dev \
+      libjansson-dev \
       patch \
+      pkg-config \
       ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 

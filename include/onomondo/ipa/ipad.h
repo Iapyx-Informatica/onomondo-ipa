@@ -36,6 +36,15 @@ enum ipa_state_change_cause {
 /* (deprecated, see github issue #5) */
 typedef bool (*ipa_prfle_inst_consent_cb)(char *sm_dp_plus_address, char *ac_token);
 
+/* NEW in v1.1: §6.1 / §6.4 — ESipa transport binding.  SGP.32 v1.2 defines
+ * two wire encodings for messages between IPA and eIM: ASN.1 (BER/DER)
+ * and JSON.  The eIM MUST support both; the IPA may pick either.  Default
+ * to ASN.1 for compactness (important over NB-IoT/cat-M uplinks). */
+enum ipa_esipa_binding {
+	IPA_ESIPA_BINDING_ASN1 = 0, /* default — application/x-gsma-rsp-asn1 */
+	IPA_ESIPA_BINDING_JSON = 1, /* application/json;charset=UTF-8 */
+};
+
 enum ipa_poll_rc {
 	/*! The API user shall call ipa_poll() again immediately.
 	 *  (there may be still eIM packages waiting to be executed). */
@@ -80,6 +89,12 @@ struct ipa_config {
 
 	/*! Configure the number of retries to apply in case a request (HTTP) to the eIM fails */
 	unsigned int esipa_req_retries;
+
+	/*! ESipa wire binding — ASN.1 (default) or JSON per SGP.32 v1.2 §6.4.
+	 *  Set IPA_ESIPA_BINDING_JSON to talk to an eIM that prefers / requires
+	 *  the JSON binding.  Both bindings are spec-compliant; ASN.1 is more
+	 *  compact and recommended for constrained IoT uplinks. */
+	enum ipa_esipa_binding esipa_binding;
 
 	/*! When a profile rollback is performed an optional refresh flag can be set. (See also SGP.32, section 5.9.16)
 	 *  In case the IoT eUICC emulation is enabled (iot_euicc_emu_enabled), then this flag also plays a role when
