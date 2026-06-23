@@ -360,7 +360,7 @@ struct ipa_buf *ipa_euicc_transceive_es10x(struct ipa_context *ctx, const struct
 /* Send terminal capablilities, see also 3gpp TS 102.221 V16.2.0, section 11.1.19.2.4 */
 static int send_termcap(struct ipa_context *ctx)
 {
-	const uint8_t termcap[] = { 0xA9, 0x03, 0x83, 0x01, 0x07 };
+	const uint8_t termcap[] = { 0xA9, 0x03, 0x84, 0x01, 0x01 };
 	int rc;
 	struct req_apdu req_apdu = { 0 };
 	struct res_apdu res_apdu = { 0 };
