@@ -26,6 +26,12 @@
 #define GET_RESPONSE_CLA 0x00
 #define GET_RESPONSE_INS 0xC0
 
+#define FETCH_CLA 0x80
+#define FETCH_INS 0x12
+
+#define TERMINAL_RESPONSE_CLA 0x80
+#define TERMINAL_RESPONSE_INS 0x14
+
 #define SELECT_CLA 0x00
 #define SELECT_INS 0xA4
 
@@ -266,6 +272,177 @@ exit:
 	return rc;
 }
 
+/* Parse Command Details TLV (tag 0x01/0x81) from a D0-wrapped proactive command.
+ * Fills cmd_num, cmd_type, qualifier and returns true on success. */
+static bool parse_proactive_cmd_details(const struct ipa_buf *proactive_cmd,
+					uint8_t *cmd_num, uint8_t *cmd_type, uint8_t *qualifier)
+{
+	const uint8_t *d = proactive_cmd->data;
+	size_t len = proactive_cmd->len;
+	size_t inner_end;
+	size_t i;
+
+	/* Outer envelope: D0 <single-byte-len> ... */
+	if (len < 4 || d[0] != 0xD0 || d[1] > 0x7F)
+		return false;
+
+	inner_end = 2 + d[1];
+	if (len < inner_end)
+		return false;
+
+	for (i = 2; i + 1 < inner_end;) {
+		uint8_t tag  = d[i] & 0x7F; /* strip comprehension-required bit */
+		uint8_t tlen = d[i + 1];
+
+		if (i + 2 + tlen > inner_end)
+			break;
+
+		if (tag == 0x01 && tlen == 3) { /* Command Details */
+			*cmd_num   = d[i + 2];
+			*cmd_type  = d[i + 3];
+			*qualifier = d[i + 4];
+			return true;
+		}
+		i += 2 + tlen;
+	}
+	return false;
+}
+
+/* Issue a FETCH APDU on the basic logical channel (STK, ETSI TS 102 221 §11.2.2).
+ * fetch_len is the byte count from SW=91xx (0 means 256).
+ * Returns a newly allocated buffer with the proactive command, or NULL on error.
+ * Caller must IPA_FREE the result. */
+static struct ipa_buf *do_fetch(struct ipa_context *ctx, uint8_t fetch_len)
+{
+	struct req_apdu req_apdu = { 0 };
+	struct res_apdu res_apdu = { 0 };
+	struct ipa_buf *buf_req = NULL;
+	struct ipa_buf *buf_res = NULL;
+	struct ipa_buf *result = NULL;
+
+	buf_res = ipa_buf_alloc(MAX_BLOCKSIZE_RX + 2);
+	assert(buf_res);
+
+	/* FETCH is always on the basic logical channel (CLA=0x80, no channel bits) */
+	req_apdu.cla = FETCH_CLA;
+	req_apdu.ins = FETCH_INS;
+	req_apdu.p1  = 0x00;
+	req_apdu.p2  = 0x00;
+	req_apdu.lc  = 0;
+	req_apdu.le  = fetch_len ? fetch_len : 256;
+
+	buf_req = format_req_apdu(&req_apdu);
+	if (ipa_scard_transceive(ctx->scard_ctx, buf_res, buf_req) < 0) {
+		IPA_LOGP(SEUICC, LERROR, "FETCH failed due to communication error\n");
+		ctx->check_scard = true;
+		goto exit;
+	}
+
+	if (parse_res_apdu(&res_apdu, buf_res) < 0) {
+		IPA_LOGP(SEUICC, LERROR, "FETCH: invalid response APDU\n");
+		goto exit;
+	}
+
+	if (res_apdu.sw != 0x9000) {
+		IPA_LOGP(SEUICC, LERROR, "FETCH failed, sw=%04x\n", res_apdu.sw);
+		goto exit;
+	}
+
+	result = ipa_buf_alloc(res_apdu.le);
+	assert(result);
+	memcpy(result->data, res_apdu.data, res_apdu.le);
+	result->len = res_apdu.le;
+
+	IPA_LOGP(SEUICC, LINFO, "FETCH successful, %u bytes of proactive command received\n", res_apdu.le);
+
+exit:
+	IPA_FREE(buf_req);
+	IPA_FREE(buf_res);
+	return result;
+}
+
+/* Send a TERMINAL RESPONSE acknowledging a REFRESH proactive command
+ * (ETSI TS 102 223 §6.8, ETSI TS 102 221 §11.2.3).
+ * cmd_details[3] = {cmd_num, cmd_type, qualifier} from the FETCH response. */
+static int send_terminal_response(struct ipa_context *ctx, const uint8_t cmd_details[3])
+{
+	/*
+	 * Minimal TERMINAL RESPONSE TLV sequence (no outer envelope):
+	 *   81 03 <cmd_num> <cmd_type> <qualifier>  -- Command Details (CR=1)
+	 *   82 02 82 81                              -- Device Identities: terminal→UICC
+	 *   83 01 00                                 -- Result: success
+	 */
+	uint8_t tr[12] = {
+		0x81, 0x03, cmd_details[0], cmd_details[1], cmd_details[2],
+		0x82, 0x02, 0x82, 0x81,
+		0x83, 0x01, 0x00,
+	};
+	struct req_apdu req_apdu = { 0 };
+	struct res_apdu res_apdu = { 0 };
+	struct ipa_buf *buf_req = NULL;
+	struct ipa_buf *buf_res = NULL;
+	int rc = 0;
+
+	buf_res = ipa_buf_alloc(MAX_BLOCKSIZE_RX + 2);
+	assert(buf_res);
+
+	/* TERMINAL RESPONSE is always on the basic logical channel */
+	req_apdu.cla = TERMINAL_RESPONSE_CLA;
+	req_apdu.ins = TERMINAL_RESPONSE_INS;
+	req_apdu.p1  = 0x00;
+	req_apdu.p2  = 0x00;
+	req_apdu.lc  = sizeof(tr);
+	memcpy(req_apdu.data, tr, sizeof(tr));
+
+	buf_req = format_req_apdu(&req_apdu);
+	if (ipa_scard_transceive(ctx->scard_ctx, buf_res, buf_req) < 0) {
+		IPA_LOGP(SEUICC, LERROR, "TERMINAL RESPONSE failed due to communication error\n");
+		ctx->check_scard = true;
+		rc = -EIO;
+		goto exit;
+	}
+
+	if (parse_res_apdu(&res_apdu, buf_res) < 0) {
+		IPA_LOGP(SEUICC, LERROR, "TERMINAL RESPONSE: invalid response APDU\n");
+		rc = -EINVAL;
+		goto exit;
+	}
+
+	if (res_apdu.sw != 0x9000) {
+		IPA_LOGP(SEUICC, LERROR, "TERMINAL RESPONSE failed, sw=%04x\n", res_apdu.sw);
+		rc = -EINVAL;
+		goto exit;
+	}
+
+	IPA_LOGP(SEUICC, LINFO, "TERMINAL RESPONSE sent successfully\n");
+
+exit:
+	IPA_FREE(buf_req);
+	IPA_FREE(buf_res);
+	return rc;
+}
+
+/* Handle a pending proactive REFRESH signalled by SW=91xx: issue FETCH then
+ * TERMINAL RESPONSE.  Errors are logged but do not fail the ES10x operation
+ * because the eUICC has already committed the command (e.g. profile enable). */
+static void handle_proactive_refresh(struct ipa_context *ctx, uint8_t fetch_len)
+{
+	struct ipa_buf *proactive_cmd;
+	/* Fallback defaults: cmd_num=1, REFRESH(0x01), qualifier=0 */
+	uint8_t cmd_details[3] = { 0x01, 0x01, 0x00 };
+
+	IPA_LOGP(SEUICC, LINFO,
+		 "SW=91xx: proactive REFRESH pending (%u bytes), issuing FETCH + TERMINAL RESPONSE\n", fetch_len);
+
+	proactive_cmd = do_fetch(ctx, fetch_len);
+	if (proactive_cmd) {
+		parse_proactive_cmd_details(proactive_cmd, &cmd_details[0], &cmd_details[1], &cmd_details[2]);
+		IPA_FREE(proactive_cmd);
+	}
+
+	send_terminal_response(ctx, cmd_details);
+}
+
 static int euicc_transceive_es10x(struct ipa_context *ctx, struct ipa_buf **es10x_res, const struct ipa_buf *es10x_req)
 {
 	uint16_t sw;
@@ -327,11 +504,30 @@ static int euicc_transceive_es10x(struct ipa_context *ctx, struct ipa_buf **es10
 				return 0;
 			}
 
+			/* SW=91xx after GET RESPONSE: the eUICC has delivered all ES10b
+			 * response data and is additionally signalling a proactive REFRESH
+			 * command (e.g. after a profile enable).  Handle FETCH + TERMINAL
+			 * RESPONSE, then report success with the data already accumulated. */
+			if ((sw & 0xff00) == 0x9100) {
+				IPA_LOGP(SEUICC, LINFO,
+					 "ES10x data fully received, proactive command pending, sw=%04x\n", sw);
+				handle_proactive_refresh(ctx, sw & 0xff);
+				return 0;
+			}
+
 			if ((sw & 0xff00) != 0x6100) {
 				IPA_LOGP(SEUICC, LINFO, "ES10x transmission failed, sw=%04x\n", sw);
 				return -EINVAL;
 			}
 		}
+	} else if ((sw & 0xff00) == 0x9100) {
+		/* SW=91xx after the final STORE DATA: the eUICC processed the command
+		 * successfully but has no ES10b response data — it is only signalling
+		 * a proactive REFRESH (analogous to 9000 + pending STK command). */
+		IPA_LOGP(SEUICC, LINFO,
+			 "ES10x transmission successful (proactive command pending), sw=%04x\n", sw);
+		handle_proactive_refresh(ctx, sw & 0xff);
+		return 0;
 	} else {
 		IPA_LOGP(SEUICC, LERROR, "ES10x transmission failed! sw=%04x\n", sw);
 		return -EINVAL;
