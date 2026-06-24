@@ -37,7 +37,7 @@ rm -f *-example.c *-example.mk
 # Generate CMakeLists.txt
 echo "#CAUTION: autgenerated file, do not change, see "`basename $0` > CMakeLists.txt
 echo 'add_library(libasn STATIC' >> CMakeLists.txt
-ls *.h *.c -1 >> CMakeLists.txt
+ls -1 *.h *.c >> CMakeLists.txt
 echo ')' >> CMakeLists.txt
 echo 'target_include_directories(libasn PUBLIC ${CMAKE_SOURCE_DIR}/include PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})' >> CMakeLists.txt
 echo 'target_compile_options(libasn PRIVATE -Wall)' >> CMakeLists.txt
@@ -58,7 +58,7 @@ else
   echo "[regen] CertificateSerialNumber patch no longer applies (schema was simplified); skipping"
 fi
 # Clean up .orig / .rej so CMake doesn't try to compile them
-find src/ipa/libasn -maxdepth 1 -name '*.orig' -o -name '*.rej' | xargs -r rm -f
+find src/ipa/libasn -maxdepth 1 -name '*.orig' -o -name '*.rej' | xargs rm -f
 patch -p1 < ./asn1/0001-asn_internal-use-custom-memory-allocator-functions.patch
 
 # asn1c generates a file called Time.h for the PKIX Time type.  On
@@ -72,7 +72,7 @@ if [ -f Time.h ]; then
   mv Time.c PKIX_Time.c
   # Update #include "Time.h" -> "PKIX_Time.h" across the whole codec.
   # Use grep -l to find affected files, then sed each.
-  grep -l '"Time\.h"' ./*.c ./*.h 2>/dev/null | xargs -r sed -i 's|"Time\.h"|"PKIX_Time.h"|g'
+  grep -l '"Time\.h"' ./*.c ./*.h 2>/dev/null | xargs perl -pi -e 's|"Time\.h"|"PKIX_Time.h"|g'
   echo "[regen] renamed PKIX Time.{c,h} -> PKIX_Time.{c,h} (avoid clash with system <time.h>)"
 fi
 
@@ -84,7 +84,7 @@ fi
 # struct type name is `Psmo__delete` (lowercase) in BOTH versions, so checking
 # for `Psmo__Delete` misses the master case.
 if [ -f Psmo.h ] && grep -qE '\} Delete;' Psmo.h 2>/dev/null; then
-  sed -i 's/\.Delete\b/.delete/g; s/\} Delete;/} delete;/g; s/choice\.Delete\b/choice.delete/g' \
+  perl -pi -e 's/\.Delete\b/.delete/g; s/\} Delete;/} delete;/g; s/choice\.Delete\b/choice.delete/g' \
     Psmo.h Psmo.c
   echo "[regen] normalised Psmo.Delete -> Psmo.delete (asn1c-version compat)"
 fi
@@ -96,7 +96,7 @@ cd src/ipa/libasn
 {
   echo "#CAUTION: autgenerated file, do not change, see regenerate_libasn.sh"
   echo 'add_library(libasn STATIC'
-  ls ./*.h ./*.c -1 | sed 's|^\./||'
+  ls -1 ./*.h ./*.c
   echo ')'
   echo 'target_include_directories(libasn PUBLIC ${CMAKE_SOURCE_DIR}/include PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})'
   echo 'target_compile_options(libasn PRIVATE -Wall)'
