@@ -137,6 +137,7 @@ int eim_init(struct ipa_context *ctx)
 {
 	struct ipa_es10b_eim_cfg_data *eim_cfg_data = NULL;
 	struct EimConfigurationData *eim_cfg_data_item = NULL;
+	long i;
 
 	eim_cfg_data = ipa_es10b_get_eim_cfg_data(ctx);
 	if (!eim_cfg_data) {
@@ -161,6 +162,45 @@ int eim_init(struct ipa_context *ctx)
 		ctx->eim_fqdn = IPA_STR_FROM_ASN(&eim_cfg_data_item->eimId);
 	else
 		goto error;
+
+	/* Install the eIM's TLS CA certificate into the HTTP context so that
+	 * HTTPS server certificate verification uses the certificate stored on
+	 * the eUICC rather than a file-based CA bundle.
+	 *
+	 * eim_cfg_data->eim_cfg_data_list holds the DER-encoded certificate
+	 * bytes (pre-computed by ipa_es10b_get_eim_cfg_data from the ASN.1
+	 * trustedCertificateTls CHOICE branch).  We search the list for the
+	 * item whose eim_id matches the one we just selected. */
+	for (i = 0; i < eim_cfg_data->eim_cfg_data_list_count; i++) {
+		struct ipa_eim_cfg_data *item = eim_cfg_data->eim_cfg_data_list[i];
+		if (!item->eim_id || strcmp(item->eim_id, ctx->eim_id) != 0)
+			continue;
+		if (item->trusted_public_key_data_tls.trusted_certificate_tls) {
+			struct ipa_buf *ca_der =
+			    item->trusted_public_key_data_tls.trusted_certificate_tls;
+			if (ipa_http_set_ca_cert_der(ctx->http_ctx,
+						     ca_der->data,
+						     ca_der->len) < 0)
+				IPA_LOGP(SIPA, LERROR,
+					 "failed to install eIM TLS CA certificate; "
+					 "HTTPS will fall back to cabundle if set\n");
+		} else {
+			IPA_LOGP(SIPA, LDEBUG,
+				 "no trustedCertificateTls in EimConfigurationData; "
+				 "HTTPS server verification uses cabundle\n");
+		}
+		/* TODO: install eUICC client certificate for mutual TLS once
+		 * an ES10b-backed or PC/SC-APDU signing function is available:
+		 *
+		 *   ipa_http_set_client_cert_der(ctx->http_ctx,
+		 *       euicc_cert_der, euicc_cert_len,
+		 *       euicc_tls_sign, ctx);
+		 *
+		 * euicc_tls_sign() would obtain the eUICC certificate from
+		 * ipa_es10b_get_certs() and delegate ECDSA signing to the chip
+		 * via a COMPUTE DIGITAL SIGNATURE APDU or equivalent. */
+		break;
+	}
 
 	ipa_es10b_get_eim_cfg_data_free(eim_cfg_data);
 	return 0;

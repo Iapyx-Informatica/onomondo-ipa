@@ -14,21 +14,196 @@
 #include <assert.h>
 #include <string.h>
 #include <curl/curl.h>
+/* OpenSSL is used to install eUICC-provisioned TLS credentials into the
+ * SSL_CTX before each handshake via CURLOPT_SSL_CTX_FUNCTION. */
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
+#include <openssl/evp.h>
+#include <openssl/ec.h>
+#include <openssl/ecdsa.h>
+#include <openssl/err.h>
 #include <onomondo/ipa/utils.h>
 #include <onomondo/ipa/http.h>
 #include <onomondo/ipa/http_hdr.h>
 #include <onomondo/ipa/log.h>
 #include <onomondo/ipa/mem.h>
 
-struct http_ctx {
-	bool initialized;
-	const char *cabundle;
-	bool no_verif;
-	CURL *curl;
+/* -------------------------------------------------------------------------
+ * Per-key signing context — carries the ipa_tls_sign_fn pointer and its
+ * opaque argument, stored as OpenSSL EC_KEY ex-data so the module-wide
+ * EC_KEY_METHOD can reach back to the per-connection callback.
+ * ------------------------------------------------------------------------- */
+struct http_sign_ctx {
+	ipa_tls_sign_fn fn;
+	void *arg;
 };
 
+/* OpenSSL ex-data free callback: releases http_sign_ctx when the EC_KEY
+ * that owns it is freed (e.g. at the end of a TLS handshake). */
+static void sign_ctx_ex_free(void *parent, void *ptr, CRYPTO_EX_DATA *ad,
+			     int idx, long argl, void *argp)
+{
+	(void)parent;
+	(void)ad;
+	(void)idx;
+	(void)argl;
+	(void)argp;
+	IPA_FREE(ptr);
+}
+
+/* Module-wide EC_KEY_METHOD and its ex-data index; initialised once. */
+static int g_sign_ctx_ex_idx = -1;
+static EC_KEY_METHOD *g_sign_method;
+
+/* ECDSA sign_sig hook — called by the OpenSSL ECDSA path with the
+ * pre-computed hash bytes.  Delegates the actual signing to the eUICC
+ * via the per-key ipa_tls_sign_fn stored in ex-data.
+ * The function must return a heap-allocated ECDSA_SIG * on success, or
+ * NULL on failure; OpenSSL frees the returned struct. */
+static ECDSA_SIG *tls_ecdsa_sign_sig(const unsigned char *dgst, int dlen,
+				     const BIGNUM *kinv, const BIGNUM *rp,
+				     EC_KEY *ec)
+{
+	struct http_sign_ctx *sc;
+	unsigned char raw[256]; /* DER ECDSA sig; 256 bytes covers P-521 */
+	unsigned int raw_len = sizeof(raw);
+	const unsigned char *p;
+
+	(void)kinv;
+	(void)rp;
+
+	sc = EC_KEY_get_ex_data(ec, g_sign_ctx_ex_idx);
+	if (!sc || !sc->fn)
+		return NULL;
+
+	if (!sc->fn(sc->arg, dgst, (unsigned int)dlen, raw, &raw_len))
+		return NULL;
+
+	/* Decode the DER-encoded ECDSA signature returned by the eUICC */
+	p = raw;
+	return d2i_ECDSA_SIG(NULL, &p, (long)raw_len);
+}
+
+static void init_sign_method_once(void)
+{
+	if (g_sign_method)
+		return;
+	g_sign_ctx_ex_idx = EC_KEY_get_ex_new_index(0, NULL, NULL, NULL,
+						     sign_ctx_ex_free);
+	g_sign_method = EC_KEY_METHOD_new(EC_KEY_OpenSSL());
+	/* Override only the sign_sig leaf; leave sign and sign_setup NULL so
+	 * OpenSSL uses its default k-generation but routes the actual signing
+	 * through our callback. */
+	EC_KEY_METHOD_set_sign(g_sign_method, NULL, NULL, tls_ecdsa_sign_sig);
+}
+
+/* -------------------------------------------------------------------------
+ * HTTP client context
+ * ------------------------------------------------------------------------- */
+struct http_ctx {
+	bool initialized;
+	const char *cabundle;  /* path-based CA bundle (legacy / fallback) */
+	bool no_verif;
+	CURL *curl;
+	/* eUICC-provisioned TLS credentials; both are NULL when not set. */
+	X509 *ca_cert;	       /* CA for TLS server verification */
+	X509 *client_cert;     /* eUICC cert for TLS client authentication */
+	ipa_tls_sign_fn sign_fn;
+	void *sign_arg;
+};
+
+/* -------------------------------------------------------------------------
+ * CURLOPT_SSL_CTX_FUNCTION callback
+ *
+ * Called by curl once per new TLS connection, immediately after the
+ * SSL_CTX is created and before certificate validation begins.  We use
+ * this to:
+ *   1. Replace the trust store with one that contains only the eUICC-
+ *      provisioned CA certificate (when ca_cert is set), ensuring the
+ *      IPA trusts exactly the CA registered on the eUICC and nothing else.
+ *   2. Install the eUICC client certificate and a custom ECDSA signing
+ *      key backed by the ipa_tls_sign_fn callback (when both client_cert
+ *      and sign_fn are set), enabling mutual TLS with the eIM.
+ * ------------------------------------------------------------------------- */
+static CURLcode ssl_ctx_cb(CURL *curl, void *ssl_ctx_void, void *clientp)
+{
+	struct http_ctx *ctx = clientp;
+	SSL_CTX *ssl_ctx = ssl_ctx_void;
+	(void)curl;
+
+	if (ctx->ca_cert) {
+		/* Build a new, empty trust store and add only our CA cert.
+		 * SSL_CTX_set_cert_store() takes ownership of the new store
+		 * and frees the previous one (which may contain system CAs
+		 * loaded by curl from CURLOPT_CAINFO or system defaults). */
+		X509_STORE *store = X509_STORE_new();
+		if (!store)
+			return CURLE_OUT_OF_MEMORY;
+		if (!X509_STORE_add_cert(store, ctx->ca_cert)) {
+			X509_STORE_free(store);
+			return CURLE_SSL_CACERT_BADFILE;
+		}
+		SSL_CTX_set_cert_store(ssl_ctx, store);
+	}
+
+	if (ctx->client_cert && ctx->sign_fn) {
+		EC_KEY *ec_orig, *ec;
+		EVP_PKEY *pub, *pkey;
+		struct http_sign_ctx *sc;
+
+		if (SSL_CTX_use_certificate(ssl_ctx, ctx->client_cert) != 1)
+			return CURLE_SSL_CERTPROBLEM;
+
+		/* Extract the public-key EC_KEY from the certificate (no
+		 * private key component — the private key lives in the eUICC
+		 * and is never exported). */
+		pub = X509_get_pubkey(ctx->client_cert);
+		if (!pub)
+			return CURLE_SSL_CERTPROBLEM;
+		ec_orig = EVP_PKEY_get0_EC_KEY(pub);
+		ec = ec_orig ? EC_KEY_dup(ec_orig) : NULL;
+		EVP_PKEY_free(pub);
+		if (!ec)
+			return CURLE_SSL_CERTPROBLEM;
+
+		/* Attach our custom method; signing is delegated to the
+		 * ipa_tls_sign_fn stored in the per-key ex-data. */
+		init_sign_method_once();
+		EC_KEY_set_method(ec, g_sign_method);
+
+		sc = IPA_ALLOC(struct http_sign_ctx);
+		if (!sc) {
+			EC_KEY_free(ec);
+			return CURLE_OUT_OF_MEMORY;
+		}
+		sc->fn = ctx->sign_fn;
+		sc->arg = ctx->sign_arg;
+		/* sign_ctx_ex_free releases sc when ec is eventually freed. */
+		EC_KEY_set_ex_data(ec, g_sign_ctx_ex_idx, sc);
+
+		pkey = EVP_PKEY_new();
+		if (!pkey) {
+			EC_KEY_free(ec); /* also frees sc via ex-data */
+			return CURLE_OUT_OF_MEMORY;
+		}
+		EVP_PKEY_assign_EC_KEY(pkey, ec); /* pkey takes ownership of ec */
+
+		if (SSL_CTX_use_PrivateKey(ssl_ctx, pkey) != 1) {
+			EVP_PKEY_free(pkey); /* also frees ec and sc */
+			return CURLE_SSL_CERTPROBLEM;
+		}
+		EVP_PKEY_free(pkey);
+	}
+
+	return CURLE_OK;
+}
+
+/* -------------------------------------------------------------------------
+ * Public API
+ * ------------------------------------------------------------------------- */
+
 /*! Initialize HTTP client.
- *  \param[in] cabundle path to a CA bundle.
+ *  \param[in] cabundle path to a CA bundle (used when no DER cert is set).
  *  \param[in] no_verif skip SSL certificate verification (insecure).
  *  \returns pointer to newly allocated HTTP client context. */
 void *ipa_http_init(const char *cabundle, bool no_verif)
@@ -45,6 +220,75 @@ void *ipa_http_init(const char *cabundle, bool no_verif)
 	IPA_LOGP(SHTTP, LINFO, "HTTP client initialized.\n");
 
 	return ctx;
+}
+
+/*! Set the CA certificate for TLS server verification from a DER blob.
+ *  When set, this supersedes the cabundle path from ipa_http_init() and
+ *  restricts the trust store to this certificate only (no system CAs).
+ *  \param[in] der   DER-encoded X.509 certificate bytes.
+ *  \param[in] len   byte length of der.
+ *  \returns 0 on success, -EINVAL if the DER cannot be parsed. */
+int ipa_http_set_ca_cert_der(void *http_ctx, const uint8_t *der, size_t len)
+{
+	struct http_ctx *ctx = http_ctx;
+	const unsigned char *p = der;
+	X509 *cert;
+
+	assert(ctx);
+	if (!der || !len)
+		return -EINVAL;
+
+	cert = d2i_X509(NULL, &p, (long)len);
+	if (!cert) {
+		IPA_LOGP(SHTTP, LERROR, "cannot parse DER CA certificate: %s\n",
+			 ERR_reason_error_string(ERR_get_error()));
+		return -EINVAL;
+	}
+
+	if (ctx->ca_cert)
+		X509_free(ctx->ca_cert);
+	ctx->ca_cert = cert;
+
+	IPA_LOGP(SHTTP, LINFO,
+		 "eUICC CA certificate installed for TLS server verification.\n");
+	return 0;
+}
+
+/*! Set the TLS client certificate and ECDSA signing callback for mTLS.
+ *  \param[in] cert_der  DER-encoded eUICC X.509 certificate.
+ *  \param[in] cert_len  byte length of cert_der.
+ *  \param[in] sign_fn   callback that performs ECDSA signing via the eUICC.
+ *  \param[in] sign_arg  opaque argument forwarded to every sign_fn call.
+ *  \returns 0 on success, -EINVAL on bad arguments or parse failure. */
+int ipa_http_set_client_cert_der(void *http_ctx,
+				 const uint8_t *cert_der, size_t cert_len,
+				 ipa_tls_sign_fn sign_fn, void *sign_arg)
+{
+	struct http_ctx *ctx = http_ctx;
+	const unsigned char *p = cert_der;
+	X509 *cert;
+
+	assert(ctx);
+	if (!cert_der || !cert_len || !sign_fn)
+		return -EINVAL;
+
+	cert = d2i_X509(NULL, &p, (long)cert_len);
+	if (!cert) {
+		IPA_LOGP(SHTTP, LERROR,
+			 "cannot parse DER client certificate: %s\n",
+			 ERR_reason_error_string(ERR_get_error()));
+		return -EINVAL;
+	}
+
+	if (ctx->client_cert)
+		X509_free(ctx->client_cert);
+	ctx->client_cert = cert;
+	ctx->sign_fn = sign_fn;
+	ctx->sign_arg = sign_arg;
+
+	IPA_LOGP(SHTTP, LINFO,
+		 "eUICC client certificate installed for TLS client authentication.\n");
+	return 0;
 }
 
 /* Callback function to extract the HTTP response */
@@ -98,10 +342,29 @@ struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req,
 			goto error;
 		}
 	}
-	if (ctx->cabundle) {
+
+	/* TLS server verification: use the eUICC-provisioned CA cert when
+	 * available (via ssl_ctx_cb which replaces the trust store), or fall
+	 * back to the path-based CA bundle supplied at init time. */
+	if (ctx->ca_cert || ctx->client_cert) {
+		rc = curl_easy_setopt(ctx->curl, CURLOPT_SSL_CTX_FUNCTION,
+				      ssl_ctx_cb);
+		if (rc != CURLE_OK) {
+			IPA_LOGP(SHTTP, LERROR, "internal HTTP-client failure: %s\n",
+				 curl_easy_strerror(rc));
+			goto error;
+		}
+		rc = curl_easy_setopt(ctx->curl, CURLOPT_SSL_CTX_DATA, ctx);
+		if (rc != CURLE_OK) {
+			IPA_LOGP(SHTTP, LERROR, "internal HTTP-client failure: %s\n",
+				 curl_easy_strerror(rc));
+			goto error;
+		}
+	} else if (ctx->cabundle) {
 		rc = curl_easy_setopt(ctx->curl, CURLOPT_CAINFO, ctx->cabundle);
 		if (rc != CURLE_OK) {
-			IPA_LOGP(SHTTP, LERROR, "internal HTTP-client failure: %s\n", curl_easy_strerror(rc));
+			IPA_LOGP(SHTTP, LERROR, "internal HTTP-client failure: %s\n",
+				 curl_easy_strerror(rc));
 			goto error;
 		}
 	}
@@ -212,6 +475,16 @@ void ipa_http_free(void *http_ctx)
 		return;
 
 	ipa_http_close(http_ctx);
+
+	if (ctx->ca_cert) {
+		X509_free(ctx->ca_cert);
+		ctx->ca_cert = NULL;
+	}
+	if (ctx->client_cert) {
+		X509_free(ctx->client_cert);
+		ctx->client_cert = NULL;
+	}
+
 	curl_global_cleanup();
 	IPA_FREE(ctx);
 	IPA_LOGP(SHTTP, LINFO, "HTTP client freed.\n");

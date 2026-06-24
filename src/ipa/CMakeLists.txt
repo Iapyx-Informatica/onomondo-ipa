@@ -4,11 +4,15 @@
 add_subdirectory(libasn)
 add_subdirectory(libipa)
 
+find_package(OpenSSL REQUIRED)
+
 add_library(http STATIC http.c)
 add_library(scard STATIC scard.c)
 
 target_include_directories(http PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_include_directories(scard PUBLIC ${CMAKE_SOURCE_DIR}/include)
+
+target_link_libraries(http PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 
 if(APPLE)
   find_path(PCSC_INCLUDE_DIR NAMES winscard.h PATHS /opt/homebrew/opt/pcsc-lite/include/PCSC)
