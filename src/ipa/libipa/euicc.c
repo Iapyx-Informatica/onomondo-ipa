@@ -441,6 +441,16 @@ static void handle_proactive_refresh(struct ipa_context *ctx, uint8_t fetch_len)
 	}
 
 	send_terminal_response(ctx, cmd_details);
+
+	/* REFRESH qualifiers 0x01-0x04 (Init, Init+FileChange, Init+FullFileChange,
+	 * UICC Reset) all cause the card to close all logical channels.  Re-open the
+	 * ES10x channel and re-select ISD-R so subsequent STORE DATA commands work. */
+	if (cmd_details[2] >= 0x01 && cmd_details[2] <= 0x04) {
+		if (ipa_euicc_init_es10x(ctx) < 0)
+			IPA_LOGP(SEUICC, LERROR, "ES10x channel re-initialization after REFRESH failed\n");
+		else
+			IPA_LOGP(SEUICC, LINFO, "ES10x channel re-initialized after REFRESH\n");
+	}
 }
 
 static int euicc_transceive_es10x(struct ipa_context *ctx, struct ipa_buf **es10x_res, const struct ipa_buf *es10x_req)
