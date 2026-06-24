@@ -14,6 +14,9 @@
 #include <string.h>
 #include <wintypes.h>
 #include <winscard.h>
+#ifdef __APPLE__
+#include <pcsclite.h>
+#endif
 #include <onomondo/ipa/utils.h>
 #include <onomondo/ipa/scard.h>
 #include <onomondo/ipa/log.h>
@@ -36,6 +39,17 @@ struct scard_ctx {
 	const SCARD_IO_REQUEST *pioSendPci;
 };
 
+static const SCARD_IO_REQUEST *select_pio_send_pci(DWORD protocol)
+{
+	switch (protocol) {
+	case SCARD_PROTOCOL_T1:
+		return SCARD_PCI_T1;
+	case SCARD_PROTOCOL_T0:
+	default:
+		return SCARD_PCI_T0;
+	}
+}
+
 /*! Initialize smartcard reader (and card).
  *  \param[in] reader_num device number of the smartcard reader.
  *  \returns pointer to newly allocated smartcard reader context. */
@@ -55,8 +69,17 @@ void *ipa_scard_init(unsigned int reader_num)
 	rc = SCardEstablishContext(SCARD_SCOPE_SYSTEM, NULL, NULL, &ctx->hContext);
 	PCSC_ERROR(reader_num, rc, "SCardEstablishContext");
 
+#ifdef SCARD_AUTOALLOCATE
 	dwReaders = SCARD_AUTOALLOCATE;
 	rc = SCardListReaders(ctx->hContext, NULL, (LPSTR) & mszReaders, &dwReaders);
+#else
+	/* macOS PC/SC does not support SCARD_AUTOALLOCATE */
+	dwReaders = 0;
+	rc = SCardListReaders(ctx->hContext, NULL, NULL, &dwReaders);
+	PCSC_ERROR(reader_num, rc, "SCardListReaders(size)");
+	mszReaders = malloc(dwReaders);
+	rc = SCardListReaders(ctx->hContext, NULL, mszReaders, &dwReaders);
+#endif
 	PCSC_ERROR(reader_num, rc, "SCardListReaders");
 
 	num_readers = 0;
@@ -72,19 +95,27 @@ void *ipa_scard_init(unsigned int reader_num)
 
 	/* Initialize card */
 	rc = SCardConnect(ctx->hContext, reader_name, SCARD_SHARE_SHARED,
-			  SCARD_PROTOCOL_T0, &ctx->hCard, &ctx->dwActiveProtocol);
+			  SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1, &ctx->hCard, &ctx->dwActiveProtocol);
 	PCSC_ERROR(reader_num, rc, "SCardConnect");
-	ctx->pioSendPci = SCARD_PCI_T0;
+	ctx->pioSendPci = select_pio_send_pci(ctx->dwActiveProtocol);
 
 	IPA_LOGP(SSCARD, LINFO, "PCSC reader #%d (%s) initialized.\n", reader_num, reader_name);
 	ctx->initialized = true;
 
+#ifdef SCARD_AUTOALLOCATE
 	SCardFreeMemory(ctx->hContext, mszReaders);
+#else
+	free(mszReaders);
+#endif
 	return ctx;
 error:
 	IPA_LOGP(SSCARD, LERROR, "PCSC reader #%d initialization failed!\n", reader_num);
+#ifdef SCARD_AUTOALLOCATE
 	if (mszReaders)
 		SCardFreeMemory(ctx->hContext, mszReaders);
+#else
+	free(mszReaders);
+#endif
 	IPA_FREE(ctx);
 	return NULL;
 }
@@ -132,9 +163,10 @@ int ipa_scard_reset(void *scard_ctx)
 	LONG rc;
 	assert(ctx);
 
-	rc = SCardReconnect(ctx->hCard, SCARD_SHARE_SHARED, SCARD_PROTOCOL_T0,
+	rc = SCardReconnect(ctx->hCard, SCARD_SHARE_SHARED, SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
 			    SCARD_RESET_CARD, &ctx->dwActiveProtocol);
 	PCSC_ERROR(ctx->reader_num, rc, "SCardReconnect");
+	ctx->pioSendPci = select_pio_send_pci(ctx->dwActiveProtocol);
 	IPA_LOGP(SSCARD, LINFO, "PCSC reader #%d card reset\n", ctx->reader_num);
 	return 0;
 error:

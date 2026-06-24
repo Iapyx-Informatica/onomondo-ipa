@@ -7,7 +7,12 @@
 #pragma once
 
 #include <stdlib.h>
+#ifdef __APPLE__
+#include <malloc/malloc.h>
+#define malloc_usable_size(p) malloc_size(p)
+#else
 #include <malloc.h>
+#endif
 
 #define IPA_ALLOC(obj) IPA_ALLOC_N(sizeof(obj))
 

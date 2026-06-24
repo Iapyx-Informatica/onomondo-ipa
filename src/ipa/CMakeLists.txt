@@ -10,13 +10,21 @@ add_library(scard STATIC scard.c)
 target_include_directories(http PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_include_directories(scard PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
-include_directories(include /usr/include/PCSC)
+if(APPLE)
+  find_path(PCSC_INCLUDE_DIR NAMES winscard.h PATHS /opt/homebrew/opt/pcsc-lite/include/PCSC)
+  include_directories(include ${PCSC_INCLUDE_DIR})
+  find_library(PCSC_LIBRARY PCSC)
+else()
+  include_directories(include /usr/include/PCSC)
+  set(PCSC_LIBRARY pcsclite)
+endif()
+
 add_executable(ipa main.c)
 set_property(TARGET ipa PROPERTY C_STANDARD 99)
 target_compile_options(ipa PRIVATE -Wall)
 
 target_include_directories(ipa PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(ipa libipa http scard pcsclite curl)
+target_link_libraries(ipa libipa http scard ${PCSC_LIBRARY} curl)
 
 if (M32)
   set_target_properties(http PROPERTIES COMPILE_FLAGS "-m32" LINK_FLAGS "-m32")

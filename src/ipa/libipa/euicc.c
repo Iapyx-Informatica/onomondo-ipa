@@ -35,6 +35,12 @@
 #define MAX_BLOCKSIZE_TX 255
 #define MAX_BLOCKSIZE_RX 256
 
+#ifdef __APPLE__
+#define MAX_GET_RESPONSE_CHUNK_RX 21
+#else
+#define MAX_GET_RESPONSE_CHUNK_RX MAX_BLOCKSIZE_RX
+#endif
+
 struct req_apdu {
 	uint8_t cla;
 	uint8_t ins;
@@ -194,6 +200,8 @@ static int recv_es10x_block(struct ipa_context *ctx, uint16_t *sw,
 	 * still bytes available in the GET RESPONSE buffer of the eUICC. */
 	if (block_len > MAX_BLOCKSIZE_RX)
 		block_len = MAX_BLOCKSIZE_RX;
+	if (block_len > MAX_GET_RESPONSE_CHUNK_RX)
+		block_len = MAX_GET_RESPONSE_CHUNK_RX;
 
 	/* fill in request APDU for GET RESPONSE
 	 * (see also ISO/IEC 7816-4, 7.6.1) */
