@@ -184,9 +184,18 @@ int eim_init(struct ipa_context *ctx)
 				IPA_LOGP(SIPA, LERROR,
 					 "failed to install eIM TLS CA certificate; "
 					 "HTTPS will fall back to cabundle if set\n");
+		} else if (item->trusted_public_key_data_tls.trusted_eim_pk_tls) {
+			struct ipa_buf *spki =
+			    item->trusted_public_key_data_tls.trusted_eim_pk_tls;
+			if (ipa_http_set_ca_pk_spki(ctx->http_ctx,
+						    spki->data,
+						    spki->len) < 0)
+				IPA_LOGP(SIPA, LERROR,
+					 "failed to install eIM TLS public key pin; "
+					 "HTTPS will fall back to cabundle if set\n");
 		} else {
 			IPA_LOGP(SIPA, LDEBUG,
-				 "no trustedCertificateTls in EimConfigurationData; "
+				 "no trustedPublicKeyDataTls in EimConfigurationData; "
 				 "HTTPS server verification uses cabundle\n");
 		}
 		/* TODO: install eUICC client certificate for mutual TLS once

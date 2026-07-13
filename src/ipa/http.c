@@ -18,10 +18,13 @@
  * SSL_CTX before each handshake via CURLOPT_SSL_CTX_FUNCTION. */
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
 #include <openssl/evp.h>
 #include <openssl/ec.h>
 #include <openssl/ecdsa.h>
 #include <openssl/err.h>
+#include <openssl/pem.h>
+#include <openssl/bio.h>
 #include <onomondo/ipa/utils.h>
 #include <onomondo/ipa/http.h>
 #include <onomondo/ipa/http_hdr.h>
@@ -104,26 +107,100 @@ struct http_ctx {
 	bool initialized;
 	const char *cabundle;  /* path-based CA bundle (legacy / fallback) */
 	bool no_verif;
+	bool have_openssl_backend; /* libcurl supports CURLOPT_SSL_CTX_FUNCTION */
 	CURL *curl;
-	/* eUICC-provisioned TLS credentials; both are NULL when not set. */
-	X509 *ca_cert;	       /* CA for TLS server verification */
+	/* eUICC-provisioned TLS credentials. */
+	char *ca_pem;          /* PEM text of CA cert (trustedCertificateTls) */
+	size_t ca_pem_len;
+	EVP_PKEY *ca_pk;       /* trust-anchor public key (trustedEimPkTls) */
 	X509 *client_cert;     /* eUICC cert for TLS client authentication */
 	ipa_tls_sign_fn sign_fn;
 	void *sign_arg;
 };
 
 /* -------------------------------------------------------------------------
- * CURLOPT_SSL_CTX_FUNCTION callback
+ * Trust-anchor-by-public-key verification (SGP.32 trustedEimPkTls).
  *
- * Called by curl once per new TLS connection, immediately after the
- * SSL_CTX is created and before certificate validation begins.  We use
- * this to:
- *   1. Replace the trust store with one that contains only the eUICC-
- *      provisioned CA certificate (when ca_cert is set), ensuring the
- *      IPA trusts exactly the CA registered on the eUICC and nothing else.
- *   2. Install the eUICC client certificate and a custom ECDSA signing
- *      key backed by the ipa_tls_sign_fn callback (when both client_cert
- *      and sign_fn are set), enabling mutual TLS with the eIM.
+ * The eUICC may store only the *public key* of the eIM's TLS trust anchor,
+ * not a certificate.  OpenSSL's trust store is cert-based, so we cannot add
+ * a bare key to it.  Instead we let the normal chain verification run and
+ * hook the one error it necessarily raises — the top-of-chain certificate is
+ * not a known CA — and accept it iff its public key is exactly the key the
+ * eUICC provisioned.
+ *
+ * All other checks (per-link signatures, validity dates, hostname) still run
+ * and can still fail: OpenSSL calls the callback again for each of them.  The
+ * chain is therefore verified up to a root whose key came from the eUICC,
+ * which is precisely the trust decision SGP.32 asks for.
+ * ------------------------------------------------------------------------- */
+static int g_httpctx_ssl_ex_idx = -1;
+
+static int trust_anchor_verify_cb(int preverify_ok, X509_STORE_CTX *store_ctx)
+{
+	SSL *ssl;
+	SSL_CTX *ssl_ctx;
+	struct http_ctx *ctx;
+	X509 *cur;
+	EVP_PKEY *cur_pk;
+	int err;
+
+	if (preverify_ok)
+		return 1;
+
+	err = X509_STORE_CTX_get_error(store_ctx);
+
+	/* Only the "chain does not end in a locally trusted CA" family of errors
+	 * is eligible for a public-key trust override.  Anything else (expired,
+	 * bad signature, hostname mismatch, ...) is a genuine failure. */
+	switch (err) {
+	case X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN:
+	case X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT:
+	case X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT:
+	case X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY:
+	case X509_V_ERR_UNABLE_TO_VERIFY_LEAF_SIGNATURE:
+	case X509_V_ERR_CERT_UNTRUSTED:
+		break;
+	default:
+		return 0;
+	}
+
+	ssl = X509_STORE_CTX_get_ex_data(store_ctx,
+					 SSL_get_ex_data_X509_STORE_CTX_idx());
+	if (!ssl)
+		return 0;
+	ssl_ctx = SSL_get_SSL_CTX(ssl);
+	ctx = ssl_ctx ? SSL_CTX_get_ex_data(ssl_ctx, g_httpctx_ssl_ex_idx) : NULL;
+	if (!ctx || !ctx->ca_pk)
+		return 0;
+
+	cur = X509_STORE_CTX_get_current_cert(store_ctx);
+	cur_pk = cur ? X509_get0_pubkey(cur) : NULL;
+	if (!cur_pk)
+		return 0;
+
+	if (EVP_PKEY_eq(ctx->ca_pk, cur_pk) != 1) {
+		IPA_LOGP(SHTTP, LERROR,
+			 "TLS chain ends in an untrusted certificate whose public key "
+			 "does not match the trust anchor stored in the eUICC\n");
+		return 0;
+	}
+
+	IPA_LOGP(SHTTP, LDEBUG,
+		 "TLS trust anchor accepted: public key matches eUICC trustedEimPkTls\n");
+	X509_STORE_CTX_set_error(store_ctx, X509_V_OK);
+	return 1;
+}
+
+/* -------------------------------------------------------------------------
+ * CURLOPT_SSL_CTX_FUNCTION callback.  Installs whichever eUICC-provisioned
+ * TLS credentials are present:
+ *
+ *  1. trustedCertificateTls: add the cert to the trust store and set
+ *     X509_V_FLAG_PARTIAL_CHAIN, so a leaf or intermediate stored in the
+ *     eUICC can act as a direct trust anchor (SGP.32 §3.1 encourages
+ *     self-signed certs, which need not chain to a public root).
+ *  2. trustedEimPkTls: install trust_anchor_verify_cb (see above).
+ *  3. Client certificate: install the eUICC-backed ECDSA key for mTLS.
  * ------------------------------------------------------------------------- */
 static CURLcode ssl_ctx_cb(CURL *curl, void *ssl_ctx_void, void *clientp)
 {
@@ -131,19 +208,25 @@ static CURLcode ssl_ctx_cb(CURL *curl, void *ssl_ctx_void, void *clientp)
 	SSL_CTX *ssl_ctx = ssl_ctx_void;
 	(void)curl;
 
-	if (ctx->ca_cert) {
-		/* Build a new, empty trust store and add only our CA cert.
-		 * SSL_CTX_set_cert_store() takes ownership of the new store
-		 * and frees the previous one (which may contain system CAs
-		 * loaded by curl from CURLOPT_CAINFO or system defaults). */
-		X509_STORE *store = X509_STORE_new();
-		if (!store)
-			return CURLE_OUT_OF_MEMORY;
-		if (!X509_STORE_add_cert(store, ctx->ca_cert)) {
-			X509_STORE_free(store);
-			return CURLE_SSL_CACERT_BADFILE;
+	if (ctx->ca_pem) {
+		X509_STORE *st = SSL_CTX_get_cert_store(ssl_ctx);
+		BIO *bio = BIO_new_mem_buf(ctx->ca_pem, (int)ctx->ca_pem_len);
+		if (bio) {
+			X509 *cert = PEM_read_bio_X509(bio, NULL, NULL, NULL);
+			BIO_free(bio);
+			if (cert) {
+				X509_STORE_add_cert(st, cert);
+				X509_free(cert);
+			}
 		}
-		SSL_CTX_set_cert_store(ssl_ctx, store);
+		X509_STORE_set_flags(st, X509_V_FLAG_PARTIAL_CHAIN);
+	}
+
+	/* trustedEimPkTls: the eUICC gave us a bare trust-anchor public key.
+	 * Accept the otherwise-untrusted top of the chain iff its key matches. */
+	if (ctx->ca_pk) {
+		SSL_CTX_set_ex_data(ssl_ctx, g_httpctx_ssl_ex_idx, ctx);
+		SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, trust_anchor_verify_cb);
 	}
 
 	if (ctx->client_cert && ctx->sign_fn) {
@@ -206,6 +289,24 @@ static CURLcode ssl_ctx_cb(CURL *curl, void *ssl_ctx_void, void *clientp)
  *  \param[in] cabundle path to a CA bundle (used when no DER cert is set).
  *  \param[in] no_verif skip SSL certificate verification (insecure).
  *  \returns pointer to newly allocated HTTP client context. */
+/* The eUICC-provisioned TLS credential paths (SGP.32 trustedPublicKeyDataTls,
+ * mTLS client auth) manipulate the SSL_CTX directly via
+ * CURLOPT_SSL_CTX_FUNCTION, which libcurl only implements on OpenSSL-family
+ * backends.  Against e.g. a GnuTLS-backed libcurl that option fails with
+ * CURLE_NOT_BUILT_IN and the credentials can never be installed. */
+static bool curl_has_openssl_backend(void)
+{
+	const curl_version_info_data *vi = curl_version_info(CURLVERSION_NOW);
+
+	if (!vi || !vi->ssl_version)
+		return false;
+
+	return strstr(vi->ssl_version, "OpenSSL") ||
+	       strstr(vi->ssl_version, "BoringSSL") ||
+	       strstr(vi->ssl_version, "LibreSSL") ||
+	       strstr(vi->ssl_version, "quictls");
+}
+
 void *ipa_http_init(const char *cabundle, bool no_verif)
 {
 	struct http_ctx *ctx = IPA_ALLOC(struct http_ctx);
@@ -216,15 +317,26 @@ void *ipa_http_init(const char *cabundle, bool no_verif)
 	ctx->initialized = true;
 	ctx->cabundle = cabundle;
 	ctx->no_verif = no_verif;
+	ctx->have_openssl_backend = curl_has_openssl_backend();
+
+	if (!ctx->have_openssl_backend) {
+		const curl_version_info_data *vi = curl_version_info(CURLVERSION_NOW);
+		IPA_LOGP(SHTTP, LERROR,
+			 "libcurl is built against %s, not OpenSSL. TLS credentials stored "
+			 "in the eUICC cannot be used; only -C <cabundle> will work. "
+			 "Rebuild against an OpenSSL-backed libcurl "
+			 "(Debian/Ubuntu: libcurl4-openssl-dev).\n",
+			 (vi && vi->ssl_version) ? vi->ssl_version : "an unknown TLS library");
+	}
 
 	IPA_LOGP(SHTTP, LINFO, "HTTP client initialized.\n");
 
 	return ctx;
 }
 
-/*! Set the CA certificate for TLS server verification from a DER blob.
- *  When set, this supersedes the cabundle path from ipa_http_init() and
- *  restricts the trust store to this certificate only (no system CAs).
+/*! Set the CA certificate for TLS server verification from a DER blob
+ *  (eUICC trustedCertificateTls).  When set, this supersedes the cabundle
+ *  path from ipa_http_init().
  *  \param[in] der   DER-encoded X.509 certificate bytes.
  *  \param[in] len   byte length of der.
  *  \returns 0 on success, -EINVAL if the DER cannot be parsed. */
@@ -233,6 +345,10 @@ int ipa_http_set_ca_cert_der(void *http_ctx, const uint8_t *der, size_t len)
 	struct http_ctx *ctx = http_ctx;
 	const unsigned char *p = der;
 	X509 *cert;
+	char subj[256];
+	BIO *bio;
+	char *pem_data;
+	long pem_len;
 
 	assert(ctx);
 	if (!der || !len)
@@ -245,12 +361,73 @@ int ipa_http_set_ca_cert_der(void *http_ctx, const uint8_t *der, size_t len)
 		return -EINVAL;
 	}
 
-	if (ctx->ca_cert)
-		X509_free(ctx->ca_cert);
-	ctx->ca_cert = cert;
+	X509_NAME_oneline(X509_get_subject_name(cert), subj, sizeof(subj));
+
+	/* The trust store is cert-based and loads PEM, so convert once here. */
+	bio = BIO_new(BIO_s_mem());
+	if (!bio || !PEM_write_bio_X509(bio, cert)) {
+		BIO_free(bio);
+		X509_free(cert);
+		return -EINVAL;
+	}
+	pem_len = BIO_get_mem_data(bio, &pem_data);
+
+	IPA_FREE(ctx->ca_pem);
+	ctx->ca_pem = IPA_ALLOC_N(pem_len + 1);
+	if (!ctx->ca_pem) {
+		BIO_free(bio);
+		X509_free(cert);
+		return -EINVAL;
+	}
+	memcpy(ctx->ca_pem, pem_data, (size_t)pem_len);
+	ctx->ca_pem[pem_len] = '\0';
+	ctx->ca_pem_len = (size_t)pem_len;
+
+	IPA_LOGP(SHTTP, LINFO, "eUICC TLS CA certificate installed (subject=%s)\n", subj);
+
+	BIO_free(bio);
+	X509_free(cert);
+	return 0;
+}
+
+/*! Set the TLS trust anchor from a DER-encoded SubjectPublicKeyInfo blob.
+ *  Used for the eUICC's trustedEimPkTls, which carries only the public key of
+ *  the eIM's TLS trust anchor (typically a self-signed root CA) rather than a
+ *  certificate.  The server chain is verified normally; the otherwise-untrusted
+ *  certificate at the top of the chain is accepted iff its public key is this
+ *  one.  See trust_anchor_verify_cb().
+ *  \param[in] spki   DER-encoded SubjectPublicKeyInfo bytes.
+ *  \param[in] len    byte length of spki.
+ *  \returns 0 on success, -EINVAL on failure. */
+int ipa_http_set_ca_pk_spki(void *http_ctx, const uint8_t *spki, size_t len)
+{
+	struct http_ctx *ctx = http_ctx;
+	const unsigned char *p = spki;
+	EVP_PKEY *pk;
+
+	assert(ctx);
+	if (!spki || !len)
+		return -EINVAL;
+
+	pk = d2i_PUBKEY(NULL, &p, (long)len);
+	if (!pk) {
+		IPA_LOGP(SHTTP, LERROR,
+			 "cannot parse eUICC trustedEimPkTls SubjectPublicKeyInfo: %s\n",
+			 ERR_reason_error_string(ERR_get_error()));
+		return -EINVAL;
+	}
+
+	if (g_httpctx_ssl_ex_idx < 0)
+		g_httpctx_ssl_ex_idx =
+		    SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, NULL);
+
+	if (ctx->ca_pk)
+		EVP_PKEY_free(ctx->ca_pk);
+	ctx->ca_pk = pk;
 
 	IPA_LOGP(SHTTP, LINFO,
-		 "eUICC CA certificate installed for TLS server verification.\n");
+		 "eUICC TLS trust anchor public key installed (type=%s, bits=%d)\n",
+		 OBJ_nid2sn(EVP_PKEY_base_id(pk)), EVP_PKEY_bits(pk));
 	return 0;
 }
 
@@ -343,27 +520,56 @@ struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req,
 		}
 	}
 
-	/* TLS server verification: use the eUICC-provisioned CA cert when
-	 * available (via ssl_ctx_cb which replaces the trust store), or fall
-	 * back to the path-based CA bundle supplied at init time. */
-	if (ctx->ca_cert || ctx->client_cert) {
-		rc = curl_easy_setopt(ctx->curl, CURLOPT_SSL_CTX_FUNCTION,
-				      ssl_ctx_cb);
+	/* TLS server verification.  When an eUICC CA cert is set, ssl_ctx_cb
+	 * (installed below) adds it to the OpenSSL trust store and sets
+	 * X509_V_FLAG_PARTIAL_CHAIN — all in one place, with no ordering
+	 * dependency on when curl fires the callback vs. when it loads CAs.
+	 * System CAs (loaded by curl by default) remain in the store and are
+	 * harmless alongside the eUICC cert. */
+	if (ctx->ca_pem) {
+		IPA_LOGP(SHTTP, LDEBUG,
+			 "TLS CA: eUICC trustedCertificateTls (%zu PEM bytes) + PARTIAL_CHAIN\n",
+			 ctx->ca_pem_len);
+		/* ssl_ctx_cb handles cert loading; nothing to set here */
+	} else if (ctx->ca_pk) {
+		IPA_LOGP(SHTTP, LDEBUG,
+			 "TLS CA: eUICC trustedEimPkTls trust-anchor public key\n");
+		/* ssl_ctx_cb installs trust_anchor_verify_cb; nothing to set here */
+	} else if (ctx->cabundle) {
+		IPA_LOGP(SHTTP, LDEBUG, "TLS CA: file '%s'\n", ctx->cabundle);
+		rc = curl_easy_setopt(ctx->curl, CURLOPT_CAINFO, ctx->cabundle);
 		if (rc != CURLE_OK) {
 			IPA_LOGP(SHTTP, LERROR, "internal HTTP-client failure: %s\n",
 				 curl_easy_strerror(rc));
+			goto error;
+		}
+	} else {
+		IPA_LOGP(SHTTP, LDEBUG, "TLS CA: system CAs (no eUICC cert, no -C flag)\n");
+	}
+
+	/* ssl_ctx_cb is needed for three reasons:
+	 *   - ca_pem set:      add eUICC cert to trust store + PARTIAL_CHAIN
+	 *   - ca_pk set:       install trust-anchor-by-public-key verify callback
+	 *   - client_cert set: install eUICC-backed ECDSA key for mTLS */
+	if (ctx->ca_pem || ctx->ca_pk || ctx->client_cert) {
+		rc = curl_easy_setopt(ctx->curl, CURLOPT_SSL_CTX_FUNCTION, ssl_ctx_cb);
+		if (rc != CURLE_OK) {
+			if (rc == CURLE_NOT_BUILT_IN)
+				IPA_LOGP(SHTTP, LERROR,
+					 "this libcurl does not support CURLOPT_SSL_CTX_FUNCTION, so the "
+					 "TLS credentials stored in the eUICC cannot be installed. "
+					 "libcurl must be built against OpenSSL "
+					 "(Debian/Ubuntu: libcurl4-openssl-dev, not libcurl4-gnutls-dev). "
+					 "As a stopgap, pass the eIM certificate with -C <cabundle>.\n");
+			else
+				IPA_LOGP(SHTTP, LERROR,
+					 "cannot set CURLOPT_SSL_CTX_FUNCTION: %s\n",
+					 curl_easy_strerror(rc));
 			goto error;
 		}
 		rc = curl_easy_setopt(ctx->curl, CURLOPT_SSL_CTX_DATA, ctx);
 		if (rc != CURLE_OK) {
-			IPA_LOGP(SHTTP, LERROR, "internal HTTP-client failure: %s\n",
-				 curl_easy_strerror(rc));
-			goto error;
-		}
-	} else if (ctx->cabundle) {
-		rc = curl_easy_setopt(ctx->curl, CURLOPT_CAINFO, ctx->cabundle);
-		if (rc != CURLE_OK) {
-			IPA_LOGP(SHTTP, LERROR, "internal HTTP-client failure: %s\n",
+			IPA_LOGP(SHTTP, LERROR, "cannot set CURLOPT_SSL_CTX_DATA: %s\n",
 				 curl_easy_strerror(rc));
 			goto error;
 		}
@@ -440,6 +646,17 @@ struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req,
 
 	rc = curl_easy_perform(ctx->curl);
 	if (rc != CURLE_OK) {
+		unsigned long ossl_err;
+		long ssl_vr = 0;
+		curl_easy_getinfo(ctx->curl, CURLINFO_SSL_VERIFYRESULT, &ssl_vr);
+		if (ssl_vr != 0)
+			IPA_LOGP(SHTTP, LERROR, "SSL verify result: %ld (%s)\n",
+				 ssl_vr, X509_verify_cert_error_string(ssl_vr));
+		while ((ossl_err = ERR_get_error()) != 0) {
+			char errbuf[256];
+			ERR_error_string_n(ossl_err, errbuf, sizeof(errbuf));
+			IPA_LOGP(SHTTP, LERROR, "OpenSSL error: %s\n", errbuf);
+		}
 		IPA_LOGP(SHTTP, LERROR, "HTTP request to %s failed: %s\n", url, curl_easy_strerror(rc));
 		goto error;
 	}
@@ -476,9 +693,13 @@ void ipa_http_free(void *http_ctx)
 
 	ipa_http_close(http_ctx);
 
-	if (ctx->ca_cert) {
-		X509_free(ctx->ca_cert);
-		ctx->ca_cert = NULL;
+	if (ctx->ca_pem) {
+		IPA_FREE(ctx->ca_pem);
+		ctx->ca_pem_len = 0;
+	}
+	if (ctx->ca_pk) {
+		EVP_PKEY_free(ctx->ca_pk);
+		ctx->ca_pk = NULL;
 	}
 	if (ctx->client_cert) {
 		X509_free(ctx->client_cert);
