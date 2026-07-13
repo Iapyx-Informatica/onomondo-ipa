@@ -36,7 +36,7 @@ static int dec_get_euicc_data_res(uint8_t *eid, const struct ipa_buf *es10b_res)
 		return -EINVAL;
 
 	if (asn->eidValue.size != IPA_LEN_EID) {
-		IPA_LOGP_ES10X("GetEID", LERROR, "eID has wrong length, expected %u, got %zu\n", IPA_LEN_EID,
+		IPA_LOGP_ES10X("GetEID", LERROR, "eID has wrong length, expected %u, got %d\n", IPA_LEN_EID,
 			       asn->eidValue.size);
 		rc = -EINVAL;
 		goto error;

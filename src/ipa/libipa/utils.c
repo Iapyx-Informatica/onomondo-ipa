@@ -227,7 +227,7 @@ void ipa_asn1c_dump(const struct asn_TYPE_descriptor_s *td, const void *struct_p
 #ifdef ASN1C_TYPE_HAS_OP
 	td->op->print_struct(td, struct_ptr, 1, ipa_asn1c_dump_consume, &buf);
 #else
-	td->print_struct(td, struct_ptr, 1, ipa_asn1c_dump_consume, &buf);
+	td->print_struct((struct asn_TYPE_descriptor_s *)td, struct_ptr, 1, ipa_asn1c_dump_consume, &buf);
 #endif
 
 	char *token = strtok(buf.printbuf, "\n");
@@ -480,16 +480,16 @@ void *ipa_asn1c_dup(const struct asn_TYPE_descriptor_s *td, const void *struct_p
 	if (!struct_ptr)
 		return NULL;
 
-	rc_enc = der_encode(td, struct_ptr, ipa_asn1c_consume_bytes_cb, &buf_encoded);
+	rc_enc = der_encode(IPA_ASN_TD_RW(td), IPA_ASN_PTR_RW(struct_ptr), ipa_asn1c_consume_bytes_cb, &buf_encoded);
 	if (rc_enc.encoded <= 0) {
 		IPA_FREE(buf_encoded);
 		return NULL;
 	}
 
-	rc_dec = ber_decode(0, td, (void **)&struct_ptr_dup, buf_encoded->data, buf_encoded->len);
+	rc_dec = ber_decode(0, IPA_ASN_TD_RW(td), (void **)&struct_ptr_dup, buf_encoded->data, buf_encoded->len);
 	if (rc_dec.code != RC_OK) {
 		IPA_FREE(buf_encoded);
-		ASN_STRUCT_FREE(*td, struct_ptr_dup);
+		ASN_STRUCT_FREE(*IPA_ASN_TD_RW(td), struct_ptr_dup);
 		return NULL;
 	}
 

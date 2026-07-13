@@ -137,9 +137,10 @@ struct ipa_buf *ipa_esipa_msg_to_eim_enc(const struct EsipaMessageFromIpaToEim *
 	IPA_LOGP_ESIPA(function_name, LDEBUG, "ESipa message that will be sent to eIM:\n");
 	ipa_asn1c_dump(&asn_DEF_EsipaMessageFromIpaToEim, msg_to_eim, 1, SESIPA, LDEBUG);
 
-	rc = der_encode(&asn_DEF_EsipaMessageFromIpaToEim, msg_to_eim, ipa_asn1c_consume_bytes_cb, &buf_encoded);
+	rc = der_encode(&asn_DEF_EsipaMessageFromIpaToEim, IPA_ASN_PTR_RW(msg_to_eim), ipa_asn1c_consume_bytes_cb,
+			&buf_encoded);
 	if (rc.encoded <= 0) {
-		IPA_LOGP_ESIPA(function_name, LERROR, "cannot encode eIM request! rc = %d\n", rc.encoded);
+		IPA_LOGP_ESIPA(function_name, LERROR, "cannot encode eIM request! rc = %zd\n", rc.encoded);
 		IPA_FREE(buf_encoded);
 		return NULL;
 	}

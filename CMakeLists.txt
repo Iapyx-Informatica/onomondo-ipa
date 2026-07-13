@@ -27,6 +27,13 @@ if(MEM_EMIT_DEBUG)
   add_definitions(-DMEM_EMIT_DEBUG)
 endif()
 
+# asn1c's asn_system.h defines _BSD_SOURCE, which glibc deprecated in favour of
+# _DEFAULT_SOURCE: without the latter, _BSD_SOURCE no longer enables the features
+# asn1c expects and every translation unit that includes asn_system.h warns.
+# asn_system.h is pulled in well beyond libasn (libipa, ipa, the tests), so this
+# has to be defined for the whole project rather than per-target.
+add_compile_definitions(_DEFAULT_SOURCE)
+
 # asn1c API drift detection.  asn1c has diverged between tagged 0.9.28 and
 # master in a few subtle ways that we can't fully hide at the .asn level.
 # We detect each at configure time and set compile defines so libipa picks

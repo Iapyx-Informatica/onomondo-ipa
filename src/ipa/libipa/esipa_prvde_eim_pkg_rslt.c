@@ -150,7 +150,7 @@ struct ipa_buf *ipa_esipa_build_eim_pkg_result_der(
 		 * the UNIVERSAL SEQUENCE tag 0x30 is replaced by CONTEXT [0] CONSTRUCTED
 		 * 0xA0. */
 		der_encode(&asn_DEF_SGP32_PendingNotificationList,
-			   &sgp32_notif_list->choice.notificationList,
+			   IPA_ASN_PTR_RW(&sgp32_notif_list->choice.notificationList),
 			   ipa_asn1c_consume_bytes_cb, &notif_enc);
 		if (!notif_enc || notif_enc->len == 0) {
 			IPA_FREE(notif_enc);

@@ -54,6 +54,17 @@ static void sign_ctx_ex_free(void *parent, void *ptr, CRYPTO_EX_DATA *ad,
 	IPA_FREE(ptr);
 }
 
+/* OpenSSL 3.0 deprecates the low-level EC_KEY API in favour of providers, but
+ * routing ECDSA signing to external hardware still requires an EC_KEY_METHOD
+ * (or a full custom provider, which is a much larger undertaking).  The
+ * deprecated API is still functional, so keep using it and confine the
+ * deprecation warnings to the code that needs it rather than disabling them
+ * project-wide.  Revisit if OpenSSL removes EC_KEY_METHOD outright.
+ * NOTE: this signing path is not reachable yet — nothing calls
+ * ipa_http_set_client_cert_der(); see the mTLS TODO in eim_init(). */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+
 /* Module-wide EC_KEY_METHOD and its ex-data index; initialised once. */
 static int g_sign_ctx_ex_idx = -1;
 static EC_KEY_METHOD *g_sign_method;
@@ -100,6 +111,8 @@ static void init_sign_method_once(void)
 	EC_KEY_METHOD_set_sign(g_sign_method, NULL, NULL, tls_ecdsa_sign_sig);
 }
 
+#pragma GCC diagnostic pop
+
 /* -------------------------------------------------------------------------
  * HTTP client context
  * ------------------------------------------------------------------------- */
@@ -117,6 +130,66 @@ struct http_ctx {
 	ipa_tls_sign_fn sign_fn;
 	void *sign_arg;
 };
+
+/* Install the eUICC certificate and its eUICC-backed ECDSA key for TLS client
+ * authentication.  The private key never leaves the chip: we clone the public
+ * EC_KEY out of the certificate and attach the EC_KEY_METHOD above, whose
+ * sign_sig hook calls back into the eUICC.
+ * (Deprecated EC_KEY API — see the note above init_sign_method_once().) */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+static CURLcode install_client_key(SSL_CTX *ssl_ctx, struct http_ctx *ctx)
+{
+	const EC_KEY *ec_orig;
+	EC_KEY *ec;
+	EVP_PKEY *pub, *pkey;
+	struct http_sign_ctx *sc;
+
+	if (SSL_CTX_use_certificate(ssl_ctx, ctx->client_cert) != 1)
+		return CURLE_SSL_CERTPROBLEM;
+
+	/* Extract the public-key EC_KEY from the certificate (no private key
+	 * component — the private key lives in the eUICC and is never exported). */
+	pub = X509_get_pubkey(ctx->client_cert);
+	if (!pub)
+		return CURLE_SSL_CERTPROBLEM;
+	ec_orig = EVP_PKEY_get0_EC_KEY(pub); /* borrowed, owned by pub */
+	ec = ec_orig ? EC_KEY_dup(ec_orig) : NULL;
+	EVP_PKEY_free(pub);
+	if (!ec)
+		return CURLE_SSL_CERTPROBLEM;
+
+	/* Attach our custom method; signing is delegated to the ipa_tls_sign_fn
+	 * stored in the per-key ex-data. */
+	init_sign_method_once();
+	EC_KEY_set_method(ec, g_sign_method);
+
+	sc = IPA_ALLOC(struct http_sign_ctx);
+	if (!sc) {
+		EC_KEY_free(ec);
+		return CURLE_OUT_OF_MEMORY;
+	}
+	sc->fn = ctx->sign_fn;
+	sc->arg = ctx->sign_arg;
+	/* sign_ctx_ex_free releases sc when ec is eventually freed. */
+	EC_KEY_set_ex_data(ec, g_sign_ctx_ex_idx, sc);
+
+	pkey = EVP_PKEY_new();
+	if (!pkey) {
+		EC_KEY_free(ec); /* also frees sc via ex-data */
+		return CURLE_OUT_OF_MEMORY;
+	}
+	EVP_PKEY_assign_EC_KEY(pkey, ec); /* pkey takes ownership of ec */
+
+	if (SSL_CTX_use_PrivateKey(ssl_ctx, pkey) != 1) {
+		EVP_PKEY_free(pkey); /* also frees ec and sc */
+		return CURLE_SSL_CERTPROBLEM;
+	}
+	EVP_PKEY_free(pkey);
+
+	return CURLE_OK;
+}
+#pragma GCC diagnostic pop
 
 /* -------------------------------------------------------------------------
  * Trust-anchor-by-public-key verification (SGP.32 trustedEimPkTls).
@@ -229,54 +302,8 @@ static CURLcode ssl_ctx_cb(CURL *curl, void *ssl_ctx_void, void *clientp)
 		SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, trust_anchor_verify_cb);
 	}
 
-	if (ctx->client_cert && ctx->sign_fn) {
-		EC_KEY *ec_orig, *ec;
-		EVP_PKEY *pub, *pkey;
-		struct http_sign_ctx *sc;
-
-		if (SSL_CTX_use_certificate(ssl_ctx, ctx->client_cert) != 1)
-			return CURLE_SSL_CERTPROBLEM;
-
-		/* Extract the public-key EC_KEY from the certificate (no
-		 * private key component — the private key lives in the eUICC
-		 * and is never exported). */
-		pub = X509_get_pubkey(ctx->client_cert);
-		if (!pub)
-			return CURLE_SSL_CERTPROBLEM;
-		ec_orig = EVP_PKEY_get0_EC_KEY(pub);
-		ec = ec_orig ? EC_KEY_dup(ec_orig) : NULL;
-		EVP_PKEY_free(pub);
-		if (!ec)
-			return CURLE_SSL_CERTPROBLEM;
-
-		/* Attach our custom method; signing is delegated to the
-		 * ipa_tls_sign_fn stored in the per-key ex-data. */
-		init_sign_method_once();
-		EC_KEY_set_method(ec, g_sign_method);
-
-		sc = IPA_ALLOC(struct http_sign_ctx);
-		if (!sc) {
-			EC_KEY_free(ec);
-			return CURLE_OUT_OF_MEMORY;
-		}
-		sc->fn = ctx->sign_fn;
-		sc->arg = ctx->sign_arg;
-		/* sign_ctx_ex_free releases sc when ec is eventually freed. */
-		EC_KEY_set_ex_data(ec, g_sign_ctx_ex_idx, sc);
-
-		pkey = EVP_PKEY_new();
-		if (!pkey) {
-			EC_KEY_free(ec); /* also frees sc via ex-data */
-			return CURLE_OUT_OF_MEMORY;
-		}
-		EVP_PKEY_assign_EC_KEY(pkey, ec); /* pkey takes ownership of ec */
-
-		if (SSL_CTX_use_PrivateKey(ssl_ctx, pkey) != 1) {
-			EVP_PKEY_free(pkey); /* also frees ec and sc */
-			return CURLE_SSL_CERTPROBLEM;
-		}
-		EVP_PKEY_free(pkey);
-	}
+	if (ctx->client_cert && ctx->sign_fn)
+		return install_client_key(ssl_ctx, ctx);
 
 	return CURLE_OK;
 }

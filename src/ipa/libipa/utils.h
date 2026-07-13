@@ -14,6 +14,13 @@
 
 struct asn_TYPE_descriptor_s;
 
+/* \! asn1c predates const-correctness: der_encode(), ber_decode() and free_struct() take non-const pointers even
+ *    though they modify neither the type descriptor nor (when encoding) the source structure. Our own functions do
+ *    declare these const, so a cast is needed at every call. These macros keep the casts -- and this explanation --
+ *    in one place. */
+#define IPA_ASN_TD_RW(td) ((struct asn_TYPE_descriptor_s *)(td))
+#define IPA_ASN_PTR_RW(ptr) ((void *)(ptr))
+
 /*! A mapping between human-readable string and numeric value, when forming arrays of this struct, the last entry
  *  must have member str set to NULL. */
 struct num_str_map {

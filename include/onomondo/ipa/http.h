@@ -37,12 +37,17 @@ typedef int (*ipa_tls_sign_fn)(void *arg,
 			       unsigned char *sig, unsigned int *sig_len);
 
 /* Set the CA certificate used to verify the eIM TLS server, from a
- * DER-encoded X.509 blob.  When set this supersedes the cabundle path
- * given to ipa_http_init() and the trust store is limited to this
- * single certificate (no system-default CAs).
- * The DER bytes are parsed and copied; the caller may free der after return.
+ * DER-encoded X.509 blob (eUICC trustedCertificateTls).
  * Returns 0 on success, -EINVAL on parse failure. */
 int ipa_http_set_ca_cert_der(void *http_ctx, const uint8_t *der, size_t len);
+
+/* Set the TLS trust anchor from a DER-encoded SubjectPublicKeyInfo blob
+ * (eUICC trustedEimPkTls), which carries only the public key of the eIM's
+ * trust anchor rather than a certificate.  The server chain is verified in
+ * full; the otherwise-untrusted certificate at the top of the chain is
+ * accepted iff its public key is this one.
+ * Returns 0 on success, -EINVAL on parse failure. */
+int ipa_http_set_ca_pk_spki(void *http_ctx, const uint8_t *spki, size_t len);
 
 /* Set the TLS client certificate and signing callback for mutual TLS.
  * cert_der/cert_len — DER-encoded eUICC X.509 certificate.

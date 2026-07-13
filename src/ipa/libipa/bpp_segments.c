@@ -23,7 +23,8 @@ static struct ipa_buf *enc_init_sec_chan_req(const struct BoundProfilePackage *b
 	asn_enc_rval_t rc;
 
 	/* "Tag and length fields of the BoundProfilePackage TLV..." */
-	rc = der_encode(&asn_DEF_BoundProfilePackage, bpp, ipa_asn1c_consume_bytes_cb, &init_sec_chan_req_encoded);
+	rc = der_encode(&asn_DEF_BoundProfilePackage, IPA_ASN_PTR_RW(bpp), ipa_asn1c_consume_bytes_cb,
+			&init_sec_chan_req_encoded);
 	if (rc.encoded <= 0) {
 		IPA_LOGP(SIPA, LDEBUG, "cannot re-encode BoundProfilePackage!\n");
 		IPA_FREE(init_sec_chan_req_encoded);
@@ -34,7 +35,7 @@ static struct ipa_buf *enc_init_sec_chan_req(const struct BoundProfilePackage *b
 	init_sec_chan_req_encoded->len = ipa_parse_btlv_hdr(NULL, NULL, init_sec_chan_req_encoded);
 
 	/* "...plus the initialiseSecureChannelRequest TLV */
-	rc = der_encode(&asn_DEF_InitialiseSecureChannelRequest, init_sec_chan_req, ipa_asn1c_consume_bytes_cb,
+	rc = der_encode(&asn_DEF_InitialiseSecureChannelRequest, IPA_ASN_PTR_RW(init_sec_chan_req), ipa_asn1c_consume_bytes_cb,
 			&init_sec_chan_req_encoded);
 
 	if (rc.encoded <= 0) {
@@ -56,7 +57,8 @@ static struct ipa_buf *enc_first_seq_of_87(const struct BoundProfilePackage_Firs
 	asn_enc_rval_t rc;
 
 	/* "Tag and length fields of the FirstSequenceOf87 TLV" */
-	rc = der_encode(&asn_DEF_BoundProfilePackage_FirstSequenceOf87, first_seq_of_87, ipa_asn1c_consume_bytes_cb,
+	rc = der_encode(&asn_DEF_BoundProfilePackage_FirstSequenceOf87, IPA_ASN_PTR_RW(first_seq_of_87),
+			ipa_asn1c_consume_bytes_cb,
 			&first_seq_of_87_encoded);
 	if (rc.encoded <= 0) {
 		IPA_LOGP(SIPA, LERROR, "cannot encode segment for FirstSequenceOf87 (tlv header)!\n");
@@ -99,7 +101,7 @@ static struct ipa_buf *enc_tag_and_len_of_sequenceOf88(const struct BoundProfile
 	asn_enc_rval_t rc;
 
 	/* "Tag and length fields of the first sequenceOf87 TLV" */
-	rc = der_encode(&asn_DEF_BoundProfilePackage_SequenceOf88, seq_of_88, ipa_asn1c_consume_bytes_cb,
+	rc = der_encode(&asn_DEF_BoundProfilePackage_SequenceOf88, IPA_ASN_PTR_RW(seq_of_88), ipa_asn1c_consume_bytes_cb,
 			&seq_of_88_encoded);
 	if (rc.encoded <= 0) {
 		IPA_LOGP(SIPA, LERROR, "cannot encode segment for tag and length field of SequenceOf88!\n");
@@ -122,7 +124,8 @@ static struct ipa_buf *enc_each_of_sequenceOf88(const BoundProfilePackage_88tlv_
 	asn_enc_rval_t rc;
 
 	/* "Each of the '88' TLVs" (= one per segment) */
-	rc = der_encode(&asn_DEF_BoundProfilePackage_88tlv, one_88tlv, ipa_asn1c_consume_bytes_cb, &one_88tlv_encoded);
+	rc = der_encode(&asn_DEF_BoundProfilePackage_88tlv, IPA_ASN_PTR_RW(one_88tlv), ipa_asn1c_consume_bytes_cb,
+			&one_88tlv_encoded);
 	if (rc.encoded <= 0) {
 		IPA_LOGP(SIPA, LERROR, "cannot encode segment for '88' TLV %u!\n", index);
 		IPA_FREE(one_88tlv_encoded);
@@ -142,7 +145,8 @@ static struct ipa_buf *enc_second_seq_of_87(const struct BoundProfilePackage_Sec
 	asn_enc_rval_t rc;
 
 	/* "Tag and length fields of the SecondSequenceOf87 TLV" */
-	rc = der_encode(&asn_DEF_BoundProfilePackage_SecondSequenceOf87, second_seq_of_87, ipa_asn1c_consume_bytes_cb,
+	rc = der_encode(&asn_DEF_BoundProfilePackage_SecondSequenceOf87, IPA_ASN_PTR_RW(second_seq_of_87),
+			ipa_asn1c_consume_bytes_cb,
 			&second_seq_of_87_encoded);
 	if (rc.encoded <= 0) {
 		IPA_LOGP(SIPA, LERROR, "cannot encode segment for SecondSequenceOf87 (tlv header)!\n");
@@ -185,7 +189,7 @@ static struct ipa_buf *enc_tag_and_len_of_sequenceOf86(const struct BoundProfile
 	asn_enc_rval_t rc;
 
 	/* "Tag and length fields of the first sequenceOf87 TLV" */
-	rc = der_encode(&asn_DEF_BoundProfilePackage_SequenceOf86, seq_of_86, ipa_asn1c_consume_bytes_cb,
+	rc = der_encode(&asn_DEF_BoundProfilePackage_SequenceOf86, IPA_ASN_PTR_RW(seq_of_86), ipa_asn1c_consume_bytes_cb,
 			&seq_of_86_encoded);
 	if (rc.encoded <= 0) {
 		IPA_LOGP(SIPA, LERROR, "cannot encode segment for tag and length field of SequenceOf86!\n");
@@ -209,7 +213,8 @@ static struct ipa_buf *enc_each_of_sequenceOf86(const BoundProfilePackage_86tlv_
 	asn_enc_rval_t rc;
 
 	/* "Each of the '88' TLVs" (= one per segment) */
-	rc = der_encode(&asn_DEF_BoundProfilePackage_86tlv, one_86tlv, ipa_asn1c_consume_bytes_cb, &one_86tlv_encoded);
+	rc = der_encode(&asn_DEF_BoundProfilePackage_86tlv, IPA_ASN_PTR_RW(one_86tlv), ipa_asn1c_consume_bytes_cb,
+			&one_86tlv_encoded);
 	if (rc.encoded <= 0) {
 		IPA_LOGP(SIPA, LERROR, "cannot encode segment for '86' TLV %u!\n", index);
 		IPA_FREE(one_86tlv_encoded);
