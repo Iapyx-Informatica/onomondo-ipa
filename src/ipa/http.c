@@ -334,13 +334,24 @@ static bool curl_has_openssl_backend(void)
 	       strstr(vi->ssl_version, "quictls");
 }
 
+/* curl_global_init()/curl_global_cleanup() are documented as per-*program*
+ * (not per-handle) and are not thread-safe.  A single context made them look
+ * per-context, but with more than one HTTP context live at once (e.g. eIM +
+ * SM-DP+ for direct download) a per-context cleanup would tear the global state
+ * down while another context is still using it.  Refcount them so the global
+ * init runs once on the first context and the global cleanup runs once after
+ * the last one is freed.  This assumes the single-threaded ipa_poll() model
+ * used throughout the code base (the counter is not atomic). */
+static unsigned int curl_global_refcnt;
+
 void *ipa_http_init(const char *cabundle, bool no_verif)
 {
 	struct http_ctx *ctx = IPA_ALLOC(struct http_ctx);
 	assert(ctx);
 	memset(ctx, 0, sizeof(*ctx));
 
-	curl_global_init(CURL_GLOBAL_DEFAULT);
+	if (curl_global_refcnt++ == 0)
+		curl_global_init(CURL_GLOBAL_DEFAULT);
 	ctx->initialized = true;
 	ctx->cabundle = cabundle;
 	ctx->no_verif = no_verif;
@@ -733,7 +744,11 @@ void ipa_http_free(void *http_ctx)
 		ctx->client_cert = NULL;
 	}
 
-	curl_global_cleanup();
+	/* Only the last live HTTP context tears down the curl global state
+	 * (see curl_global_refcnt note in ipa_http_init). */
+	if (ctx->initialized && curl_global_refcnt > 0 && --curl_global_refcnt == 0)
+		curl_global_cleanup();
+
 	IPA_FREE(ctx);
 	IPA_LOGP(SHTTP, LINFO, "HTTP client freed.\n");
 }
