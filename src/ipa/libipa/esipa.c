@@ -156,6 +156,13 @@ struct ipa_buf *ipa_esipa_msg_to_eim_enc(const struct EsipaMessageFromIpaToEim *
  *  \param[in] esipa_req ipa_buf with encoded request data
  *  \param[in] function_name name of the ESipa function (for log messages).
  *  \returns pointer newly allocated ipa_buf that contains the encoded response from the eIM, NULL on error. */
+/* NOTE (blocking contract): when esipa_req_retries > 0 the retry backoff below
+ * sleeps synchronously (up to (retries)^2 seconds on the final attempt), so a
+ * call into ipa_esipa_req() — and therefore ipa_poll() — can block for tens of
+ * seconds even though the library is otherwise driven by non-blocking polling.
+ * Callers that must stay responsive should set esipa_req_retries to 0 and drive
+ * retries from their own poll cadence.  Making the backoff itself non-blocking
+ * would require threading the wait through the poll state machine. */
 struct ipa_buf *ipa_esipa_req(struct ipa_context *ctx, const struct ipa_buf *esipa_req, const char *function_name)
 {
 	struct ipa_buf *esipa_res;
