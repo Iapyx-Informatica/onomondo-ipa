@@ -50,181 +50,91 @@ static struct ipa_buf *enc_init_sec_chan_req(const struct BoundProfilePackage *b
 	return init_sec_chan_req_encoded;
 }
 
-/* See also GSMA SGP.22, section  2.5.5 (bullet point 2) */
-static struct ipa_buf *enc_first_seq_of_87(const struct BoundProfilePackage_FirstSequenceOf87 *first_seq_of_87)
+/* Encode a "<SequenceOfNN> header + first '87' TLV" segment (SGP.22 §2.5.5
+ * bullet points 2 and 5).  first/second SequenceOf87 differ only in their outer
+ * SEQUENCE type descriptor and log label; the inner element is always an '87'
+ * TLV.  list_array/list_count come from the caller's typed ->list member. */
+static struct ipa_buf *enc_seq_of_87(const struct asn_TYPE_descriptor_s *seq_td, const void *seq_sptr,
+				     void *const *list_array, int list_count, const char *label)
 {
-	struct ipa_buf *first_seq_of_87_encoded = NULL;
+	struct ipa_buf *enc = NULL;
 	asn_enc_rval_t rc;
 
-	/* "Tag and length fields of the FirstSequenceOf87 TLV" */
-	rc = der_encode(&asn_DEF_BoundProfilePackage_FirstSequenceOf87, IPA_ASN_PTR_RW(first_seq_of_87),
-			ipa_asn1c_consume_bytes_cb,
-			&first_seq_of_87_encoded);
+	/* "Tag and length fields of the <label> TLV" */
+	rc = der_encode(IPA_ASN_TD_RW(seq_td), IPA_ASN_PTR_RW(seq_sptr), ipa_asn1c_consume_bytes_cb, &enc);
 	if (rc.encoded <= 0) {
-		IPA_LOGP(SIPA, LERROR, "cannot encode segment for FirstSequenceOf87 (tlv header)!\n");
-		IPA_FREE(first_seq_of_87_encoded);
+		IPA_LOGP(SIPA, LERROR, "cannot encode segment for %s (tlv header)!\n", label);
+		IPA_FREE(enc);
 		return NULL;
 	}
 
 	/* Pinch-off the value part of the TLV */
-	first_seq_of_87_encoded->len = ipa_parse_btlv_hdr(NULL, NULL, first_seq_of_87_encoded);
+	enc->len = ipa_parse_btlv_hdr(NULL, NULL, enc);
 
 	/* plus the first '87' TLV */
-	if (first_seq_of_87->list.count < 1) {
-		IPA_LOGP(SIPA, LERROR, "cannot encode segment for FirstSequenceOf87 (empty sequence)!\n");
-		IPA_FREE(first_seq_of_87_encoded);
+	if (list_count < 1) {
+		IPA_LOGP(SIPA, LERROR, "cannot encode segment for %s (empty sequence)!\n", label);
+		IPA_FREE(enc);
 		return NULL;
 	}
-	if (first_seq_of_87->list.count > 1) {
+	if (list_count > 1) {
 		/* The spec explicitly states "first '87' TLV"! */
-		IPA_LOGP(SIPA, LDEBUG, "ignoring excess items in the FirstSequenceOf87!\n");
+		IPA_LOGP(SIPA, LDEBUG, "ignoring excess items in the %s!\n", label);
 	}
 
-	rc = der_encode(&asn_DEF_BoundProfilePackage_87tlv, first_seq_of_87->list.array[0], ipa_asn1c_consume_bytes_cb,
-			&first_seq_of_87_encoded);
+	rc = der_encode(&asn_DEF_BoundProfilePackage_87tlv, list_array[0], ipa_asn1c_consume_bytes_cb, &enc);
 	if (rc.encoded <= 0) {
-		IPA_LOGP(SIPA, LERROR, "cannot encode segment for FirstSequenceOf87 (first 87 TLV)!\n");
-		IPA_FREE(first_seq_of_87_encoded);
+		IPA_LOGP(SIPA, LERROR, "cannot encode segment for %s (first 87 TLV)!\n", label);
+		IPA_FREE(enc);
 		return NULL;
 	}
 
-	IPA_LOGP(SIPA, LDEBUG, "encoded FirstSequenceOf87 segment:\n");
-	ipa_buf_hexdump_multiline(first_seq_of_87_encoded, 32, 1, SIPA, LDEBUG);
+	IPA_LOGP(SIPA, LDEBUG, "encoded %s segment:\n", label);
+	ipa_buf_hexdump_multiline(enc, 32, 1, SIPA, LDEBUG);
 
-	return first_seq_of_87_encoded;
+	return enc;
 }
 
-/* See also GSMA SGP.22, section  2.5.5 (bullet point 3) */
-static struct ipa_buf *enc_tag_and_len_of_sequenceOf88(const struct BoundProfilePackage_SequenceOf88 *seq_of_88)
+/* Encode just the tag and length fields of a SequenceOf88/SequenceOf86 TLV
+ * (SGP.22 §2.5.5 bullet points 3 and 6); the value part is pinched off. */
+static struct ipa_buf *enc_seq_tag_and_len(const struct asn_TYPE_descriptor_s *seq_td, const void *seq_sptr,
+					   const char *label)
 {
-	struct ipa_buf *seq_of_88_encoded = NULL;
+	struct ipa_buf *enc = NULL;
 	asn_enc_rval_t rc;
 
-	/* "Tag and length fields of the first sequenceOf87 TLV" */
-	rc = der_encode(&asn_DEF_BoundProfilePackage_SequenceOf88, IPA_ASN_PTR_RW(seq_of_88), ipa_asn1c_consume_bytes_cb,
-			&seq_of_88_encoded);
+	rc = der_encode(IPA_ASN_TD_RW(seq_td), IPA_ASN_PTR_RW(seq_sptr), ipa_asn1c_consume_bytes_cb, &enc);
 	if (rc.encoded <= 0) {
-		IPA_LOGP(SIPA, LERROR, "cannot encode segment for tag and length field of SequenceOf88!\n");
-		IPA_FREE(seq_of_88_encoded);
+		IPA_LOGP(SIPA, LERROR, "cannot encode segment for tag and length field of %s!\n", label);
+		IPA_FREE(enc);
 		return NULL;
 	}
 
 	/* Pinch-off the value part as we were only asked for tag and length fields */
-	seq_of_88_encoded->len = ipa_parse_btlv_hdr(NULL, NULL, seq_of_88_encoded);
+	enc->len = ipa_parse_btlv_hdr(NULL, NULL, enc);
 
-	IPA_LOGP(SIPA, LDEBUG, "encoded tag and length field of SequenceOf88 segment: %s\n",
-		 ipa_buf_hexdump(seq_of_88_encoded));
-	return seq_of_88_encoded;
+	IPA_LOGP(SIPA, LDEBUG, "encoded tag and length field of %s segment: %s\n", label, ipa_buf_hexdump(enc));
+	return enc;
 }
 
-/* See also GSMA SGP.22, section  2.5.5 (bullet point 4) */
-static struct ipa_buf *enc_each_of_sequenceOf88(const BoundProfilePackage_88tlv_t * one_88tlv, unsigned int index)
+/* Encode one '88'/'86' TLV element (SGP.22 §2.5.5 bullet points 4 and 7). */
+static struct ipa_buf *enc_each_tlv(const struct asn_TYPE_descriptor_s *tlv_td, const void *one_tlv,
+				    const char *tlv_label, unsigned int index)
 {
-	struct ipa_buf *one_88tlv_encoded = NULL;
+	struct ipa_buf *enc = NULL;
 	asn_enc_rval_t rc;
 
-	/* "Each of the '88' TLVs" (= one per segment) */
-	rc = der_encode(&asn_DEF_BoundProfilePackage_88tlv, IPA_ASN_PTR_RW(one_88tlv), ipa_asn1c_consume_bytes_cb,
-			&one_88tlv_encoded);
+	rc = der_encode(IPA_ASN_TD_RW(tlv_td), IPA_ASN_PTR_RW(one_tlv), ipa_asn1c_consume_bytes_cb, &enc);
 	if (rc.encoded <= 0) {
-		IPA_LOGP(SIPA, LERROR, "cannot encode segment for '88' TLV %u!\n", index);
-		IPA_FREE(one_88tlv_encoded);
+		IPA_LOGP(SIPA, LERROR, "cannot encode segment for '%s' TLV %u!\n", tlv_label, index);
+		IPA_FREE(enc);
 		return NULL;
 	}
 
-	IPA_LOGP(SIPA, LDEBUG, "encoded '88' TLV segment %u:\n", index);
-	ipa_buf_hexdump_multiline(one_88tlv_encoded, 32, 1, SIPA, LDEBUG);
+	IPA_LOGP(SIPA, LDEBUG, "encoded '%s' TLV segment %u:\n", tlv_label, index);
+	ipa_buf_hexdump_multiline(enc, 32, 1, SIPA, LDEBUG);
 
-	return one_88tlv_encoded;
-}
-
-/* See also GSMA SGP.22, section  2.5.5 (bullet point 5) */
-static struct ipa_buf *enc_second_seq_of_87(const struct BoundProfilePackage_SecondSequenceOf87 *second_seq_of_87)
-{
-	struct ipa_buf *second_seq_of_87_encoded = NULL;
-	asn_enc_rval_t rc;
-
-	/* "Tag and length fields of the SecondSequenceOf87 TLV" */
-	rc = der_encode(&asn_DEF_BoundProfilePackage_SecondSequenceOf87, IPA_ASN_PTR_RW(second_seq_of_87),
-			ipa_asn1c_consume_bytes_cb,
-			&second_seq_of_87_encoded);
-	if (rc.encoded <= 0) {
-		IPA_LOGP(SIPA, LERROR, "cannot encode segment for SecondSequenceOf87 (tlv header)!\n");
-		IPA_FREE(second_seq_of_87_encoded);
-		return NULL;
-	}
-
-	/* Pinch-off the value part of the TLV */
-	second_seq_of_87_encoded->len = ipa_parse_btlv_hdr(NULL, NULL, second_seq_of_87_encoded);
-
-	/* plus the first '87' TLV */
-	if (second_seq_of_87->list.count < 1) {
-		IPA_LOGP(SIPA, LERROR, "cannot encode segment for SecondSequenceOf87 (empty sequence)!\n");
-		IPA_FREE(second_seq_of_87_encoded);
-		return NULL;
-	}
-	if (second_seq_of_87->list.count > 1) {
-		/* The spec explicitly states "first '87' TLV"! */
-		IPA_LOGP(SIPA, LDEBUG, "ignoring excess items in the SecondSequenceOf87!\n");
-	}
-
-	rc = der_encode(&asn_DEF_BoundProfilePackage_87tlv, second_seq_of_87->list.array[0], ipa_asn1c_consume_bytes_cb,
-			&second_seq_of_87_encoded);
-	if (rc.encoded <= 0) {
-		IPA_LOGP(SIPA, LERROR, "cannot encode segment for SecondSequenceOf87 (first 87 TLV)!\n");
-		IPA_FREE(second_seq_of_87_encoded);
-		return NULL;
-	}
-
-	IPA_LOGP(SIPA, LDEBUG, "encoded SecondSequenceOf87 segment:\n");
-	ipa_buf_hexdump_multiline(second_seq_of_87_encoded, 32, 1, SIPA, LDEBUG);
-
-	return second_seq_of_87_encoded;
-}
-
-/* See also GSMA SGP.22, section  2.5.5 (bullet point 6) */
-static struct ipa_buf *enc_tag_and_len_of_sequenceOf86(const struct BoundProfilePackage_SequenceOf86 *seq_of_86)
-{
-	struct ipa_buf *seq_of_86_encoded = NULL;
-	asn_enc_rval_t rc;
-
-	/* "Tag and length fields of the first sequenceOf87 TLV" */
-	rc = der_encode(&asn_DEF_BoundProfilePackage_SequenceOf86, IPA_ASN_PTR_RW(seq_of_86), ipa_asn1c_consume_bytes_cb,
-			&seq_of_86_encoded);
-	if (rc.encoded <= 0) {
-		IPA_LOGP(SIPA, LERROR, "cannot encode segment for tag and length field of SequenceOf86!\n");
-		IPA_FREE(seq_of_86_encoded);
-		return NULL;
-	}
-
-	/* Pinch-off the value part as we were only asked for tag and length fields */
-	seq_of_86_encoded->len = ipa_parse_btlv_hdr(NULL, NULL, seq_of_86_encoded);
-
-	IPA_LOGP(SIPA, LDEBUG, "encoded tag and length field of SequenceOf86 segment: %s\n",
-		 ipa_buf_hexdump(seq_of_86_encoded));
-
-	return seq_of_86_encoded;
-}
-
-/* See also GSMA SGP.22, section  2.5.5 (bullet point 7) */
-static struct ipa_buf *enc_each_of_sequenceOf86(const BoundProfilePackage_86tlv_t * one_86tlv, unsigned int index)
-{
-	struct ipa_buf *one_86tlv_encoded = NULL;
-	asn_enc_rval_t rc;
-
-	/* "Each of the '88' TLVs" (= one per segment) */
-	rc = der_encode(&asn_DEF_BoundProfilePackage_86tlv, IPA_ASN_PTR_RW(one_86tlv), ipa_asn1c_consume_bytes_cb,
-			&one_86tlv_encoded);
-	if (rc.encoded <= 0) {
-		IPA_LOGP(SIPA, LERROR, "cannot encode segment for '86' TLV %u!\n", index);
-		IPA_FREE(one_86tlv_encoded);
-		return NULL;
-	}
-
-	IPA_LOGP(SIPA, LDEBUG, "encoded '86' TLV segment %u:\n", index);
-	ipa_buf_hexdump_multiline(one_86tlv_encoded, 32, 1, SIPA, LDEBUG);
-
-	return one_86tlv_encoded;
+	return enc;
 }
 
 struct ipa_bpp_segments *ipa_bpp_segments_encode(const struct BoundProfilePackage *bpp)
@@ -244,20 +154,22 @@ struct ipa_bpp_segments *ipa_bpp_segments_encode(const struct BoundProfilePackag
 	segments->segment[segments->count] = segment;
 	segments->count++;
 
-	segment = enc_first_seq_of_87(&bpp->firstSequenceOf87);
+	segment = enc_seq_of_87(&asn_DEF_BoundProfilePackage_FirstSequenceOf87, &bpp->firstSequenceOf87,
+				(void *const *)bpp->firstSequenceOf87.list.array,
+				bpp->firstSequenceOf87.list.count, "FirstSequenceOf87");
 	if (!segment)
 		goto error;
 	segments->segment[segments->count] = segment;
 	segments->count++;
 
-	segment = enc_tag_and_len_of_sequenceOf88(&bpp->sequenceOf88);
+	segment = enc_seq_tag_and_len(&asn_DEF_BoundProfilePackage_SequenceOf88, &bpp->sequenceOf88, "SequenceOf88");
 	if (!segment)
 		goto error;
 	segments->segment[segments->count] = segment;
 	segments->count++;
 
 	for (i = 0; i < bpp->sequenceOf88.list.count; i++) {
-		segment = enc_each_of_sequenceOf88(bpp->sequenceOf88.list.array[i], i);
+		segment = enc_each_tlv(&asn_DEF_BoundProfilePackage_88tlv, bpp->sequenceOf88.list.array[i], "88", i);
 		if (!segment)
 			goto error;
 		segments->segment[segments->count] = segment;
@@ -266,21 +178,23 @@ struct ipa_bpp_segments *ipa_bpp_segments_encode(const struct BoundProfilePackag
 
 	/* Optional */
 	if (bpp->secondSequenceOf87) {
-		segment = enc_second_seq_of_87(bpp->secondSequenceOf87);
+		segment = enc_seq_of_87(&asn_DEF_BoundProfilePackage_SecondSequenceOf87, bpp->secondSequenceOf87,
+					(void *const *)bpp->secondSequenceOf87->list.array,
+					bpp->secondSequenceOf87->list.count, "SecondSequenceOf87");
 		if (!segment)
 			goto error;
 		segments->segment[segments->count] = segment;
 		segments->count++;
 	}
 
-	segment = enc_tag_and_len_of_sequenceOf86(&bpp->sequenceOf86);
+	segment = enc_seq_tag_and_len(&asn_DEF_BoundProfilePackage_SequenceOf86, &bpp->sequenceOf86, "SequenceOf86");
 	if (!segment)
 		goto error;
 	segments->segment[segments->count] = segment;
 	segments->count++;
 
 	for (i = 0; i < bpp->sequenceOf86.list.count; i++) {
-		segment = enc_each_of_sequenceOf86(bpp->sequenceOf86.list.array[i], i);
+		segment = enc_each_tlv(&asn_DEF_BoundProfilePackage_86tlv, bpp->sequenceOf86.list.array[i], "86", i);
 		if (!segment)
 			goto error;
 		segments->segment[segments->count] = segment;
