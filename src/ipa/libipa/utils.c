@@ -323,8 +323,9 @@ static size_t parse_btlv_hdr(size_t *len, uint16_t *tag, uint8_t *data, size_t d
 	data_len -= tag_len;
 	skip_len += tag_len;
 
-	/* decode length */
-	if (*data < 0x7f) {
+	/* decode length: short form is 0x00..0x7f (i.e. < 0x80); 0x7f itself is a
+	 * valid short-form length, not a long-form indicator. */
+	if (*data < 0x80) {
 		if (data_len < 1)
 			return -EINVAL;
 		value_len = *data;
