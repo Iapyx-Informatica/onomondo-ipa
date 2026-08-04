@@ -116,11 +116,21 @@ static void init_sign_method_once(void)
 /* -------------------------------------------------------------------------
  * HTTP client context
  * ------------------------------------------------------------------------- */
+
+/* Default TCP connect timeout: bounds only the connection phase. */
+#define IPA_HTTP_CONNECT_TIMEOUT_S 10
+/* Default whole-request timeout.  The old value (5s) covered the entire
+ * transfer, which is too short for a BoundProfilePackage download; use a
+ * generous default and expose it via ipa_http_set_timeouts(). */
+#define IPA_HTTP_TOTAL_TIMEOUT_S 300
+
 struct http_ctx {
 	bool initialized;
 	const char *cabundle;  /* path-based CA bundle (legacy / fallback) */
 	bool no_verif;
 	bool have_openssl_backend; /* libcurl supports CURLOPT_SSL_CTX_FUNCTION */
+	long connect_timeout_s; /* TCP connect phase timeout (CURLOPT_CONNECTTIMEOUT) */
+	long total_timeout_s;   /* whole-request timeout (CURLOPT_TIMEOUT) */
 	CURL *curl;
 	/* eUICC-provisioned TLS credentials. */
 	char *ca_pem;          /* PEM text of CA cert (trustedCertificateTls) */
@@ -355,6 +365,8 @@ void *ipa_http_init(const char *cabundle, bool no_verif)
 	ctx->initialized = true;
 	ctx->cabundle = cabundle;
 	ctx->no_verif = no_verif;
+	ctx->connect_timeout_s = IPA_HTTP_CONNECT_TIMEOUT_S;
+	ctx->total_timeout_s = IPA_HTTP_TOTAL_TIMEOUT_S;
 	ctx->have_openssl_backend = curl_has_openssl_backend();
 
 	if (!ctx->have_openssl_backend) {
@@ -676,7 +688,12 @@ struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req,
 		IPA_LOGP(SHTTP, LERROR, "internal HTTP-client failure: %s\n", curl_easy_strerror(rc));
 		goto error;
 	}
-	rc = curl_easy_setopt(ctx->curl, CURLOPT_TIMEOUT, 5);
+	rc = curl_easy_setopt(ctx->curl, CURLOPT_CONNECTTIMEOUT, ctx->connect_timeout_s);
+	if (rc != CURLE_OK) {
+		IPA_LOGP(SHTTP, LERROR, "internal HTTP-client failure: %s\n", curl_easy_strerror(rc));
+		goto error;
+	}
+	rc = curl_easy_setopt(ctx->curl, CURLOPT_TIMEOUT, ctx->total_timeout_s);
 	if (rc != CURLE_OK) {
 		IPA_LOGP(SHTTP, LERROR, "internal HTTP-client failure: %s\n", curl_easy_strerror(rc));
 		goto error;
@@ -707,6 +724,24 @@ error:
 	curl_slist_free_all(list);
 	ipa_buf_free(res);
 	return NULL;
+}
+
+/*! Override the connect and whole-request timeouts (seconds).  A value <= 0
+ *  leaves the corresponding timeout at its current setting.  Takes effect on
+ *  the next request.
+ *  \param[inout] http_ctx HTTP client context.
+ *  \param[in] connect_timeout_s TCP connect-phase timeout, or <=0 to keep.
+ *  \param[in] total_timeout_s whole-request timeout, or <=0 to keep. */
+void ipa_http_set_timeouts(void *http_ctx, long connect_timeout_s, long total_timeout_s)
+{
+	struct http_ctx *ctx = http_ctx;
+
+	if (!ctx)
+		return;
+	if (connect_timeout_s > 0)
+		ctx->connect_timeout_s = connect_timeout_s;
+	if (total_timeout_s > 0)
+		ctx->total_timeout_s = total_timeout_s;
 }
 
 /*! Close the TCP underlying TCP connection (to be called after the last request).

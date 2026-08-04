@@ -25,6 +25,12 @@ struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req,
 void ipa_http_close(void *http_ctx);
 void ipa_http_free(void *http_ctx);
 
+/* Override the connect-phase and whole-request timeouts (seconds); a value
+ * <= 0 keeps the current setting.  Defaults are set at ipa_http_init() time
+ * (connect 10s, total 300s) and are generous enough for a BoundProfilePackage
+ * download.  Takes effect on the next request. */
+void ipa_http_set_timeouts(void *http_ctx, long connect_timeout_s, long total_timeout_s);
+
 /* Signing callback used for TLS client authentication with a hardware key.
  * The TLS layer calls this when it needs the ECDSA CertificateVerify signature.
  *   hash/hash_len — pre-computed digest bytes (e.g. 32 bytes for SHA-256).
