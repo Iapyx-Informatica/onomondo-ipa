@@ -66,13 +66,24 @@ struct ipa_buf *load_ber_from_file(char *dir, char *file)
 	FILE *ber_file = NULL;
 	struct ipa_buf *ber = NULL;
 	size_t ber_size;
+	int path_len;
 
-	if (dir)
-		strcpy(path, dir);
-	strcat(path, file);
+	/* Bounds-checked path build: an over-long operator-supplied path must not
+	 * overflow path[] (the old strcpy/strcat had no bound). */
+	path_len = snprintf(path, sizeof(path), "%s%s", dir ? dir : "", file);
+	if (path_len < 0 || (size_t)path_len >= sizeof(path)) {
+		IPA_LOGP(SMAIN, LERROR, "BER file path too long\n");
+		return NULL;
+	}
 
+	/* Missing/unreadable file is an operator error, not an assertion: return
+	 * NULL so the caller can report and exit cleanly (assert is a no-op under
+	 * -DNDEBUG anyway). */
 	ber_file = fopen(path, "r");
-	assert(ber_file);
+	if (!ber_file) {
+		IPA_LOGP(SMAIN, LERROR, "cannot open BER file %s\n", path);
+		return NULL;
+	}
 
 	fseek(ber_file, 0L, SEEK_END);
 	ber_size = ftell(ber_file);
@@ -262,6 +273,11 @@ int main(int argc, char **argv)
 	if (getopt_initial_eim_cfg_file) {
 		/* Load initial eIM configuration */
 		struct ipa_buf *eim_cfg = load_ber_from_file(NULL, getopt_initial_eim_cfg_file);
+		if (!eim_cfg) {
+			IPA_LOGP(SMAIN, LERROR, "failed to load initial eIM configuration\n");
+			rc = -EINVAL;
+			goto leave;
+		}
 		ipa_add_init_eim_cfg(ctx, eim_cfg);
 		IPA_FREE(eim_cfg);
 	} else if (getopt_euicc_memory_reset) {
