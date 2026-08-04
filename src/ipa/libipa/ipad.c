@@ -272,6 +272,12 @@ int ipa_add_init_eim_cfg(struct ipa_context *ctx, struct ipa_buf *cfg)
 	struct ipa_es10b_add_init_eim_req add_init_eim_req = { 0 };
 	struct ipa_es10b_add_init_eim_res *add_init_eim_res = NULL;
 
+	/* Validate the caller-supplied buffer before indexing data[0..1] below. */
+	if (!cfg || cfg->len < 2) {
+		IPA_LOGP(SIPA, LERROR, "initial eIM configuration is missing or too short\n");
+		return -EINVAL;
+	}
+
 	/* AddInitialEimRequest and GetEimConfigurationDataResponse are identical. This means we can cast
 	 * GetEimConfigurationDataResponse encoded ASN.1 data to AddInitialEimRequest */
 	if (cfg->data[0] == 0xBF && cfg->data[1] == 0x55) {
