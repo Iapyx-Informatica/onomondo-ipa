@@ -54,10 +54,12 @@ static const struct num_str_map error_code_strings[] = {
 	{ 0, NULL }
 };
 
-static struct ipa_buf *enc_init_auth_req(const struct ipa_esipa_init_auth_req *req)
+static struct ipa_buf *enc_init_auth_req(struct ipa_context *ctx, const void *req_)
 {
+	const struct ipa_esipa_init_auth_req *req = req_;
 	struct EsipaMessageFromIpaToEim msg_to_eim = { 0 };
 	struct OCTET_STRING smdp_address = { 0 };
+	(void)ctx;
 
 	msg_to_eim.present = EsipaMessageFromIpaToEim_PR_initiateAuthenticationRequestEsipa;
 
@@ -86,10 +88,11 @@ static struct ipa_buf *enc_init_auth_req(const struct ipa_esipa_init_auth_req *r
 	return ipa_esipa_msg_to_eim_enc(&msg_to_eim, "InitiateAuthentication");
 }
 
-static struct ipa_esipa_init_auth_res *dec_init_auth_res(const struct ipa_buf *msg_to_ipa_encoded)
+static void *dec_init_auth_res(const struct ipa_buf *msg_to_ipa_encoded, const void *req)
 {
 	struct EsipaMessageFromEimToIpa *msg_to_ipa = NULL;
 	struct ipa_esipa_init_auth_res *res = NULL;
+	(void)req;
 
 	msg_to_ipa =
 	    ipa_esipa_msg_to_ipa_dec(msg_to_ipa_encoded, "InitiateAuthentication",
@@ -121,41 +124,38 @@ static struct ipa_esipa_init_auth_res *dec_init_auth_res(const struct ipa_buf *m
 	return res;
 }
 
+static struct ipa_buf *json_enc_init_auth_req(struct ipa_context *ctx, const void *req)
+{
+	(void)ctx;
+	return ipa_esipa_json_enc_init_auth_req(req);
+}
+
+static void *json_dec_init_auth_res(const struct ipa_buf *res, const void *req)
+{
+	(void)req;
+	return ipa_esipa_json_dec_init_auth_res(res);
+}
+
 /*! Function (ESipa): InitiateAuthentication.
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] req pointer to struct that holds the function parameters.
  *  \returns pointer newly allocated struct with function result, NULL on error. */
 struct ipa_esipa_init_auth_res *ipa_esipa_init_auth(struct ipa_context *ctx, const struct ipa_esipa_init_auth_req *req)
 {
-	struct ipa_buf *esipa_req = NULL;
-	struct ipa_buf *esipa_res = NULL;
-	struct ipa_esipa_init_auth_res *res = NULL;
+	struct ipa_esipa_init_auth_res *res;
 
 	IPA_LOGP_ESIPA("InitiateAuthentication", LINFO, "Requesting authentication with eUICC challenge: %s\n",
 		       ipa_hexdump(req->euicc_challenge, IPA_LEN_EUICC_CHLG));
 
-	/* NEW v1.2 §6.4: JSON binding dispatcher.  Encode + decode using the
-	 * JSON helpers when the caller opted in; fall through to ASN.1 otherwise. */
-	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON) {
-		esipa_req = ipa_esipa_json_enc_init_auth_req(req);
-		if (!esipa_req) goto error;
-		esipa_res = ipa_esipa_req(ctx, esipa_req, "InitiateAuthentication");
-		if (!esipa_res) goto error;
-		res = ipa_esipa_json_dec_init_auth_res(esipa_res);
-		goto error; /* single return path via error: free buffers */
-	}
+	res = ipa_esipa_call(ctx, "InitiateAuthentication", req,
+			     enc_init_auth_req, dec_init_auth_res,
+			     json_enc_init_auth_req, json_dec_init_auth_res);
 
-	esipa_req = enc_init_auth_req(req);
-	if (!esipa_req)
-		goto error;
-
-	esipa_res = ipa_esipa_req(ctx, esipa_req, "InitiateAuthentication");
-	if (!esipa_res)
-		goto error;
-
-	res = dec_init_auth_res(esipa_res);
-	if (!res)
-		goto error;
+	/* The serverSigned1 cross-checks below only apply to the ASN.1 binding;
+	 * the JSON binding did not run them before this was factored out, so keep
+	 * that behaviour by skipping them when the JSON binding produced res. */
+	if (!res || ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON)
+		return res;
 
 	/* Make sure that the signed serverAddress matches the SMDP address we have sent in the request. */
 	if (res->init_auth_ok && !IPA_ASN_STR_CMP_BUF_I
@@ -164,7 +164,7 @@ struct ipa_esipa_init_auth_res *ipa_esipa_init_auth(struct ipa_context *ctx, con
 			       "eIM responded with unexpected serverAddress in serverSigned1 (expected: %s)\n",
 			       req->smdp_addr);
 		res->init_auth_err = -1;
-		goto error;
+		return res;
 	}
 
 	/* Make sure the euiccChallenge matches the euiccChallenge we have sent in the request. */
@@ -176,11 +176,9 @@ struct ipa_esipa_init_auth_res *ipa_esipa_init_auth(struct ipa_context *ctx, con
 			       ipa_hexdump(res->init_auth_ok->serverSigned1.euiccChallenge.buf,
 					   res->init_auth_ok->serverSigned1.euiccChallenge.size));
 		res->init_auth_err = -1;
-		goto error;
+		return res;
 	}
-error:
-	IPA_FREE(esipa_req);
-	IPA_FREE(esipa_res);
+
 	return res;
 }
 

@@ -46,9 +46,11 @@ static const struct num_str_map error_code_strings[] = {
 	{ 0, NULL }
 };
 
-static struct ipa_buf *enc_get_bnd_prfle_pkg_req(const struct ipa_esipa_get_bnd_prfle_pkg_req *req)
+static struct ipa_buf *enc_get_bnd_prfle_pkg_req(struct ipa_context *ctx, const void *req_)
 {
+	const struct ipa_esipa_get_bnd_prfle_pkg_req *req = req_;
 	struct EsipaMessageFromIpaToEim msg_to_eim = { 0 };
+	(void)ctx;
 
 	msg_to_eim.present = EsipaMessageFromIpaToEim_PR_getBoundProfilePackageRequestEsipa;
 
@@ -79,10 +81,11 @@ static struct ipa_buf *enc_get_bnd_prfle_pkg_req(const struct ipa_esipa_get_bnd_
 	return ipa_esipa_msg_to_eim_enc(&msg_to_eim, "GetBoundProfilePackage");
 }
 
-static struct ipa_esipa_get_bnd_prfle_pkg_res *dec_get_bnd_prfle_pkg_res(const struct ipa_buf *msg_to_ipa_encoded)
+static void *dec_get_bnd_prfle_pkg_res(const struct ipa_buf *msg_to_ipa_encoded, const void *req)
 {
 	struct EsipaMessageFromEimToIpa *msg_to_ipa = NULL;
 	struct ipa_esipa_get_bnd_prfle_pkg_res *res = NULL;
+	(void)req;
 
 	msg_to_ipa =
 	    ipa_esipa_msg_to_ipa_dec(msg_to_ipa_encoded, "GetBoundProfilePackage",
@@ -116,6 +119,18 @@ static struct ipa_esipa_get_bnd_prfle_pkg_res *dec_get_bnd_prfle_pkg_res(const s
 	return res;
 }
 
+static struct ipa_buf *json_enc_get_bnd_prfle_pkg_req(struct ipa_context *ctx, const void *req)
+{
+	(void)ctx;
+	return ipa_esipa_json_enc_get_bnd_prfle_pkg_req(req);
+}
+
+static void *json_dec_get_bnd_prfle_pkg_res(const struct ipa_buf *res, const void *req)
+{
+	(void)req;
+	return ipa_esipa_json_dec_get_bnd_prfle_pkg_res(res);
+}
+
 /*! Function: (ESipa) GetBoundProfilePackage.
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] req pointer to struct that holds the function parameters.
@@ -123,40 +138,11 @@ static struct ipa_esipa_get_bnd_prfle_pkg_res *dec_get_bnd_prfle_pkg_res(const s
 struct ipa_esipa_get_bnd_prfle_pkg_res *ipa_esipa_get_bnd_prfle_pkg(struct ipa_context *ctx,
 								    const struct ipa_esipa_get_bnd_prfle_pkg_req *req)
 {
-	struct ipa_buf *esipa_req = NULL;
-	struct ipa_buf *esipa_res = NULL;
-	struct ipa_esipa_get_bnd_prfle_pkg_res *res = NULL;
-
-	IPA_LOGP_ESIPA("GetBoundProfilePackage", LINFO, "Preparing encoded profile package request\n");
-
-	/* NEW v1.2 §6.4: JSON binding dispatcher. */
-	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON) {
-		esipa_req = ipa_esipa_json_enc_get_bnd_prfle_pkg_req(req);
-		if (!esipa_req) goto error;
-		esipa_res = ipa_esipa_req(ctx, esipa_req, "GetBoundProfilePackage");
-		if (!esipa_res) goto error;
-		res = ipa_esipa_json_dec_get_bnd_prfle_pkg_res(esipa_res);
-		goto error;
-	}
-
-	esipa_req = enc_get_bnd_prfle_pkg_req(req);
-	if (!esipa_req)
-		goto error;
-
 	IPA_LOGP_ESIPA("GetBoundProfilePackage", LINFO, "Requesting profile package from eIM\n");
-	esipa_res = ipa_esipa_req(ctx, esipa_req, "GetBoundProfilePackage");
-	if (!esipa_res)
-		goto error;
 
-	IPA_LOGP_ESIPA("GetBoundProfilePackage", LINFO, "Decoding profile package received from eIM\n");
-	res = dec_get_bnd_prfle_pkg_res(esipa_res);
-	if (!res)
-		goto error;
-
-error:
-	IPA_FREE(esipa_req);
-	IPA_FREE(esipa_res);
-	return res;
+	return ipa_esipa_call(ctx, "GetBoundProfilePackage", req,
+			      enc_get_bnd_prfle_pkg_req, dec_get_bnd_prfle_pkg_res,
+			      json_enc_get_bnd_prfle_pkg_req, json_dec_get_bnd_prfle_pkg_res);
 }
 
 /*! Free results of function: (ESipa) GetBoundProfilePackage.

@@ -373,6 +373,28 @@ struct ipa_esipa_prvde_eim_pkg_rslt_res *dec_prvde_eim_pkg_rslt_res(const struct
 	return res;
 }
 
+static struct ipa_buf *enc_prvde_eim_pkg_rslt_req_cb(struct ipa_context *ctx, const void *req)
+{
+	return enc_prvde_eim_pkg_rslt_req(ctx, req);
+}
+
+static void *dec_prvde_eim_pkg_rslt_res_cb(const struct ipa_buf *res, const void *req)
+{
+	(void)req;
+	return dec_prvde_eim_pkg_rslt_res(res);
+}
+
+static struct ipa_buf *json_enc_prvde_eim_pkg_rslt_req(struct ipa_context *ctx, const void *req)
+{
+	return ipa_esipa_json_enc_prvde_eim_pkg_rslt_req(ctx, req);
+}
+
+static void *json_dec_prvde_eim_pkg_rslt_res(const struct ipa_buf *res, const void *req)
+{
+	(void)req;
+	return ipa_esipa_json_dec_prvde_eim_pkg_rslt_res(res);
+}
+
 /*! Function (ESipa): ProvideEimPackageResult.
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] req pointer to struct that holds the function parameters.
@@ -380,39 +402,12 @@ struct ipa_esipa_prvde_eim_pkg_rslt_res *dec_prvde_eim_pkg_rslt_res(const struct
 struct ipa_esipa_prvde_eim_pkg_rslt_res *ipa_esipa_prvde_eim_pkg_rslt(struct ipa_context *ctx, const struct ipa_esipa_prvde_eim_pkg_rslt_req
 								      *req)
 {
-	struct ipa_buf *esipa_req = NULL;
-	struct ipa_buf *esipa_res = NULL;
-	struct ipa_esipa_prvde_eim_pkg_rslt_res *res = NULL;
-
 	IPA_LOGP_ESIPA("ProvideEimPackageResult", LINFO,
 		       "Providing eUICC package result and eUICC notifications to eIM\n");
 
-	/* NEW v1.2 §6.4: JSON binding dispatcher. */
-	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON) {
-		esipa_req = ipa_esipa_json_enc_prvde_eim_pkg_rslt_req(ctx, req);
-		if (!esipa_req) goto error;
-		esipa_res = ipa_esipa_req(ctx, esipa_req, "ProvideEimPackageResult");
-		if (!esipa_res) goto error;
-		res = ipa_esipa_json_dec_prvde_eim_pkg_rslt_res(esipa_res);
-		goto error;
-	}
-
-	esipa_req = enc_prvde_eim_pkg_rslt_req(ctx, req);
-	if (!esipa_req)
-		goto error;
-
-	esipa_res = ipa_esipa_req(ctx, esipa_req, "ProvideEimPackageResult");
-	if (!esipa_res)
-		goto error;
-
-	res = dec_prvde_eim_pkg_rslt_res(esipa_res);
-	if (!res)
-		goto error;
-
-error:
-	IPA_FREE(esipa_req);
-	IPA_FREE(esipa_res);
-	return res;
+	return ipa_esipa_call(ctx, "ProvideEimPackageResult", req,
+			      enc_prvde_eim_pkg_rslt_req_cb, dec_prvde_eim_pkg_rslt_res_cb,
+			      json_enc_prvde_eim_pkg_rslt_req, json_dec_prvde_eim_pkg_rslt_res);
 }
 
 /*! Free results of function (ESipa): ProvideEimPackageResult.

@@ -208,3 +208,41 @@ void ipa_esipa_close(struct ipa_context *ctx)
 {
 	ipa_http_close(ctx->http_ctx);
 }
+
+/*! Run the common ESipa round-trip shared by every ipa_esipa_* function.
+ *  See esipa.h for the contract. */
+void *ipa_esipa_call(struct ipa_context *ctx, const char *function_name, const void *req,
+		     ipa_esipa_enc_cb enc, ipa_esipa_dec_cb dec,
+		     ipa_esipa_enc_cb json_enc, ipa_esipa_dec_cb json_dec)
+{
+	struct ipa_buf *esipa_req = NULL;
+	struct ipa_buf *esipa_res = NULL;
+	void *res = NULL;
+	ipa_esipa_enc_cb use_enc;
+	ipa_esipa_dec_cb use_dec;
+
+	/* NEW v1.2 §6.4: select the wire binding.  This is the dispatcher that
+	 * used to be copy-pasted into every ipa_esipa_* function. */
+	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON) {
+		use_enc = json_enc;
+		use_dec = json_dec;
+	} else {
+		use_enc = enc;
+		use_dec = dec;
+	}
+
+	esipa_req = use_enc(ctx, req);
+	if (!esipa_req)
+		goto out;
+
+	esipa_res = ipa_esipa_req(ctx, esipa_req, function_name);
+	if (!esipa_res)
+		goto out;
+
+	res = use_dec(esipa_res, req);
+
+out:
+	IPA_FREE(esipa_req);
+	IPA_FREE(esipa_res);
+	return res;
+}

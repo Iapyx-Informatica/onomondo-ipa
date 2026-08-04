@@ -26,6 +26,27 @@ struct ipa_buf *ipa_esipa_msg_to_eim_enc(const struct EsipaMessageFromIpaToEim *
 struct ipa_buf *ipa_esipa_req(struct ipa_context *ctx, const struct ipa_buf *esipa_req, const char *function_name);
 void ipa_esipa_close(struct ipa_context *ctx);
 
+/* Encode an ESipa request body from an opaque per-function request object.
+ * ctx is passed for the few encoders that need it (e.g. ProvideEimPackageResult);
+ * others ignore it.  Returns a newly allocated buffer, NULL on error. */
+typedef struct ipa_buf *(*ipa_esipa_enc_cb)(struct ipa_context *ctx, const void *req);
+
+/* Decode an ESipa response body into a newly allocated per-function result
+ * object.  req is passed for the few decoders that cross-check the request
+ * (e.g. AuthenticateClient transaction id); others ignore it.  Returns NULL on
+ * error. */
+typedef void *(*ipa_esipa_dec_cb)(const struct ipa_buf *res, const void *req);
+
+/*! Run the common ESipa round-trip shared by every ipa_esipa_* function:
+ *  select the ASN.1 vs JSON binding from ctx->cfg->esipa_binding, encode the
+ *  request, send it via ipa_esipa_req(), then decode the response.  Both
+ *  intermediate buffers are always freed before returning.  All four callbacks
+ *  must be non-NULL.
+ *  \returns the decoded result object, or NULL on any failure. */
+void *ipa_esipa_call(struct ipa_context *ctx, const char *function_name, const void *req,
+		     ipa_esipa_enc_cb enc, ipa_esipa_dec_cb dec,
+		     ipa_esipa_enc_cb json_enc, ipa_esipa_dec_cb json_dec);
+
 /*! A helper macro to free the basic contents of an ESIPA response. This macro is intended to be used from within the
  *  concrete implementation of an ESIPA function. It only frees the common contents and the struct itsself. In case
  *  there are other additional fields, the caller must free those first before calling this macro.

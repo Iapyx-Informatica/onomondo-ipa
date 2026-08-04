@@ -46,9 +46,11 @@ static const struct num_str_map error_code_strings[] = {
 	{ 0, NULL }
 };
 
-static struct ipa_buf *enc_get_eim_pkg_req(const uint8_t *eid_value)
+static struct ipa_buf *enc_get_eim_pkg_req(struct ipa_context *ctx, const void *req)
 {
+	const uint8_t *eid_value = req;
 	struct EsipaMessageFromIpaToEim msg_to_eim = { 0 };
+	(void)ctx;
 
 	msg_to_eim.present = EsipaMessageFromIpaToEim_PR_getEimPackageRequest;
 	msg_to_eim.choice.getEimPackageRequest.eidValue.buf = (uint8_t *) eid_value;
@@ -65,10 +67,11 @@ static struct ipa_buf *enc_get_eim_pkg_req(const uint8_t *eid_value)
 	return ipa_esipa_msg_to_eim_enc(&msg_to_eim, "GetEimPackage");
 }
 
-struct ipa_esipa_get_eim_pkg_res *dec_get_eim_pkg_req(const struct ipa_buf *msg_to_ipa_encoded)
+static void *dec_get_eim_pkg_req(const struct ipa_buf *msg_to_ipa_encoded, const void *req)
 {
 	struct EsipaMessageFromEimToIpa *msg_to_ipa = NULL;
 	struct ipa_esipa_get_eim_pkg_res *res = NULL;
+	(void)req;
 
 	msg_to_ipa =
 	    ipa_esipa_msg_to_ipa_dec(msg_to_ipa_encoded, "GetEimPackage",
@@ -104,44 +107,32 @@ struct ipa_esipa_get_eim_pkg_res *dec_get_eim_pkg_req(const struct ipa_buf *msg_
 	return res;
 }
 
+static struct ipa_buf *json_enc_get_eim_pkg_req(struct ipa_context *ctx, const void *req)
+{
+	(void)ctx;
+	/* TODO v1.1: 5.14.5 — plumb stateChangeCause through here too (see the
+	 * ASN.1 encoder's TODO); the JSON binding takes notify_state_change +
+	 * cause, hardcoded to "no state change" for now. */
+	return ipa_esipa_json_enc_get_eim_pkg_req((const uint8_t *)req, false, -1);
+}
+
+static void *json_dec_get_eim_pkg_res(const struct ipa_buf *res, const void *req)
+{
+	(void)req;
+	return ipa_esipa_json_dec_get_eim_pkg_res(res);
+}
+
 /*! Function (ESipa): GetEimPackage.
  *  \param[inout] ctx pointer to ipa_context.
- *  \param[in] req pointer to struct that holds the function parameters.
+ *  \param[in] eid pointer to the eID (IPA_LEN_EID bytes).
  *  \returns pointer newly allocated struct with function result, NULL on error. */
 struct ipa_esipa_get_eim_pkg_res *ipa_esipa_get_eim_pkg(struct ipa_context *ctx, const uint8_t *eid)
 {
-	struct ipa_buf *esipa_req = NULL;
-	struct ipa_buf *esipa_res = NULL;
-	struct ipa_esipa_get_eim_pkg_res *res = NULL;
-
 	IPA_LOGP_ESIPA("GetEimPackage", LINFO, "Requesting eIM package for eID: %s\n", ipa_hexdump(eid, IPA_LEN_EID));
 
-	/* NEW v1.2 §6.4: JSON binding dispatcher. */
-	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON) {
-		esipa_req = ipa_esipa_json_enc_get_eim_pkg_req(eid, false, -1);
-		if (!esipa_req) goto error;
-		esipa_res = ipa_esipa_req(ctx, esipa_req, "GetEimPackage");
-		if (!esipa_res) goto error;
-		res = ipa_esipa_json_dec_get_eim_pkg_res(esipa_res);
-		goto error;
-	}
-
-	esipa_req = enc_get_eim_pkg_req(eid);
-	if (!esipa_req)
-		goto error;
-
-	esipa_res = ipa_esipa_req(ctx, esipa_req, "GetEimPackage");
-	if (!esipa_res)
-		goto error;
-
-	res = dec_get_eim_pkg_req(esipa_res);
-	if (!res)
-		goto error;
-
-error:
-	IPA_FREE(esipa_req);
-	IPA_FREE(esipa_res);
-	return res;
+	return ipa_esipa_call(ctx, "GetEimPackage", eid,
+			      enc_get_eim_pkg_req, dec_get_eim_pkg_req,
+			      json_enc_get_eim_pkg_req, json_dec_get_eim_pkg_res);
 }
 
 /*! Free results of function (ESipa): GetEimPackage.

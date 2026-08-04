@@ -29,9 +29,11 @@ static const struct num_str_map error_code_strings[] = {
 	{ 0, NULL }
 };
 
-static struct ipa_buf *enc_cancel_session_req(const struct ipa_esipa_cancel_session_req *req)
+static struct ipa_buf *enc_cancel_session_req(struct ipa_context *ctx, const void *req_)
 {
+	const struct ipa_esipa_cancel_session_req *req = req_;
 	struct EsipaMessageFromIpaToEim msg_to_eim = { 0 };
+	(void)ctx;
 
 	msg_to_eim.present = EsipaMessageFromIpaToEim_PR_cancelSessionRequestEsipa;
 	msg_to_eim.choice.cancelSessionRequestEsipa.transactionId = *req->transaction_id;
@@ -52,10 +54,11 @@ static struct ipa_buf *enc_cancel_session_req(const struct ipa_esipa_cancel_sess
 	return ipa_esipa_msg_to_eim_enc(&msg_to_eim, "CancelSession");
 }
 
-static struct ipa_esipa_cancel_session_res *dec_cancel_session_res(const struct ipa_buf *msg_to_ipa_encoded)
+static void *dec_cancel_session_res(const struct ipa_buf *msg_to_ipa_encoded, const void *req)
 {
 	struct EsipaMessageFromEimToIpa *msg_to_ipa = NULL;
 	struct ipa_esipa_cancel_session_res *res = NULL;
+	(void)req;
 
 	msg_to_ipa = ipa_esipa_msg_to_ipa_dec(msg_to_ipa_encoded, "CancelSession",
 					      EsipaMessageFromEimToIpa_PR_cancelSessionResponseEsipa);
@@ -87,6 +90,26 @@ static struct ipa_esipa_cancel_session_res *dec_cancel_session_res(const struct 
 
 struct ipa_buf *ipa_esipa_json_enc_cancel_session_req(const struct ipa_esipa_cancel_session_req *);
 
+static struct ipa_buf *json_enc_cancel_session_req(struct ipa_context *ctx, const void *req)
+{
+	(void)ctx;
+	return ipa_esipa_json_enc_cancel_session_req(req);
+}
+
+/* CancelSession has no response body in the JSON binding: a successful
+ * transport is itself the acknowledgement, so synthesise an "ok" result. */
+static void *json_dec_cancel_session_res(const struct ipa_buf *res_buf, const void *req)
+{
+	struct ipa_esipa_cancel_session_res *res;
+	(void)res_buf;
+	(void)req;
+
+	res = IPA_ALLOC_ZERO(struct ipa_esipa_cancel_session_res);
+	if (res)
+		res->cancel_session_ok = true;
+	return res;
+}
+
 /*! Function (ESipa): CancelSession.
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] req pointer to struct that holds the function parameters.
@@ -94,40 +117,11 @@ struct ipa_buf *ipa_esipa_json_enc_cancel_session_req(const struct ipa_esipa_can
 struct ipa_esipa_cancel_session_res *ipa_esipa_cancel_session(struct ipa_context *ctx,
 							      const struct ipa_esipa_cancel_session_req *req)
 {
-	struct ipa_buf *esipa_req = NULL;
-	struct ipa_buf *esipa_res = NULL;
-	struct ipa_esipa_cancel_session_res *res = NULL;
-
 	IPA_LOGP_ESIPA("CancelSession", LINFO, "Requesting cancellation of session\n");
 
-	/* NEW v1.2 §6.4: JSON binding dispatcher — CancelSession has no response
-	 * body in the JSON binding. */
-	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON) {
-		esipa_req = ipa_esipa_json_enc_cancel_session_req(req);
-		if (!esipa_req) goto error;
-		esipa_res = ipa_esipa_req(ctx, esipa_req, "CancelSession");
-		if (!esipa_res) goto error;
-		res = IPA_ALLOC_ZERO(struct ipa_esipa_cancel_session_res);
-		if (res) res->cancel_session_ok = true;
-		goto error;
-	}
-
-	esipa_req = enc_cancel_session_req(req);
-	if (!esipa_req)
-		goto error;
-
-	esipa_res = ipa_esipa_req(ctx, esipa_req, "CancelSession");
-	if (!esipa_res)
-		goto error;
-
-	res = dec_cancel_session_res(esipa_res);
-	if (!res)
-		goto error;
-
-error:
-	IPA_FREE(esipa_req);
-	IPA_FREE(esipa_res);
-	return res;
+	return ipa_esipa_call(ctx, "CancelSession", req,
+			      enc_cancel_session_req, dec_cancel_session_res,
+			      json_enc_cancel_session_req, json_dec_cancel_session_res);
 }
 
 /*! Free results of function (ESipa): CancelSession.

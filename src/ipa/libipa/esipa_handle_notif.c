@@ -67,7 +67,13 @@ static int dec_handle_notif_res(const struct ipa_buf *msg_to_ipa_encoded)
 /*! Function (ESipa): HandleNotification.
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] req pointer to struct that holds the function parameters.
- *  \returns 0 on success, negative on error. */
+ *  \returns 0 on success, negative on error.
+ *
+ *  Note: unlike the other ipa_esipa_* functions this one is NOT built on
+ *  ipa_esipa_call() — it returns an int status rather than a heap-allocated
+ *  result object and has no response body to decode, so the shared helper's
+ *  void*-result contract does not fit.  The enc/req/dec skeleton is kept
+ *  inline here on purpose. */
 int ipa_esipa_handle_notif(struct ipa_context *ctx, const struct ipa_esipa_handle_notif_req *req)
 {
 	struct ipa_buf *esipa_req = NULL;

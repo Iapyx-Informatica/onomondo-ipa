@@ -155,11 +155,16 @@ static struct ipa_buf *enc_auth_clnt_req_passthru(const struct ipa_esipa_auth_cl
 	return msg;
 }
 
-static struct ipa_esipa_auth_clnt_res *dec_auth_clnt_res(const struct ipa_buf *msg_to_ipa_encoded,
-							 const struct ipa_esipa_auth_clnt_req *req)
+static void *dec_auth_clnt_res(const struct ipa_buf *msg_to_ipa_encoded, const void *req_)
 {
+	const struct ipa_esipa_auth_clnt_req *req = req_;
 	struct EsipaMessageFromEimToIpa *msg_to_ipa = NULL;
 	struct ipa_esipa_auth_clnt_res *res = NULL;
+
+	if (msg_to_ipa_encoded->len == 0) {
+		IPA_LOGP_ESIPA("AuthenticateClient", LERROR, "eIM response is empty!\n");
+		return NULL;
+	}
 
 	msg_to_ipa = ipa_esipa_msg_to_ipa_dec(msg_to_ipa_encoded, "AuthenticateClient",
 					      EsipaMessageFromEimToIpa_PR_authenticateClientResponseEsipa);
@@ -202,60 +207,40 @@ static struct ipa_esipa_auth_clnt_res *dec_auth_clnt_res(const struct ipa_buf *m
 	return res;
 }
 
+/* ASN.1/BER binding: use the passthru encoder when raw eUICC bytes are
+ * available to avoid breaking euiccSignature1 via a BER→DER re-encode. */
+static struct ipa_buf *enc_auth_clnt_req_cb(struct ipa_context *ctx, const void *req_)
+{
+	const struct ipa_esipa_auth_clnt_req *req = req_;
+	(void)ctx;
+
+	if (req->raw_authenticate_server_response)
+		return enc_auth_clnt_req_passthru(req);
+	return enc_auth_clnt_req(req);
+}
+
+static struct ipa_buf *json_enc_auth_clnt_req(struct ipa_context *ctx, const void *req)
+{
+	(void)ctx;
+	return ipa_esipa_json_enc_auth_clnt_req(req);
+}
+
+static void *json_dec_auth_clnt_res(const struct ipa_buf *res, const void *req)
+{
+	return ipa_esipa_json_dec_auth_clnt_res(res, req);
+}
+
 /*! Function: (Esipa) AuthenticateClient.
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] req pointer to struct that holds the function parameters.
  *  \returns pointer newly allocated struct with function result, NULL on error. */
 struct ipa_esipa_auth_clnt_res *ipa_esipa_auth_clnt(struct ipa_context *ctx, const struct ipa_esipa_auth_clnt_req *req)
 {
-	struct ipa_buf *esipa_req = NULL;
-	struct ipa_buf *esipa_res = NULL;
-	struct ipa_esipa_auth_clnt_res *res = NULL;
-
 	IPA_LOGP_ESIPA("AuthenticateClient", LINFO, "Requesting client authentication\n");
 
-	/* NEW v1.2 §6.4: JSON binding dispatcher. */
-	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON) {
-		esipa_req = ipa_esipa_json_enc_auth_clnt_req(req);
-		if (!esipa_req) goto error;
-		esipa_res = ipa_esipa_req(ctx, esipa_req, "AuthenticateClient");
-		if (!esipa_res) goto error;
-		res = ipa_esipa_json_dec_auth_clnt_res(esipa_res, req);
-		goto error;
-	}
-
-	/* ASN.1/BER binding: use passthru encoder when raw eUICC bytes are
-	 * available to avoid breaking euiccSignature1 via BER→DER re-encode. */
-	if (req->raw_authenticate_server_response) {
-		esipa_req = enc_auth_clnt_req_passthru(req);
-	} else {
-		esipa_req = enc_auth_clnt_req(req);
-	}
-	if (!esipa_req) {
-		IPA_LOGP_ESIPA("AuthenticateClient", LERROR, "failed to encode the AuthenticateClient request!\n");
-		goto error;
-	}
-
-	esipa_res = ipa_esipa_req(ctx, esipa_req, "AuthenticateClient");
-	if (!esipa_res) {
-		IPA_LOGP_ESIPA("AuthenticateClient", LERROR, "eIM response is NULL!\n");
-		goto error;
-	} else if (esipa_res->len == 0) {
-		IPA_LOGP_ESIPA("AuthenticateClient", LERROR, "eIM response is empty!\n");
-		goto error;
-	}
-
-	IPA_LOGP_ESIPA("AuthenticateClient", LINFO, "Decode the AuthenticateClient response\n");
-	res = dec_auth_clnt_res(esipa_res, req);
-	if (!res) {
-		IPA_LOGP_ESIPA("AuthenticateClient", LERROR, "failed to decode the AuthenticateClient response!\n");
-		goto error;
-	}
-
-error:
-	IPA_FREE(esipa_req);
-	IPA_FREE(esipa_res);
-	return res;
+	return ipa_esipa_call(ctx, "AuthenticateClient", req,
+			      enc_auth_clnt_req_cb, dec_auth_clnt_res,
+			      json_enc_auth_clnt_req, json_dec_auth_clnt_res);
 }
 
 /*! Free results of function: (Esipa) AuthenticateClient.
