@@ -77,45 +77,49 @@
 #include "esipa_prvde_eim_pkg_rslt.h"
 #include "proc_euicc_data_req.h"
 
+/* Set named bit N of a DER BIT STRING: byte N/8, MSB-first mask 0x80 >> (N%8).
+ * Same idiom as es10b_euicc_mem_rst.c; must match how a conformant decoder reads
+ * named bits (a whole-byte-per-bit layout produces a malformed BIT STRING). */
+static void bit_string_set_named_bit(uint8_t *buf, unsigned int bit)
+{
+	buf[bit / 8] |= 0x80 >> (bit % 8);
+}
+
 /* See also SGP.32, section 4.1 */
-static struct IpaCapabilities *make_ipa_capabilties(void)
+struct IpaCapabilities *make_ipa_capabilties(void)
 {
 	static struct IpaCapabilities ipa_capabilties = { 0 };
-	static uint8_t ipa_ipaFeatures_buf[6];
+	/* ipaFeatures has 6 named bits (0..5) -> 1 byte, 2 unused (LSB) bits. */
+	static uint8_t ipa_ipaFeatures_buf[1];
 	static struct BIT_STRING_s ipa_supported_protocols = { 0 };
-	static uint8_t ipa_supported_protocols_buf[5];
+	/* ipaSupportedProtocols has 5 named bits (0..4) -> 1 byte, 3 unused (LSB) bits. */
+	static uint8_t ipa_supported_protocols_buf[1];
 
 	memset(ipa_ipaFeatures_buf, 0, sizeof(ipa_ipaFeatures_buf));
 	ipa_capabilties.ipaFeatures.size = sizeof(ipa_ipaFeatures_buf);
 	ipa_capabilties.ipaFeatures.buf = ipa_ipaFeatures_buf;
-	/* We only support indirectRspServerCommunication, see also proc_indirect_prfle_dwnld.c */
-	ipa_capabilties.ipaFeatures.buf[IpaCapabilities__ipaFeatures_directRspServerCommunication] = 0;
-	ipa_capabilties.ipaFeatures.buf[IpaCapabilities__ipaFeatures_indirectRspServerCommunication] = 1;
+	ipa_capabilties.ipaFeatures.bits_unused = 2;
+	/* We only support indirectRspServerCommunication, see also proc_indirect_prfle_dwnld.c.
+	 * directRspServerCommunication stays cleared. */
+	bit_string_set_named_bit(ipa_ipaFeatures_buf, IpaCapabilities__ipaFeatures_indirectRspServerCommunication);
 
 	/* In eimDownloadDataHandling no AC is communicated, the eIM handles the identification of the download
-	 * internally then, this is a mode we do not support. */
-	ipa_capabilties.ipaFeatures.buf[IpaCapabilities__ipaFeatures_eimDownloadDataHandling] = 0;
+	 * internally then, this is a mode we do not support (bit stays cleared). */
 
 	/* We do generate ctxParams1, see also proc_cmn_mtl_auth.c */
-	ipa_capabilties.ipaFeatures.buf[IpaCapabilities__ipaFeatures_eimCtxParams1Generation] = 1;
+	bit_string_set_named_bit(ipa_ipaFeatures_buf, IpaCapabilities__ipaFeatures_eimCtxParams1Generation);
 
-	/* We do not yet support the ProfileMetadata verification, see TODO in proc_indirect_prfle_dwnld.c */
-	ipa_capabilties.ipaFeatures.buf[IpaCapabilities__ipaFeatures_eimProfileMetadataVerification] = 0;
-
-	/* This is a mode that uses more compact ESipa message to save some bytes/traffic. This feature is also not
-	 * supported. */
-	ipa_capabilties.ipaFeatures.buf[IpaCapabilities__ipaFeatures_minimizeEsipaBytes] = 0;
+	/* We do not yet support the ProfileMetadata verification (see TODO in proc_indirect_prfle_dwnld.c),
+	 * nor minimizeEsipaBytes (compact ESipa messages); both bits stay cleared. */
 
 	ipa_capabilties.ipaSupportedProtocols = &ipa_supported_protocols;
 
 	memset(ipa_supported_protocols_buf, 0, sizeof(ipa_supported_protocols_buf));
 	ipa_supported_protocols.size = sizeof(ipa_supported_protocols_buf);
 	ipa_supported_protocols.buf = ipa_supported_protocols_buf;
-	ipa_supported_protocols.buf[IpaCapabilities__ipaSupportedProtocols_ipaRetrieveHttps] = 1;
-	ipa_supported_protocols.buf[IpaCapabilities__ipaSupportedProtocols_ipaRetrieveCoaps] = 0;
-	ipa_supported_protocols.buf[IpaCapabilities__ipaSupportedProtocols_ipaInjectHttps] = 0;
-	ipa_supported_protocols.buf[IpaCapabilities__ipaSupportedProtocols_ipaInjectCoaps] = 0;
-	ipa_supported_protocols.buf[IpaCapabilities__ipaSupportedProtocols_ipaProprietary] = 0;
+	ipa_supported_protocols.bits_unused = 3;
+	/* We only support ipaRetrieveHttps; the CoAP/inject/proprietary bits stay cleared. */
+	bit_string_set_named_bit(ipa_supported_protocols_buf, IpaCapabilities__ipaSupportedProtocols_ipaRetrieveHttps);
 
 	return &ipa_capabilties;
 }

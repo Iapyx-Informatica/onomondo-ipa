@@ -7,6 +7,7 @@
 #pragma once
 
 #include <IpaEuiccDataRequest.h>
+#include <IpaCapabilities.h>
 struct ipa_context;
 
 struct ipa_proc_euicc_data_req_pars {
@@ -14,3 +15,7 @@ struct ipa_proc_euicc_data_req_pars {
 };
 
 int ipa_proc_euicc_data_req(struct ipa_context *ctx, const struct ipa_proc_euicc_data_req_pars *pars);
+
+/* Exposed for the golden-file encode test (see tests/ipa_capabilities).  Returns a
+ * pointer to static storage describing the IPA's advertised capabilities. */
+struct IpaCapabilities *make_ipa_capabilties(void);
