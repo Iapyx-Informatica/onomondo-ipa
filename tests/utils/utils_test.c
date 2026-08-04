@@ -51,9 +51,86 @@ void ipa_tag_in_taglist_test(void)
 	IPA_FREE(tag_list);
 }
 
+void ipa_parse_btlv_hdr_test(void)
+{
+	size_t len;
+	uint16_t tag;
+	size_t hdr;
+
+	/* Regression for finding #4: a short-form length octet of 0x7f (127) must
+	 * be parsed as a valid short-form length, not mistaken for a long-form
+	 * indicator.  The old `*data < 0x7f` test rejected exactly this value. */
+	{
+		uint8_t d[] = { 0x80, 0x7f };
+		struct ipa_buf *b = ipa_buf_alloc_data(sizeof(d), d);
+		hdr = ipa_parse_btlv_hdr(&len, &tag, b);
+		assert(hdr == 2);
+		assert(tag == 0x80);
+		assert(len == 127);
+		IPA_FREE(b);
+	}
+
+	/* Short-form boundary just below (126). */
+	{
+		uint8_t d[] = { 0x80, 0x7e };
+		struct ipa_buf *b = ipa_buf_alloc_data(sizeof(d), d);
+		hdr = ipa_parse_btlv_hdr(&len, &tag, b);
+		assert(hdr == 2 && len == 126);
+		IPA_FREE(b);
+	}
+
+	/* Long-form: 0x81 0x80 encodes length 128 in one extra octet. */
+	{
+		uint8_t d[] = { 0x80, 0x81, 0x80 };
+		struct ipa_buf *b = ipa_buf_alloc_data(sizeof(d), d);
+		hdr = ipa_parse_btlv_hdr(&len, &tag, b);
+		assert(hdr == 3 && len == 128);
+		IPA_FREE(b);
+	}
+
+	/* Two-byte tag (0xBF2B) with a short-form length. */
+	{
+		uint8_t d[] = { 0xBF, 0x2B, 0x05 };
+		struct ipa_buf *b = ipa_buf_alloc_data(sizeof(d), d);
+		hdr = ipa_parse_btlv_hdr(&len, &tag, b);
+		assert(hdr == 3 && tag == 0xBF2B && len == 5);
+		IPA_FREE(b);
+	}
+}
+
+void ipa_strip_tlv_envelope_test(void)
+{
+	/* Matching envelope: the 2-byte header is chopped, value remains. */
+	{
+		uint8_t d[] = { 0x88, 0x02, 0xAA, 0xBB };
+		int n = ipa_strip_tlv_envelope(d, sizeof(d), 0x88);
+		assert(n == 2);
+		assert(d[0] == 0xAA && d[1] == 0xBB);
+	}
+
+	/* Tag mismatch: buffer is left untouched. */
+	{
+		uint8_t d[] = { 0x87, 0x02, 0xAA, 0xBB };
+		int n = ipa_strip_tlv_envelope(d, sizeof(d), 0x88);
+		assert(n == (int)sizeof(d));
+	}
+
+	/* Finding #5: an invalid/truncated header (2-byte tag indicated but only
+	 * one byte present) makes parse_btlv_hdr return a negative error.  The
+	 * caller must detect that (the previously-dead `chop_bytes < 0` check) and
+	 * leave the buffer untouched rather than reading an uninitialised tag. */
+	{
+		uint8_t d[] = { 0xBF };
+		int n = ipa_strip_tlv_envelope(d, sizeof(d), 0x88);
+		assert(n == 1);
+	}
+}
+
 int main(int argc, char **argv)
 {
 	ipa_tag_in_taglist_test();
+	ipa_parse_btlv_hdr_test();
+	ipa_strip_tlv_envelope_test();
 	return 0;
 }
 
