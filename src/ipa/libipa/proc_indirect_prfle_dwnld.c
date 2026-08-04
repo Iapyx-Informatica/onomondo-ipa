@@ -39,6 +39,7 @@ int ipa_proc_indirect_prfle_dwnlod(struct ipa_context *ctx, const struct ipa_pro
 	struct ipa_proc_cmn_cancel_sess_pars cmn_cancel_sess_pars = { 0 };
 	struct ipa_proc_prfle_dwnlod_pars prfle_dwnlod_pars = { 0 };
 	struct ipa_proc_prfle_inst_pars prfle_inst_pars = { 0 };
+	int rc = -EINVAL;
 
 	/* This procedure is called when the IPAd receives an eIM package with a download trigger request
 	 * (which contains the activation code) */
@@ -94,11 +95,15 @@ int ipa_proc_indirect_prfle_dwnlod(struct ipa_context *ctx, const struct ipa_pro
 		cmn_cancel_sess_pars.reason = CancelSessionReason_loadBppExecutionError;
 		cmn_cancel_sess_pars.transaction_id = *auth_clnt_res->transaction_id;
 		ipa_proc_cmn_cancel_sess(ctx, &cmn_cancel_sess_pars);
+		goto error;
 	}
+
+	/* Reached only once the profile has actually been installed. */
+	rc = 0;
 
 error:
 	ipa_activation_code_free(activation_code);
 	ipa_esipa_auth_clnt_res_free(auth_clnt_res);
 	ipa_esipa_get_bnd_prfle_pkg_res_free(get_bnd_prfle_pkg_res);
-	return 0;
+	return rc;
 }
