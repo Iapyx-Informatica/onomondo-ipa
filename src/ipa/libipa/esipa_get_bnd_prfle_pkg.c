@@ -96,7 +96,7 @@ static void *dec_get_bnd_prfle_pkg_res(const struct ipa_buf *msg_to_ipa_encoded,
 	res = IPA_ALLOC_ZERO(struct ipa_esipa_get_bnd_prfle_pkg_res);
 	res->msg_to_ipa = msg_to_ipa;
 
-	switch (msg_to_ipa->choice.initiateAuthenticationResponseEsipa.present) {
+	switch (msg_to_ipa->choice.getBoundProfilePackageResponseEsipa.present) {
 	case GetBoundProfilePackageResponseEsipa_PR_getBoundProfilePackageOkEsipa:
 		IPA_LOGP_ESIPA("GetBoundProfilePackage", LINFO, "GetBoundProfilePackageResponseEsipa_PR_getBoundProfilePackageOkEsipa\n");
 		res->get_bnd_prfle_pkg_ok =
