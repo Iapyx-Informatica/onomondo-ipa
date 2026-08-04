@@ -300,7 +300,10 @@ bool ipa_tag_in_taglist(uint16_t tag, const struct ipa_buf *tag_list)
 	return false;
 }
 
-static size_t parse_btlv_hdr(size_t *len, uint16_t *tag, uint8_t *data, size_t data_len)
+/* Returns the header length (offset to the value part) on success, or a
+ * negative error code.  The return type is signed so callers can reliably
+ * distinguish an error from a valid length (see ipa_strip_tlv_envelope). */
+static long parse_btlv_hdr(size_t *len, uint16_t *tag, uint8_t *data, size_t data_len)
 {
 	uint8_t tag_len = 1;
 	uint16_t value_len = 0;
@@ -374,7 +377,7 @@ size_t ipa_parse_btlv_hdr(size_t *len, uint16_t *tag, struct ipa_buf *buf)
  *  \returns new length of the data. */
 int ipa_strip_tlv_envelope(uint8_t *data, size_t data_len, uint16_t envelope_tag)
 {
-	size_t chop_bytes = 0;
+	long chop_bytes;
 	uint16_t tlv_tag;
 
 	chop_bytes = parse_btlv_hdr(NULL, &tlv_tag, data, data_len);
@@ -391,7 +394,7 @@ int ipa_strip_tlv_envelope(uint8_t *data, size_t data_len, uint16_t envelope_tag
 
 	/* The number of bytes to be chopped exceeds the data length, something can not be right, so we better
 	 * do not touch the buffer */
-	if (chop_bytes > data_len)
+	if ((size_t)chop_bytes > data_len)
 		return data_len;
 
 	/* Chop bytes and return new data length */
