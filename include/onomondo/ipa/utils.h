@@ -106,8 +106,8 @@ static inline struct ipa_buf *ipa_buf_realloc(struct ipa_buf *buf, size_t len)
  *  \param[in] name symbol name of the ipa_buf.
  *  \returns size size of the ipa_buf object. */
 #define IPA_BUF_STATIC(name, size) \
-	uint8_t __name_buf[size]; \
-	struct ipa_buf name = { __name_buf, size, 0 };
+	uint8_t name##_backing[size]; \
+	struct ipa_buf name = { name##_backing, size, 0 };
 
 /*! Allocate a new ipa_buf object and initialize it with data.
  *  \param[in] len number of bytes to allocate inside ipa_buf.
