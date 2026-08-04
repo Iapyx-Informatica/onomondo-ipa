@@ -168,27 +168,27 @@ int euicc_mem_rst(struct ipa_context *ctx, const struct ipa_es10b_euicc_mem_rst 
 	mem_rst_req.resetOptions.bits_unused = 3;
 
 	if (req->operatnl_profiles)
-		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_deleteOperationalProfiles));
+		ipa_bit_string_set_named_bit(rst_opt, SGP32_EuiccMemoryResetRequest__resetOptions_deleteOperationalProfiles);
 	if (req->test_profiles)
-		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_deleteFieldLoadedTestProfiles));
+		ipa_bit_string_set_named_bit(rst_opt, SGP32_EuiccMemoryResetRequest__resetOptions_deleteFieldLoadedTestProfiles);
 	if (req->default_smdp_addr)
-		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_resetDefaultSmdpAddress));
+		ipa_bit_string_set_named_bit(rst_opt, SGP32_EuiccMemoryResetRequest__resetOptions_resetDefaultSmdpAddress);
 	/* TODO v1.1: 5.9.5 — add new options once struct ipa_es10b_euicc_mem_rst
 	 * is extended:
 	 *   if (req->pre_loaded_test_profiles)
-	 *       rst_opt[0] |= (1 << (7 - ..._deletePreLoadedTestProfiles));
+	 *       ipa_bit_string_set_named_bit(rst_opt, ..._deletePreLoadedTestProfiles);
 	 *   if (req->provisioning_profiles)
-	 *       rst_opt[0] |= (1 << (7 - ..._deleteProvisioningProfiles));
+	 *       ipa_bit_string_set_named_bit(rst_opt, ..._deleteProvisioningProfiles);
 	 */
 	if (req->eim_cfg_data)
 		/* UPDATE for v1.1: 5.9.5 — resetEimConfigData moved from bit (3) to bit (5). */
-		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_resetEimConfigData));
+		ipa_bit_string_set_named_bit(rst_opt, SGP32_EuiccMemoryResetRequest__resetOptions_resetEimConfigData);
 	/* UPDATE for v1.1: 5.9.5 — resetAutoEnableConfig (bit 4) renamed to
 	 * resetImmediateEnableConfig (bit 6); after regeneration, rename the
 	 * symbol below accordingly.  Also note bits 3 and 4 are now occupied by
 	 * deletePreLoadedTestProfiles / deleteProvisioningProfiles respectively. */
 	if (req->auto_enable_cfg)
-		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_resetImmediateEnableConfig));
+		ipa_bit_string_set_named_bit(rst_opt, SGP32_EuiccMemoryResetRequest__resetOptions_resetImmediateEnableConfig);
 
 	es10b_req = ipa_es10x_req_enc(&asn_DEF_SGP32_EuiccMemoryResetRequest, &mem_rst_req, "eUICCMemoryReset");
 	if (!es10b_req) {
@@ -225,11 +225,11 @@ int euicc_mem_rst_emu(struct ipa_context *ctx, const struct ipa_es10b_euicc_mem_
 	mem_rst_req.resetOptions.bits_unused = 6;
 
 	if (req->operatnl_profiles)
-		rst_opt[0] |= (1 << (7 - EuiccMemoryResetRequest__resetOptions_deleteOperationalProfiles));
+		ipa_bit_string_set_named_bit(rst_opt, EuiccMemoryResetRequest__resetOptions_deleteOperationalProfiles);
 	if (req->test_profiles)
-		rst_opt[0] |= (1 << (7 - EuiccMemoryResetRequest__resetOptions_deleteFieldLoadedTestProfiles));
+		ipa_bit_string_set_named_bit(rst_opt, EuiccMemoryResetRequest__resetOptions_deleteFieldLoadedTestProfiles);
 	if (req->default_smdp_addr)
-		rst_opt[0] |= (1 << (7 - EuiccMemoryResetRequest__resetOptions_resetDefaultSmdpAddress));
+		ipa_bit_string_set_named_bit(rst_opt, EuiccMemoryResetRequest__resetOptions_resetDefaultSmdpAddress);
 
 	if (req->eim_cfg_data) {
 		IPA_LOGP_ES10X("eUICCMemoryReset", LINFO,
