@@ -25,11 +25,13 @@
  *  \returns found string from map, default string in case of no match. */
 const char *ipa_str_from_num(const struct num_str_map *map, long num, const char *def)
 {
-	do {
+	/* Only match real (non-terminator) entries: test map->str first so a
+	 * lookup of the sentinel value (typically 0) against the {0, NULL}
+	 * terminator returns def rather than the terminator's NULL string. */
+	for (; map->str != NULL; map++) {
 		if (map->num == num)
 			return map->str;
-		map++;
-	} while (map->str != NULL);
+	}
 
 	return def;
 }
@@ -51,8 +53,12 @@ char *ipa_hexdump(const uint8_t *data, size_t len)
 	idx = idx % IPA_HEXDUMP_MAX;
 	out_ptr = out[idx];
 
-	if (!data)
-		return ("(null)");
+	if (!data) {
+		/* Write into the rotating buffer rather than returning a pointer
+		 * into a string literal through a non-const char *. */
+		sprintf(out_ptr, "(null)");
+		return out[idx];
+	}
 
 	for (i = 0; i < len; i++) {
 		sprintf(out_ptr, "%02X", data[i]);
