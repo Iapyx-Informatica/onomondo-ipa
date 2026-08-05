@@ -48,6 +48,7 @@ platform-dependent modules that can run on a standard Linux system:
 
 On a Debian GNU/Linux system, the following packages are required:
 
+* `asn1c`
 * `libcurl4-gnutls-dev`
 * `libpcsclite-dev`
 * `build-essential`
@@ -57,38 +58,15 @@ On a Debian system, the standard `apt-get install ...` command can be used to in
 
 ### Building
 
-The v1.2 migration introduces two supported build paths:
-
-**1. One-command containerised build (recommended; works on Windows/macOS/Linux, needs only Docker)**
-
 ```
-./scripts/build.sh --docker
-```
-
-Builds a reproducible Ubuntu 24.04 image containing `asn1c`, regenerates
-`src/ipa/libasn/` from the updated `asn1/*.asn`, and compiles the project.
-Extract the compiled binary with:
-
-```
-docker run --rm -v "$(pwd):/host" onomondo-ipa:v1.2 cp -r /src/build /host/build-docker
-```
-
-**2. Native build (Linux, needs `asn1c`, `cmake`, `libcurl4-gnutls-dev`, `libpcsclite-dev`, `build-essential`)**
-
-```
-./scripts/build.sh
-```
-
-This runs `scripts/regen.sh` (which falls back to Docker automatically if
-`asn1c` is not in PATH) and then the usual cmake flow below.
-
-**3. Manual (equivalent to the script):**
-
-```
-./scripts/regen.sh                           # regenerate libasn from .asn sources
-cmake -S . -B build -DENABLE_SANITIZE=ON -DSHOW_ASN_OUTPUT=ON
+cmake -S . -B build -DENABLE_SANITIZE=ON -DSHOW_ASN_OUTPUT=ON   # runs asn1c as needed
 cmake --build build
 ```
+
+CMake generates the libasn ASN.1 codec from `asn1/*.asn` during configure
+(requires `asn1c` in PATH) into the build tree — there is no separate regen
+step. Editing any `asn1/*.asn` and re-running `cmake --build build` re-runs asn1c and
+rebuilds; an unchanged schema is not regenerated.
 
 #### Options
 

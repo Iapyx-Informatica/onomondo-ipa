@@ -15,27 +15,29 @@
 Total Test time (real) =   0.42 sec
 ```
 
-Reproduce with a single command (requires Docker):
+Reproduce:
 
 ```bash
-./scripts/build.sh --docker   # or:
-./scripts/regen.sh            # regenerate libasn
-# then docker run -v "$(pwd):/src" -w /src ubuntu:24.04 \
-#   bash -c 'apt-get update -qq && apt-get install -y -qq build-essential \
-#   cmake libcurl4-gnutls-dev libpcsclite-dev && cmake -S /src -B /src/build \
-#   && cmake --build /src/build && cd /src/build && ctest'
+cmake -S . -B build -DENABLE_SANITIZE=ON -DSHOW_ASN_OUTPUT=ON   # regenerates libasn
+cmake --build build --parallel
 ```
 
 ## What changed vs. v1.0 baseline
 
 ### Toolchain / build
-- New: Dockerfile, scripts/{regen,build,post-regen-renames}.sh,
-  scripts/Dockerfile.asn1c, .dockerignore.
-- `asn1/regenerate_libasn.sh` hardened: auto-detect `-no-gen-example`
-  flag, fix PKIX `Time` vs system `<time.h>` collision via post-regen
-  rename to `PKIX_Time.{c,h}`, add `_GNU_SOURCE` / `<time.h>` to
-  `GeneralizedTime.c`, skip the now-redundant CertificateSerialNumber patch,
-  regenerate `CMakeLists.txt` to pick up renamed files.
+- libasn generation is owned by CMake: `asn1/gen_libasn.sh` runs asn1c into the
+  build tree during configure, driven by the top-level `CMakeLists.txt`, which
+  re-runs it only when a schema or the generator changes (or on a fresh
+  checkout).  The generator auto-detects the `-no-gen-example` flag, fixes the
+  PKIX `Time` vs system `<time.h>` collision by renaming to `PKIX_Time.{c,h}`,
+  and applies the `asn_internal` allocator patch (routes the codec through the
+  `IPA_*` allocators).  The now-dead CertificateSerialNumber patch was removed —
+  the schema's `0..INT64_MAX` constraint no longer produces the broken code it
+  fixed.  The old `scripts/regen.sh`, `asn1/regenerate_libasn.sh`, and the
+  one-time `scripts/post-regen-renames.sh` (v1.0→v1.2 identifier sed) have been
+  removed — the tree is on v1.2 names and CMake handles regeneration.  The
+  Docker build path (`Dockerfile`, `.dockerignore`, `scripts/`) has also been
+  removed; build natively with `cmake` as above.
 - `asn1/PKIX1Explicit88.asn`: replaced the 36-digit range constraint on
   `CertificateSerialNumber` with a `0..INT64_MAX` constraint that is parseable
   by `asn1c 0.9.28` (the version packaged with Debian bookworm / Ubuntu 24.04)
@@ -108,8 +110,7 @@ PASS without these, but a full v1.2 deployment should at least:
 
 ## Verification checklist
 
-- [x] `./scripts/regen.sh` completes cleanly
-- [x] `cmake -S . -B build` configures
+- [x] `cmake -S . -B build` configures (and generates libasn via asn1c)
 - [x] `cmake --build build` succeeds (all 8 CMake targets)
 - [x] `ctest` 7/7 pass
 - [x] `ipa -h` prints usage

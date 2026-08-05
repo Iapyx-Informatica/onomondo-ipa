@@ -14,37 +14,32 @@ Every change in this repository is traceable via inline markers of the form:
 | `TODO v1.1/v1.2: <section>`      | Still to be done — listed below                                           |
 
 The ASN.1 schema in [`asn1/SGP32Definitions.asn`](asn1/SGP32Definitions.asn)
-has been rewritten to match v1.2 Annex C.  After pulling those changes,
-re-run [`asn1/regenerate_libasn.sh`](asn1/regenerate_libasn.sh) to refresh
-`src/ipa/libasn/*.{c,h}`.  **Do not hand-edit generated files** — they will
-be overwritten on the next regeneration.
+has been rewritten to match v1.2 Annex C.  After pulling those changes, just
+rebuild — CMake detects the changed schema and re-runs asn1c automatically (the
+generated `.c/.h` land in the build tree under `build/.../libasn/gen`).  **Do
+not hand-edit generated files** — they are overwritten on the next
+regeneration; change [`asn1/*.asn`](asn1/) instead.
 
 ---
 
 ## Build workflow after migration
 
-The repo now ships a reproducible build path via Docker:
+Native Linux build (needs `asn1c` + `cmake` + `libcurl` + `libpcsclite`):
 
 ```sh
-# Fully containerised (recommended on Windows/macOS):
-./scripts/build.sh --docker
-
-# Native (Linux with asn1c + cmake + libcurl + libpcsclite installed):
-./scripts/build.sh
+cmake -S . -B build -DENABLE_SANITIZE=ON -DSHOW_ASN_OUTPUT=ON
+cmake --build build --parallel
 ```
 
-Under the hood:
+Under the hood, CMake generates `libasn` from `asn1/*.asn` during configure, via
+[`asn1/gen_libasn.sh`](asn1/gen_libasn.sh), into the build tree.  asn1c is re-run
+only when a schema (or the generator) changes, or on a fresh checkout; the
+output list is globbed, so added/removed types need no manual bookkeeping.
 
-- `scripts/regen.sh` runs `asn1/regenerate_libasn.sh` to rebuild
-  `src/ipa/libasn/*.{c,h}` from the updated `asn1/*.asn`.  If `asn1c` is
-  missing locally it falls back to an ephemeral `ubuntu:24.04` container.
-- The project `Dockerfile` pins the toolchain and runs the regen + cmake
-  build inside one image, so every machine produces byte-identical artifacts.
-
-**After the regen step, expect compile errors** in `libipa/*.c`: the
-renamed fields and new struct members land here.  Every error site carries
-a `TODO v1.1` / `TODO v1.2` marker pointing at the exact rename needed.
-Work through them top-down; most are mechanical.
+When the schema changes, **expect compile errors** in `libipa/*.c` if a rename
+or new struct member lands there.  Every such site carries a `TODO v1.1` /
+`TODO v1.2` marker pointing at the exact change needed.  Work through them
+top-down; most are mechanical.
 
 ---
 
@@ -121,9 +116,9 @@ for the corresponding `TODO v1.1` / `TODO v1.2` marker.
 
 ## Suggested sequencing for finishing the migration
 
-1. **Regenerate libasn.**  `cd asn1 && ./regenerate_libasn.sh`.  This
-   triggers compile errors at every renamed field / enum — those errors
-   become the work list.
+1. **Regenerate libasn.**  Just build (`cmake --build build`) after editing the
+   schema — CMake re-runs asn1c automatically.  This triggers compile errors at
+   every renamed field / enum — those errors become the work list.
 2. **Fix pure renames.**  Small, mechanical edits; follow `UPDATE for v1.1`
    markers in the `libipa/*.c` files.  Good candidates for the first PR.
 3. **Handle the §2.11.2.1 signing-input change.**  If the IPA runs against

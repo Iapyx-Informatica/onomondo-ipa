@@ -5,39 +5,24 @@ with an in-progress port from SGP.32 v1.0 to **v1.2**.  The build works
 end-to-end and the existing test suite passes; see [MIGRATION_STATUS.md](MIGRATION_STATUS.md)
 for the full state.
 
-## Quick build — one command, needs only Docker
-
-```bash
-./scripts/build.sh --docker
-```
-
-That's it.  It will:
-
-1. Build an `ubuntu:24.04` image containing `asn1c`, `cmake`, `libcurl`,
-   `libpcsclite` (about 1 minute first time, cached thereafter).
-2. Regenerate `src/ipa/libasn/*.{c,h}` from the updated `asn1/*.asn`.
-3. Compile the project and run `ctest`.  Expect **7/7 tests to pass**.
-
-After the build completes, extract the compiled artefacts back to the host:
-
-```bash
-docker run --rm -v "$(pwd):/host" onomondo-ipa:v1.2 \
-  cp -r /src/build /host/build-docker
-```
-
-The binary is at `build-docker/src/ipa/ipa`.
-
-## Native build — Linux with `asn1c` 0.9.28+ and the usual deps
+## Build — Linux with `asn1c` 0.9.28+ and the usual deps
 
 On Debian/Ubuntu:
 
 ```bash
 sudo apt install asn1c build-essential cmake libcurl4-gnutls-dev libpcsclite-dev
-./scripts/build.sh
+cmake -S . -B build -DENABLE_SANITIZE=ON -DSHOW_ASN_OUTPUT=ON
+cmake --build build --parallel
 ```
 
-The wrapper falls back to an ephemeral Docker container if `asn1c` is not in
-PATH (requires a running Docker daemon).
+That's it.  CMake will:
+
+1. Generate the libasn codec from `asn1/*.asn` (asn1c, during configure) into
+   the build tree — `asn1c` must be in PATH.  It re-runs automatically when a
+   schema changes, and not otherwise.
+2. Compile the project.  Run `ctest` (below) and expect **7/7 tests to pass**.
+
+The binary is at `build/src/ipa/ipa`.
 
 ## Smoke tests
 

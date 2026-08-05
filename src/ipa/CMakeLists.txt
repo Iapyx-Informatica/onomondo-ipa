@@ -4,18 +4,9 @@
 add_subdirectory(libasn)
 add_subdirectory(libipa)
 
-# libasn is asn1c-generated code, and so is its CMakeLists.txt (see
-# regenerate_libasn.sh) -- these settings therefore live here, where a
-# regeneration cannot discard them.
-#
-# Its remaining warnings (structs declared inside parameter lists, unused
-# variables) are generator artifacts we cannot fix without editing generated
-# files. Build the target without warnings, and mark its headers SYSTEM so they
-# stay quiet in the hand-written targets that include them too. Warnings in our
-# own code remain visible: only libasn is exempted.
-target_compile_options(libasn PRIVATE -w)
-set_target_properties(libasn PROPERTIES
-  INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/libasn")
+# libasn's own warning-suppression and SYSTEM-include settings now live in
+# src/ipa/libasn/CMakeLists.txt (a hand-written, committed file), next to the
+# target they configure.
 
 find_package(OpenSSL REQUIRED)
 
