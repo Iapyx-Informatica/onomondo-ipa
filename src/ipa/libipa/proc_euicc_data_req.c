@@ -78,8 +78,7 @@
 #include "proc_euicc_data_req.h"
 
 /* Set named bit N of a DER BIT STRING: byte N/8, MSB-first mask 0x80 >> (N%8).
- * Same idiom as es10b_euicc_mem_rst.c; must match how a conformant decoder reads
- * named bits (a whole-byte-per-bit layout produces a malformed BIT STRING). */
+ * Callers must still set BIT_STRING_s.bits_unused (see finding #1). */
 static void bit_string_set_named_bit(uint8_t *buf, unsigned int bit)
 {
 	buf[bit / 8] |= 0x80 >> (bit % 8);
