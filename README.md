@@ -159,4 +159,7 @@ License
 
 Copyright (c) 2025 Onomondo ApS & sysmocom - s.f.m.c. GmbH.
 
+Migration to SGP.32 v1.2 is supported by Iapyx Informática Ltda. and an independent startup that will be named here once it launches publicly.
+
+
 Licensed under the GNU Affero General Public License v3.0 only.
