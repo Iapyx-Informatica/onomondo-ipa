@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-only
  *
- * Golden-file encode test for make_ipa_capabilties() (CODE_REVIEW_FINDINGS.md #1).
+ * Golden-file encode test for make_ipa_capabilties().
  *
  * Regression guard: the named feature/protocol bits must be packed into a DER
  * BIT STRING as MSB-first bits (byte N/8, mask 0x80 >> N%8) with bits_unused set,

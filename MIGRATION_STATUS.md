@@ -22,6 +22,34 @@ cmake -S . -B build -DENABLE_SANITIZE=ON -DSHOW_ASN_OUTPUT=ON   # regenerates li
 cmake --build build --parallel
 ```
 
+## Code-review hardening (separate from the v1.2 migration)
+
+A code-review pass over `libipa` + the platform modules landed a batch of
+correctness and robustness fixes, independent of the v1.2 spec work:
+
+- **Correctness fixes:** `IpaCapabilities`/`ipaSupportedProtocols` now pack named
+  bits correctly with `bits_unused` set; the indirect-download procedure returns
+  a real error code instead of always 0; `dec_get_bnd_prfle_pkg_res` reads the
+  correct CHOICE member; the `0x7F` BER length octet parses as short-form;
+  `parse_btlv_hdr` has a signed return so the error guard works.
+- **Robustness fixes:** curl global init/cleanup is refcounted; connect vs total
+  HTTP timeouts are split + configurable and the retry backoff is opt-in
+  (default 0 retries ⇒ no blocking `sleep`); `IPA_BUF_STATIC` uses token-paste so
+  it is reusable in one scope; CLI path building / `fopen` / length are
+  bounds-checked instead of `strcpy` + `assert`; `ipa_str_from_num` returns the
+  default for the sentinel value.
+- **Redundancy removed:** the ESipa boilerplate is factored into
+  `ipa_esipa_call()`; the `bpp_segments` encoders are parameterized by
+  `asn_TYPE_descriptor_t*`.
+- **Left as designed:** the single-context static-return storage and the
+  same-host nvstate `memcpy` are acceptable under the current single-context /
+  same-host assumptions and were deliberately not reworked. The mem-reset dual
+  encode paths cannot be merged cleanly and stay inline.
+
+Behavior-affecting runtime TODOs that remain are tracked in the issue tracker.
+Still open on the tooling side: the `-Wextra` / `-Wtype-limits` recommendation —
+both the `ipa` and `libipa` targets still build under `-Wall` only.
+
 ## What changed vs. v1.0 baseline
 
 ### Toolchain / build
@@ -113,8 +141,10 @@ PASS without these, but a full v1.2 deployment should at least:
 - [x] `cmake -S . -B build` configures (and generates libasn via asn1c)
 - [x] `cmake --build build` succeeds (all 8 CMake targets)
 - [x] `ctest` 7/7 pass
+- [x] Code-review correctness / robustness fixes landed (see "Code-review
+      hardening" above)
 - [x] `ipa -h` prints usage
-- [x] Interop test against your client's eIM (GetEimPackage →
+- [x] Interop test against a production eIM (GetEimPackage →
       AuthenticateClient → ProvideEimPackageResult roundtrip)
 - [x] Real-device PCSC test with `-E` off (IoT eUICC)
 - [ ] Consumer-eUICC emulation test with `-E` on (requires §2.11.2.1

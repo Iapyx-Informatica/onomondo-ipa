@@ -57,9 +57,9 @@ void ipa_parse_btlv_hdr_test(void)
 	uint16_t tag;
 	size_t hdr;
 
-	/* Regression for finding #4: a short-form length octet of 0x7f (127) must
-	 * be parsed as a valid short-form length, not mistaken for a long-form
-	 * indicator.  The old `*data < 0x7f` test rejected exactly this value. */
+	/* Regression: a short-form length octet of 0x7f (127) must be parsed as a
+	 * valid short-form length, not mistaken for a long-form indicator.  The old
+	 * `*data < 0x7f` test rejected exactly this value. */
 	{
 		uint8_t d[] = { 0x80, 0x7f };
 		struct ipa_buf *b = ipa_buf_alloc_data(sizeof(d), d);

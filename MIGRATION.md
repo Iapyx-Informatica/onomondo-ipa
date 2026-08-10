@@ -20,6 +20,11 @@ generated `.c/.h` land in the build tree under `build/.../libasn/gen`).  **Do
 not hand-edit generated files** — they are overwritten on the next
 regeneration; change [`asn1/*.asn`](asn1/) instead.
 
+> **Note:** this document covers only the v1.0 → v1.2 spec migration.
+> Correctness / robustness issues found in a separate code-review pass have been
+> fixed; the behavior-affecting runtime TODOs that remain will be tracked in the
+> issue tracker.
+
 ---
 
 ## Build workflow after migration
