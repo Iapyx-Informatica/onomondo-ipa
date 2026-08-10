@@ -114,9 +114,9 @@ PASS without these, but a full v1.2 deployment should at least:
 - [x] `cmake --build build` succeeds (all 8 CMake targets)
 - [x] `ctest` 7/7 pass
 - [x] `ipa -h` prints usage
-- [ ] Interop test against your client's eIM (GetEimPackage →
+- [x] Interop test against your client's eIM (GetEimPackage →
       AuthenticateClient → ProvideEimPackageResult roundtrip)
-- [ ] Real-device PCSC test with `-E` off (IoT eUICC)
+- [x] Real-device PCSC test with `-E` off (IoT eUICC)
 - [ ] Consumer-eUICC emulation test with `-E` on (requires §2.11.2.1
       signing-input fix if the eIM enforces v1.2 semantics strictly)
 
