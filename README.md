@@ -9,8 +9,7 @@ This code originally implemented SGP.32 v1.0.  An **in-progress migration to
 SGP.32 v1.2** is underway — see [MIGRATION.md](MIGRATION.md) for the full plan,
 per-section status, and a checklist of remaining work.  Every changed line in
 the schema and source carries an inline marker of the form
-`UPDATE for v1.1: <section>` / `UPDATE for v1.2: <CR>` / `NEW in v1.1/v1.2:
-<section>` / `TODO v1.1/v1.2: <section>` so the diff against the v1.0 baseline
+`UPDATE for v1.1: <section>` / `UPDATE for v1.2: <CR>` / `NEW in v1.1/v1.2:<section>` / `TODO v1.1/v1.2: <section>` so the diff against the v1.0 baseline
 is traceable end-to-end.
 
 For the public summary of spec changes between versions, see
