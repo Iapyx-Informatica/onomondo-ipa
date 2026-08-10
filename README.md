@@ -111,6 +111,15 @@ There are a number of command-line options supported. The most relevant options 
 but may be helpful for testing and debugging in lab setups.
 * `-E` enable the IoT eUICC emulation in case a regular consumer eUICC should be used.
 
+The sample app also exposes the SGP.32 v1.1 ES10b trigger functions as one-shot
+options (they run once against the eUICC and exit): `-i` ImmediateEnable,
+`-F`/`-b` Execute/Return Fallback, `-X`/`-x` Enable/Disable Emergency Profile,
+`-G` GetConnectivityParameters, `-D FQDN` SetDefaultDpAddress, and `-R` to set
+the REFRESH flag for the chosen action. These are a reference harness for the
+public `ipa_*` trigger API in [`include/onomondo/ipa/ipad.h`](include/onomondo/ipa/ipad.h);
+a real device daemon calls that API directly, driven by its own signals (radio
+registration state, eCall triggers, ...).
+
 (use option -h to query the full list of parameters)
 
 ### Initial Setup
@@ -150,8 +159,4 @@ License
 
 Copyright (c) 2025 Onomondo ApS & sysmocom - s.f.m.c. GmbH.
 
-Migration to SGP.32 v1.2 is supported by Iapyx Informática Ltda. and an independent startup that will be named here once it launches publicly.
-
 Licensed under the GNU Affero General Public License v3.0 only.
-
-

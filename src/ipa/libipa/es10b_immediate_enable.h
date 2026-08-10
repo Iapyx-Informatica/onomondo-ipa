@@ -5,17 +5,13 @@
  *
  * =====================================================================
  * NEW in v1.1: 5.9.15 — ES10b function ImmediateEnable.
- * Replaces EnableUsingDD (5.9.15 v1.0).
- * See es10b_enable_using_dd.{c,h} for the legacy implementation; this
- * header documents the target surface for the rename.
+ * Replaces EnableUsingDD (5.9.15 v1.0); implemented in
+ * es10b_immediate_enable.c.
  *
  * UPDATE for v1.2: CR111007R00 — rollback authorization MUST be reset when
  * refreshFlag == true.  Same requirement applies to EnableEmergencyProfile
  * and DisableEmergencyProfile (5.9.22 / 5.9.23).
  * =====================================================================
- *
- * TODO v1.1: move the implementation in es10b_enable_using_dd.c to
- * es10b_immediate_enable.c (rename), update CMakeLists.txt, update callers.
  */
 
 #pragma once

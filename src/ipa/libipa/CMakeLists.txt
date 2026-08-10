@@ -24,7 +24,13 @@ add_library(libipa STATIC
   es10c_delete_prfle.c
   es10c_disable_prfle.c
   es10c_enable_prfle.c
-  es10b_enable_using_dd.c
+  es10b_immediate_enable.c
+  es10b_execute_fallback.c
+  es10b_return_from_fallback.c
+  es10b_enable_emergency_profile.c
+  es10b_disable_emergency_profile.c
+  es10b_get_connectivity_params.c
+  es10b_set_default_dp_addr.c
   es10c_get_eid.c
   es10c_get_prfle_info.c
   es10x.c

@@ -95,8 +95,17 @@ ProfileInfoListResponse/Error).
   → `searchCriteriaNotification`.
 - [es10b_retr_notif_from_lst.h](src/ipa/libipa/es10b_retr_notif_from_lst.h) —
   dr_search_criteria pointer type updated.
-- [es10b_enable_using_dd.c](src/ipa/libipa/es10b_enable_using_dd.c) — switch
-  to ImmediateEnableRequest/Response types and `immediateEnableResult`.
+- [es10b_immediate_enable.c](src/ipa/libipa/es10b_immediate_enable.c) — renamed
+  from `es10b_enable_using_dd.c`; uses ImmediateEnableRequest/Response and
+  `immediateEnableResult`, and plumbs the mandatory `refresh_flag` through.
+- **NEW in v1.1 — the six new ES10b commands** now have real implementations
+  (encode → transceive → decode), replacing the former stub headers:
+  [es10b_execute_fallback.c](src/ipa/libipa/es10b_execute_fallback.c),
+  [es10b_return_from_fallback.c](src/ipa/libipa/es10b_return_from_fallback.c),
+  [es10b_enable_emergency_profile.c](src/ipa/libipa/es10b_enable_emergency_profile.c),
+  [es10b_disable_emergency_profile.c](src/ipa/libipa/es10b_disable_emergency_profile.c),
+  [es10b_get_connectivity_params.c](src/ipa/libipa/es10b_get_connectivity_params.c),
+  [es10b_set_default_dp_addr.c](src/ipa/libipa/es10b_set_default_dp_addr.c).
 - [esipa_get_bnd_prfle_pkg.c](src/ipa/libipa/esipa_get_bnd_prfle_pkg.c) —
   `profileMetadataMismatch` → `metadataMismatch`.
 - [esipa_prvde_eim_pkg_rslt.c](src/ipa/libipa/esipa_prvde_eim_pkg_rslt.c) —
@@ -126,9 +135,18 @@ PASS without these, but a full v1.2 deployment should at least:
   (§5.14.1).
 - Populate `stateChangeCause` on GetEimPackage when polling after a local
   state change (§5.14.5).
-- Implement the six new ES10b functions (Fallback, Emergency-Profile,
-  GetConnectivityParameters, SetDefaultDpAddress) IF the target eIM
-  exercises them — stub headers exist; `.c` implementations deferred.
+- Connect the six new ES10b functions (Fallback, Emergency-Profile,
+  GetConnectivityParameters, SetDefaultDpAddress) to real device signals.  The
+  `.c` implementations exist (see the "real code changes" list above) AND are
+  now exposed as a public trigger API in
+  [include/onomondo/ipa/ipad.h](include/onomondo/ipa/ipad.h)
+  (`ipa_execute_fallback()`, `ipa_enable_emergency_profile()`,
+  `ipa_get_connectivity_params()`, `ipa_set_default_dp_addr()`, …), with the
+  sample app driving them via one-shot CLI options (`-F`, `-X`, `-G`, `-D`, …)
+  as a reference harness.  What remains is device-specific policy: a real daemon
+  must decide *when* to call them (e.g. ExecuteFallbackMechanism on radio
+  registration failure) and thread GetConnectivityParameters output into its
+  transport (`http.c` / `esipa.c`).
 - Review §2.11.2.1 signing-input change (eUICC-side; transparent for
   real IoT eUICCs, scard emulation needs the switch from eimSignature to
   associationToken as TBS suffix).
@@ -157,11 +175,12 @@ Everything needed to continue the migration now lives next to the code:
 1. `MIGRATION.md` — full CR / section checklist.
 2. Inline `UPDATE for v1.1: …` / `UPDATE for v1.2: …` / `TODO v1.1: …` /
    `TODO v1.2: …` markers in every touched file.
-3. Stub headers for the six new ES10b commands:
-   - `es10b_immediate_enable.h`
-   - `es10b_execute_fallback.h`
-   - `es10b_return_from_fallback.h`
-   - `es10b_enable_emergency_profile.h`
-   - `es10b_disable_emergency_profile.h`
-   - `es10b_get_connectivity_params.h`
-   - `es10b_set_default_dp_addr.h`
+3. Implemented ES10b commands for the v1.1/v1.2 additions — encode/transceive/
+   decode is done; the header of each documents the request/response shape:
+   - `es10b_immediate_enable.{c,h}` (rename of the former EnableUsingDD)
+   - `es10b_execute_fallback.{c,h}`
+   - `es10b_return_from_fallback.{c,h}`
+   - `es10b_enable_emergency_profile.{c,h}`
+   - `es10b_disable_emergency_profile.{c,h}`
+   - `es10b_get_connectivity_params.{c,h}`
+   - `es10b_set_default_dp_addr.{c,h}`

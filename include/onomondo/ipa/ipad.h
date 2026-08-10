@@ -8,6 +8,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 
 #define IPA_LEN_FQDN 255
 #define IPA_LEN_TAC 4
@@ -136,3 +137,89 @@ int ipa_euicc_mem_rst(struct ipa_context *ctx, bool operatnl_profiles, bool test
 int ipa_poll(struct ipa_context *ctx);
 void ipa_close(struct ipa_context *ctx);
 struct ipa_buf *ipa_free_ctx(struct ipa_context *ctx);
+
+/* ===========================================================================
+ * NEW in v1.1/v1.2 — direct ES10b triggers for host / daemon integration
+ * ===========================================================================
+ *
+ * SGP.32 v1.1 adds several ES10b functions whose *invocation* is a device
+ * policy decision the IPAd library cannot make on its own: it depends on
+ * signals the host owns (radio-registration state, an eCall trigger, an
+ * operator request, ...).  This library therefore provides only the ES10b
+ * transport for each; the device daemon decides WHEN to call them.
+ *
+ * How a real IoT-device daemon is expected to wire these up:
+ *
+ *   - Fallback (§5.9.20 / §5.9.21): when the modem repeatedly fails to register
+ *     on the network of the currently enabled profile, call
+ *     ipa_execute_fallback(); once connectivity is restored (or the fallback
+ *     window ends), call ipa_return_from_fallback().  The Fallback Profile must
+ *     already have been tagged by the eIM via Psmo.setFallbackAttribute.
+ *
+ *   - Emergency Profile (§5.9.22 / §5.9.23): call
+ *     ipa_enable_emergency_profile() when the device enters an eCall / emergency
+ *     state (only on devices whose eUICC reports
+ *     iotSpecificInfo.ecallSupported), and ipa_disable_emergency_profile() when
+ *     leaving it.
+ *
+ *   - Connectivity parameters (§5.9.24): after (re)selecting a profile, call
+ *     ipa_get_connectivity_params() to learn how the eUICC wants the IPA to
+ *     reach the RSP server, and feed the returned httpParams into your HTTP /
+ *     transport configuration.
+ *
+ *   - Default SM-DP+ (§5.9.25): call ipa_set_default_dp_addr() if the host wants
+ *     to set the default SM-DP+ FQDN locally.  If instead the eIM sets it via
+ *     the Psmo path, no direct call is needed (it is handled inside ipa_poll()).
+ *
+ * Threading / sequencing: each call is a synchronous ES10b (APDU) round-trip to
+ * the eUICC.  Call these BETWEEN ipa_poll() cycles, never concurrently with an
+ * in-flight poll, and only after a successful ipa_init().
+ *
+ * refresh_flag: pass true to request a UICC REFRESH after the profile-state
+ * change (and, per CR111007R00, a reset of rollback authorization on
+ * ImmediateEnable / EnableEmergencyProfile / DisableEmergencyProfile).  A daemon
+ * typically sources this from ipa_config.refresh_flag.
+ *
+ * Return value (unless noted otherwise): 0 when the eUICC reports "ok", a
+ * positive SGP.32 result/error code returned by the eUICC (see the per-function
+ * enumerations in the spec / the corresponding es10b_*.h), or a negative value
+ * on a transport / encode / decode failure.
+ */
+
+/*! ES10b ImmediateEnable — enable the (immediate-enable-configured) profile now. */
+int ipa_immediate_enable(struct ipa_context *ctx, bool refresh_flag);
+
+/*! ES10b ExecuteFallbackMechanism — swap to the tagged Fallback Profile. */
+int ipa_execute_fallback(struct ipa_context *ctx, bool refresh_flag);
+
+/*! ES10b ReturnFromFallback — return from the Fallback Profile to the operational one. */
+int ipa_return_from_fallback(struct ipa_context *ctx, bool refresh_flag);
+
+/*! ES10b EnableEmergencyProfile — enable the Emergency (eCall) Profile. */
+int ipa_enable_emergency_profile(struct ipa_context *ctx, bool refresh_flag);
+
+/*! ES10b DisableEmergencyProfile — disable the Emergency (eCall) Profile. */
+int ipa_disable_emergency_profile(struct ipa_context *ctx, bool refresh_flag);
+
+/*! ES10b SetDefaultDpAddress — set the default SM-DP+ address on the eUICC.
+ *  \param[in] default_dp_fqdn NUL-terminated FQDN (e.g. "smdp.example.com"). */
+int ipa_set_default_dp_addr(struct ipa_context *ctx, const char *default_dp_fqdn);
+
+/*! Connectivity parameters returned by ipa_get_connectivity_params(). */
+struct ipa_connectivity_params {
+	/*! httpParams OCTET STRING as provided by the eUICC (SGP.32 §5.9.24), or
+	 *  NULL if the eUICC did not include it.  Contents are deployment-specific;
+	 *  treat as opaque and hand to your transport layer.  Owned by this struct
+	 *  and released by ipa_connectivity_params_free(). */
+	uint8_t *http_params;
+	/*! length of http_params in bytes (0 when http_params is NULL). */
+	size_t http_params_len;
+};
+
+/*! ES10b GetConnectivityParameters — query the eUICC's connectivity parameters.
+ *  \returns newly-allocated parameters (free with ipa_connectivity_params_free()),
+ *           or NULL on transport error or when the eUICC returns an error CHOICE. */
+struct ipa_connectivity_params *ipa_get_connectivity_params(struct ipa_context *ctx);
+
+/*! Free a result returned by ipa_get_connectivity_params() (NULL-safe). */
+void ipa_connectivity_params_free(struct ipa_connectivity_params *p);

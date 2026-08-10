@@ -21,7 +21,7 @@
 #include "es10b_load_bnd_prfle_pkg.h"
 #include "esipa_handle_notif.h"
 #include "es10b_rm_notif_from_lst.h"
-#include "es10b_enable_using_dd.h"
+#include "es10b_immediate_enable.h"
 #include "bpp_segments.h"
 #include "proc_prfle_inst.h"
 
@@ -41,8 +41,9 @@ static int handle_load_bnd_prfle_pkg_res(struct ipa_context *ctx, struct ipa_es1
 		return 0;
 	}
 
-	/* Instruct the eUICC to enable the newly installed profile (if configured and granted) */
-	ipa_es10b_enable_using_dd(ctx);
+	/* Instruct the eUICC to enable the newly installed profile (if configured and granted).
+	 * refresh_flag = false preserves the v1.0 (no REFRESH) behaviour of the former EnableUsingDD. */
+	ipa_es10b_immediate_enable(ctx, false);
 
 	/* A response is present, this is either the normal ending of the installation sequence or the eUICC has aborted
 	 * the installation. In both situations we forward the ProfileInstallationResult to the eIM. */

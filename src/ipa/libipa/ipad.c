@@ -25,6 +25,13 @@
 #include "es10b_add_init_eim.h"
 #include "es10b_euicc_mem_rst.h"
 #include "es10b_load_euicc_pkg.h"
+#include "es10b_immediate_enable.h"
+#include "es10b_execute_fallback.h"
+#include "es10b_return_from_fallback.h"
+#include "es10b_enable_emergency_profile.h"
+#include "es10b_disable_emergency_profile.h"
+#include "es10b_get_connectivity_params.h"
+#include "es10b_set_default_dp_addr.h"
 #include "proc_euicc_pkg_dwnld_exec.h"
 #include "proc_notif_delivery.h"
 
@@ -318,6 +325,81 @@ int ipa_euicc_mem_rst(struct ipa_context *ctx, bool operatnl_profiles, bool test
 	euicc_mem_rst.eim_cfg_data = eim_cfg_data;
 	euicc_mem_rst.auto_enable_cfg = auto_enable_cfg;
 	return ipa_es10b_euicc_mem_rst(ctx, &euicc_mem_rst);
+}
+
+/* ---------------------------------------------------------------------------
+ * Direct ES10b triggers (see onomondo/ipad.h for the daemon-integration
+ * contract).  These are thin, synchronous pass-throughs to the ES10b layer;
+ * the host decides when to invoke them.
+ * --------------------------------------------------------------------------- */
+
+/*! ES10b ImmediateEnable.  See ipa_immediate_enable() in ipad.h. */
+int ipa_immediate_enable(struct ipa_context *ctx, bool refresh_flag)
+{
+	return ipa_es10b_immediate_enable(ctx, refresh_flag);
+}
+
+/*! ES10b ExecuteFallbackMechanism.  See ipa_execute_fallback() in ipad.h. */
+int ipa_execute_fallback(struct ipa_context *ctx, bool refresh_flag)
+{
+	return ipa_es10b_execute_fallback(ctx, refresh_flag);
+}
+
+/*! ES10b ReturnFromFallback.  See ipa_return_from_fallback() in ipad.h. */
+int ipa_return_from_fallback(struct ipa_context *ctx, bool refresh_flag)
+{
+	return ipa_es10b_return_from_fallback(ctx, refresh_flag);
+}
+
+/*! ES10b EnableEmergencyProfile.  See ipa_enable_emergency_profile() in ipad.h. */
+int ipa_enable_emergency_profile(struct ipa_context *ctx, bool refresh_flag)
+{
+	return ipa_es10b_enable_emergency_profile(ctx, refresh_flag);
+}
+
+/*! ES10b DisableEmergencyProfile.  See ipa_disable_emergency_profile() in ipad.h. */
+int ipa_disable_emergency_profile(struct ipa_context *ctx, bool refresh_flag)
+{
+	return ipa_es10b_disable_emergency_profile(ctx, refresh_flag);
+}
+
+/*! ES10b SetDefaultDpAddress.  See ipa_set_default_dp_addr() in ipad.h. */
+int ipa_set_default_dp_addr(struct ipa_context *ctx, const char *default_dp_fqdn)
+{
+	return ipa_es10b_set_default_dp_addr(ctx, default_dp_fqdn);
+}
+
+/*! ES10b GetConnectivityParameters.  See ipa_get_connectivity_params() in ipad.h.
+ *  Copies the (optional) httpParams out of the internal ipa_buf into a plain
+ *  caller-owned buffer so the public struct stays free of internal types. */
+struct ipa_connectivity_params *ipa_get_connectivity_params(struct ipa_context *ctx)
+{
+	struct ipa_es10b_connectivity_params *internal;
+	struct ipa_connectivity_params *out;
+
+	internal = ipa_es10b_get_connectivity_params(ctx);
+	if (!internal)
+		return NULL;
+
+	out = IPA_ALLOC_ZERO(struct ipa_connectivity_params);
+	if (internal->http_params && internal->http_params->len > 0) {
+		out->http_params_len = internal->http_params->len;
+		out->http_params = IPA_ALLOC_N(out->http_params_len);
+		assert(out->http_params);
+		memcpy(out->http_params, internal->http_params->data, out->http_params_len);
+	}
+
+	ipa_es10b_connectivity_params_free(internal);
+	return out;
+}
+
+/*! Free the result of ipa_get_connectivity_params() (NULL-safe). */
+void ipa_connectivity_params_free(struct ipa_connectivity_params *p)
+{
+	if (!p)
+		return;
+	IPA_FREE(p->http_params);
+	IPA_FREE(p);
 }
 
 static int check_canaries(struct ipa_context *ctx)

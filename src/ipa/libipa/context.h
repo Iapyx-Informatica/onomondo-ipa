@@ -62,9 +62,10 @@ struct ipa_context {
 		struct ipa_buf *rollback_iccid;
 
 		/*! cached data to support the emulation of the ES10b function ImmediateEnable.
-		 * UPDATE for v1.1: 5.9.15 — ES10b function renamed EnableUsingDD -> ImmediateEnable.
-		 * TODO v1.1: rename struct member auto_enable -> immediate_enable once
-		 * es10b_enable_using_dd.{c,h} is renamed. */
+		 * UPDATE for v1.1: 5.9.15 — ES10b function renamed EnableUsingDD -> ImmediateEnable
+		 * (now implemented in es10b_immediate_enable.{c,h}).
+		 * TODO v1.1: rename struct member auto_enable -> immediate_enable
+		 * (grep repo for 'auto_enable'). */
 		struct {
 			struct ipa_buf *smdp_oid;
 			struct ipa_buf *smdp_address;

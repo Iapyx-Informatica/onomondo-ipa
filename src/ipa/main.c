@@ -58,6 +58,17 @@ static void print_help(void)
 	printf(" -I .................. disable SSL certificate verification (insecure)\n");
 	printf(" -E .................. emulate IoT eUICC (compatibility mode to use consumer eUICCs)\n");
 	printf(" -1 .................. force the IPAd to process only one eUICC package (debug, use with caution)\n");
+	printf("\n");
+	printf(" ES10b triggers (one-shot; run once against the eUICC, then exit --\n");
+	printf(" a real device daemon calls the matching ipa_* API from onomondo/ipad.h):\n");
+	printf(" -R .................. set refresh_flag for the trigger below (request UICC REFRESH)\n");
+	printf(" -i .................. ImmediateEnable the configured profile\n");
+	printf(" -F .................. ExecuteFallbackMechanism (swap to the Fallback Profile)\n");
+	printf(" -b .................. ReturnFromFallback (back to the operational profile)\n");
+	printf(" -X .................. EnableEmergencyProfile\n");
+	printf(" -x .................. DisableEmergencyProfile\n");
+	printf(" -G .................. GetConnectivityParameters (print httpParams)\n");
+	printf(" -D FQDN ............. SetDefaultDpAddress to the given SM-DP+ FQDN\n");
 }
 
 struct ipa_buf *load_ber_from_file(char *dir, char *file)
@@ -145,6 +156,75 @@ static void sig_usr1(int signum)
 	running = false;
 }
 
+/* One-shot ES10b trigger actions selectable from the command line.  These map
+ * 1:1 to the public ipa_* trigger API in onomondo/ipad.h and are meant as a
+ * reference / debugging harness for the wiring a real device daemon would do. */
+enum getopt_action {
+	ACTION_NONE = 0,
+	ACTION_IMMEDIATE_ENABLE,
+	ACTION_EXECUTE_FALLBACK,
+	ACTION_RETURN_FROM_FALLBACK,
+	ACTION_ENABLE_EMERGENCY,
+	ACTION_DISABLE_EMERGENCY,
+	ACTION_GET_CONN_PARAMS,
+	ACTION_SET_DEFAULT_DP,
+};
+
+/* Run a single ES10b trigger action against the eUICC and report the outcome.
+ * Returns the negative transport error, or 0 once the command was delivered
+ * (the eUICC's own status code, ok or not, is logged). */
+static int run_es10b_trigger(struct ipa_context *ctx, enum getopt_action action, const char *default_dp, bool refresh)
+{
+	int rc = 0;
+
+	switch (action) {
+	case ACTION_IMMEDIATE_ENABLE:
+		rc = ipa_immediate_enable(ctx, refresh);
+		break;
+	case ACTION_EXECUTE_FALLBACK:
+		rc = ipa_execute_fallback(ctx, refresh);
+		break;
+	case ACTION_RETURN_FROM_FALLBACK:
+		rc = ipa_return_from_fallback(ctx, refresh);
+		break;
+	case ACTION_ENABLE_EMERGENCY:
+		rc = ipa_enable_emergency_profile(ctx, refresh);
+		break;
+	case ACTION_DISABLE_EMERGENCY:
+		rc = ipa_disable_emergency_profile(ctx, refresh);
+		break;
+	case ACTION_GET_CONN_PARAMS: {
+		struct ipa_connectivity_params *p = ipa_get_connectivity_params(ctx);
+		if (!p) {
+			IPA_LOGP(SMAIN, LERROR, "GetConnectivityParameters failed\n");
+			return -EINVAL;
+		}
+		if (p->http_params)
+			IPA_LOGP(SMAIN, LINFO, "connectivity httpParams (%zu bytes): %s\n",
+				 p->http_params_len, ipa_hexdump(p->http_params, p->http_params_len));
+		else
+			IPA_LOGP(SMAIN, LINFO, "connectivity parameters: no httpParams present\n");
+		ipa_connectivity_params_free(p);
+		return 0;
+	}
+	case ACTION_SET_DEFAULT_DP:
+		if (!default_dp) {
+			IPA_LOGP(SMAIN, LERROR, "-D requires a default SM-DP+ FQDN argument\n");
+			return -EINVAL;
+		}
+		rc = ipa_set_default_dp_addr(ctx, default_dp);
+		break;
+	default:
+		return 0;
+	}
+
+	if (rc < 0)
+		IPA_LOGP(SMAIN, LERROR, "ES10b trigger failed (transport error %d)\n", rc);
+	else
+		IPA_LOGP(SMAIN, LINFO, "ES10b trigger delivered, eUICC status code %d\n", rc);
+	return rc < 0 ? rc : 0;
+}
+
 int main(int argc, char **argv)
 {
 	struct ipa_config cfg = { 0 };
@@ -157,6 +237,8 @@ int main(int argc, char **argv)
 	struct ipa_buf *nvstate_load = NULL;
 	struct ipa_buf *nvstate_save = NULL;
 	bool getopt_one_euicc_pkg_only = false;
+	enum getopt_action getopt_action = ACTION_NONE;
+	char *getopt_default_dp = NULL;
 
 	signal(SIGUSR1, sig_usr1);
 
@@ -170,7 +252,7 @@ int main(int argc, char **argv)
 
 	/* Overwrite configuration values with user defined parameters */
 	while (1) {
-		opt = getopt(argc, argv, "ht:e:r:c:f:mn:C:SIEy:a1");
+		opt = getopt(argc, argv, "ht:e:r:c:f:mn:C:SIEy:a1RiFbXxGD:");
 		if (opt == -1)
 			break;
 
@@ -220,6 +302,31 @@ int main(int argc, char **argv)
 			break;
 		case '1':
 			getopt_one_euicc_pkg_only = true;
+			break;
+		case 'R':
+			cfg.refresh_flag = true;
+			break;
+		case 'i':
+			getopt_action = ACTION_IMMEDIATE_ENABLE;
+			break;
+		case 'F':
+			getopt_action = ACTION_EXECUTE_FALLBACK;
+			break;
+		case 'b':
+			getopt_action = ACTION_RETURN_FROM_FALLBACK;
+			break;
+		case 'X':
+			getopt_action = ACTION_ENABLE_EMERGENCY;
+			break;
+		case 'x':
+			getopt_action = ACTION_DISABLE_EMERGENCY;
+			break;
+		case 'G':
+			getopt_action = ACTION_GET_CONN_PARAMS;
+			break;
+		case 'D':
+			getopt_action = ACTION_SET_DEFAULT_DP;
+			getopt_default_dp = optarg;
 			break;
 		default:
 			printf("unhandled option: %c!\n", opt);
@@ -283,6 +390,12 @@ int main(int argc, char **argv)
 	} else if (getopt_euicc_memory_reset) {
 		/* Perform an eUICC memory reset */
 		ipa_euicc_mem_rst(ctx, true, true, true, true, true);
+	} else if (getopt_action != ACTION_NONE) {
+		/* Fire a single ES10b trigger (fallback / emergency / connectivity /
+		 * default-DP / immediate-enable) and exit -- these do not need the eIM. */
+		rc = run_es10b_trigger(ctx, getopt_action, getopt_default_dp, cfg.refresh_flag);
+		if (rc < 0)
+			rc = -EINVAL;
 	} else {
 		IPA_LOGP(SMAIN, LINFO, "-----------------------------8<-----------------------------\n");
 		rc = eim_init(ctx);

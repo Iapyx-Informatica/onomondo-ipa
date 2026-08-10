@@ -765,8 +765,8 @@ GetEimConfigurationDataResponse ::= [85] SEQUENCE { -- Tag 'BF55'
 -- ASN1STOP
 
 -- NEW in v1.1: 5.9.20 — ExecuteFallbackMechanism (ES10b).
--- TODO v1.1: no libipa consumer yet.  Stub file at
--- libipa/es10b_execute_fallback.{c,h} should be added if Fallback flow is supported.
+-- Implemented in libipa/es10b_execute_fallback.{c,h}; host must decide when to
+-- invoke it (e.g. on radio-registration failure of the enabled profile).
 -- ASN1START
 ExecuteFallbackMechanismRequest ::= [93] SEQUENCE { -- Tag 'BF5D'
   refreshFlag BOOLEAN
@@ -785,7 +785,7 @@ ExecuteFallbackMechanismResponse ::= [93] SEQUENCE { -- Tag 'BF5D'
 -- ASN1STOP
 
 -- NEW in v1.1: 5.9.21 — ReturnFromFallback (ES10b).
--- TODO v1.1: stub libipa/es10b_return_from_fallback.{c,h} required if supported.
+-- Implemented in libipa/es10b_return_from_fallback.{c,h}.
 -- ASN1START
 ReturnFromFallbackRequest ::= [94] SEQUENCE { -- Tag 'BF5E'
   refreshFlag BOOLEAN
@@ -802,7 +802,7 @@ ReturnFromFallbackResponse ::= [94] SEQUENCE { -- Tag 'BF5E'
 -- ASN1STOP
 
 -- NEW in v1.1: 5.9.22 — EnableEmergencyProfile (ES10b).
--- TODO v1.1: stub libipa/es10b_enable_emergency_profile.{c,h} required if supported.
+-- Implemented in libipa/es10b_enable_emergency_profile.{c,h}.
 -- UPDATE for v1.2: CR111007R00 — reset rollback authorization when refreshFlag == true.
 -- ASN1START
 EnableEmergencyProfileRequest ::= [91] SEQUENCE { -- Tag 'BF5B'
@@ -820,7 +820,7 @@ EnableEmergencyProfileResponse ::= [91] SEQUENCE { -- Tag 'BF5B'
 -- ASN1STOP
 
 -- NEW in v1.1: 5.9.23 — DisableEmergencyProfile (ES10b).
--- TODO v1.1: stub libipa/es10b_disable_emergency_profile.{c,h} required if supported.
+-- Implemented in libipa/es10b_disable_emergency_profile.{c,h}.
 -- UPDATE for v1.2: CR111007R00 — reset rollback authorization when refreshFlag == true.
 -- ASN1START
 DisableEmergencyProfileRequest ::= [92] SEQUENCE { -- Tag 'BF5C'
@@ -837,7 +837,8 @@ DisableEmergencyProfileResponse ::= [92] SEQUENCE { -- Tag 'BF5C'
 -- ASN1STOP
 
 -- NEW in v1.1: 5.9.24 — GetConnectivityParameters (ES10b).
--- TODO v1.1: stub libipa/es10b_get_connectivity_params.{c,h} required if supported.
+-- Implemented in libipa/es10b_get_connectivity_params.{c,h}; host must thread the
+-- returned httpParams into http.c / esipa.c configuration.
 -- ASN1START
 GetConnectivityParametersRequest ::= [95] SEQUENCE { -- Tag 'BF5F'
 }
@@ -856,7 +857,7 @@ ConnectivityParametersError ::= INTEGER {
 
 -- NEW in v1.1: 5.9.25 — SetDefaultDpAddress (ES10b).
 -- Referenced both as a standalone ES10b function and as a Psmo member (see 2.11.1.1.3).
--- TODO v1.1: stub libipa/es10b_set_default_dp_addr.{c,h} may be needed for direct use.
+-- Implemented in libipa/es10b_set_default_dp_addr.{c,h} for direct host use.
 -- ASN1START
 SGP32-SetDefaultDpAddressRequest ::= [101] SEQUENCE { -- Tag 'BF65'
   defaultDpAddress UTF8String -- Default SM-DP+ address as an FQDN

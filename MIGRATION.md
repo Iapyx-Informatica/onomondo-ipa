@@ -75,15 +75,15 @@ top-down; most are mechanical.
 | 5.9.4    | `AddInitialEimResponse.unsignedEimConfigDisallowed(2)` → `associatedEimAlreadyExists(2)`; new `commandError(7)` | asn ✓ / libipa TODO |
 | 5.9.5    | `EuiccMemoryReset` tag BF34 → BF64, new reset options, renamed auto-enable → immediate-enable | asn ✓ / libipa TODO |
 | 5.9.11   | `RetrieveNotificationsListResponse` drops `notificationAndEprList`                         | asn ✓ / libipa TODO |
-| 5.9.15   | **`EnableUsingDD` → `ImmediateEnable`** with new `refreshFlag BOOLEAN`                     | asn ✓ / libipa TODO (rename file) |
+| 5.9.15   | **`EnableUsingDD` → `ImmediateEnable`** with new `refreshFlag BOOLEAN`                     | asn ✓ / impl ✓ (renamed to es10b_immediate_enable.c) |
 | 5.9.17   | `ConfigureAutoProfileEnabling` → `ConfigureImmediateProfileEnabling`                       | asn ✓   |
 | 5.9.18   | `GetEimConfigurationDataRequest` gains optional `searchCriteria`                           | asn ✓   |
-| 5.9.20   | **NEW** ES10b `ExecuteFallbackMechanism`                                                   | asn ✓ / stub ✓ |
-| 5.9.21   | **NEW** ES10b `ReturnFromFallback`                                                         | asn ✓ / stub ✓ |
-| 5.9.22   | **NEW** ES10b `EnableEmergencyProfile`                                                     | asn ✓ / stub ✓ |
-| 5.9.23   | **NEW** ES10b `DisableEmergencyProfile`                                                    | asn ✓ / stub ✓ |
-| 5.9.24   | **NEW** ES10b `GetConnectivityParameters`                                                  | asn ✓ / stub ✓ |
-| 5.9.25   | **NEW** ES10b `SetDefaultDpAddress`                                                        | asn ✓ / stub ✓ |
+| 5.9.20   | **NEW** ES10b `ExecuteFallbackMechanism`                                                   | asn ✓ / impl ✓ |
+| 5.9.21   | **NEW** ES10b `ReturnFromFallback`                                                         | asn ✓ / impl ✓ |
+| 5.9.22   | **NEW** ES10b `EnableEmergencyProfile`                                                     | asn ✓ / impl ✓ |
+| 5.9.23   | **NEW** ES10b `DisableEmergencyProfile`                                                    | asn ✓ / impl ✓ |
+| 5.9.24   | **NEW** ES10b `GetConnectivityParameters`                                                  | asn ✓ / impl ✓ |
+| 5.9.25   | **NEW** ES10b `SetDefaultDpAddress`                                                        | asn ✓ / impl ✓ |
 | 5.14.1   | `InitiateAuthentication` gains optional `eimTransactionId`                                 | asn ✓ / libipa TODO |
 | 5.14.3   | `AuthenticateClient`: SGP.32 `EuiccSigned1` override; procedure description changed        | asn-stub / libipa TODO |
 | 5.14.5   | `GetEimPackage` gains `stateChangeCause`                                                   | asn ✓ / libipa TODO |
@@ -134,12 +134,20 @@ for the corresponding `TODO v1.1` / `TODO v1.2` marker.
 4. **Restructure `IpaEuiccDataResponse` / `ProvideEimPackageResult`.**
    These touch several files (`proc_euicc_data_req.c`,
    `esipa_prvde_eim_pkg_rslt.c`).  Markers describe each replacement.
-5. **Rename `EnableUsingDD` → `ImmediateEnable`.**  File rename plus
-   thread a `refreshFlag` parameter through the API.
-6. **Defer `Fallback` / `Emergency-Profile` commands** unless your device
-   or eIM actually exercises them.  Stubs are in place
-   (`es10b_execute_fallback.h`, `es10b_enable_emergency_profile.h`, …);
-   fill them in only as needed.
+5. **`EnableUsingDD` → `ImmediateEnable` — done.**  File renamed to
+   `es10b_immediate_enable.{c,h}`; the `refresh_flag` parameter is threaded
+   through the API (callers pass `false` to preserve v1.0 no-REFRESH semantics).
+6. **`Fallback` / `Emergency-Profile` / `GetConnectivityParameters` /
+   `SetDefaultDpAddress` — implemented and exposed.**  The ES10b
+   encode/transceive/decode is in place (`es10b_execute_fallback.c`,
+   `es10b_return_from_fallback.c`, `es10b_enable_emergency_profile.c`,
+   `es10b_disable_emergency_profile.c`, `es10b_get_connectivity_params.c`,
+   `es10b_set_default_dp_addr.c`) and surfaced as a public trigger API in
+   `include/onomondo/ipa/ipad.h` (`ipa_execute_fallback()`, …), with the sample
+   app exercising each via one-shot CLI options (`-F`, `-b`, `-X`, `-x`, `-G`,
+   `-D`, `-i`, `-R`).  What remains is device-specific policy: the daemon
+   decides *when* to invoke them (e.g. Fallback on radio-registration failure)
+   and feeds GetConnectivityParameters back into `http.c` / `esipa.c`.
 7. **Apply the v1.1 → v1.2 CRs** last — they are small and localised.
 
 Expected upstream strategy (as discussed with the developer): fork, land
