@@ -12,6 +12,8 @@ the schema and source carries an inline marker of the form
 `UPDATE for v1.1: <section>` / `UPDATE for v1.2: <CR>` / `NEW in v1.1/v1.2:<section>` / `TODO v1.1/v1.2: <section>` so the diff against the v1.0 baseline
 is traceable end-to-end.
 
+This effort to bring the project to SGP.32 v1.2 is independent from the one going on at the `project/nrf-ipa-v1.2` branch of the original [project](https://github.com/onomondo/onomondo-ipa).
+
 Alongside the migration, the core (`libipa` + platform modules) has had a
 code-review hardening pass; the resulting correctness and robustness fixes are
 in place. Runtime TODOs that still affect behavior will be tracked in the issue
