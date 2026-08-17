@@ -38,6 +38,18 @@
 #define MANAGE_CHANNEL_CLA 0x00
 #define MANAGE_CHANNEL_INS 0x70
 
+/* Proactive command type, ETSI TS 102 223 section 9.4 */
+#define PROACTIVE_CMD_REFRESH 0x01
+
+/* REFRESH command qualifiers, ETSI TS 102 223 section 6.6.7 */
+#define REFRESH_NAA_INIT_AND_FULL_FILE_CHANGE 0x00
+#define REFRESH_FILE_CHANGE 0x01
+#define REFRESH_NAA_INIT_AND_FILE_CHANGE 0x02
+#define REFRESH_NAA_INIT 0x03
+#define REFRESH_UICC_RESET 0x04
+#define REFRESH_NAA_APP_RESET 0x05
+#define REFRESH_NAA_SESSION_RESET 0x06
+
 #define MAX_BLOCKSIZE_TX 255
 #define MAX_BLOCKSIZE_RX 256
 
@@ -422,35 +434,87 @@ exit:
 	return rc;
 }
 
+/* Human readable name of a REFRESH command qualifier, for logging purposes. */
+static const char *refresh_qualifier_name(uint8_t qualifier)
+{
+	switch (qualifier) {
+	case REFRESH_NAA_INIT_AND_FULL_FILE_CHANGE:
+		return "NAA Initialization and Full File Change Notification";
+	case REFRESH_FILE_CHANGE:
+		return "File Change Notification";
+	case REFRESH_NAA_INIT_AND_FILE_CHANGE:
+		return "NAA Initialization and File Change Notification";
+	case REFRESH_NAA_INIT:
+		return "NAA Initialization";
+	case REFRESH_UICC_RESET:
+		return "UICC Reset";
+	case REFRESH_NAA_APP_RESET:
+		return "NAA Application Reset";
+	case REFRESH_NAA_SESSION_RESET:
+		return "NAA Session Reset";
+	default:
+		return "unknown";
+	}
+}
+
 /* Handle a pending proactive REFRESH signalled by SW=91xx: issue FETCH then
  * TERMINAL RESPONSE.  Errors are logged but do not fail the ES10x operation
  * because the eUICC has already committed the command (e.g. profile enable). */
 static void handle_proactive_refresh(struct ipa_context *ctx, uint8_t fetch_len)
 {
 	struct ipa_buf *proactive_cmd;
-	/* Fallback defaults: cmd_num=1, REFRESH(0x01), qualifier=0 */
-	uint8_t cmd_details[3] = { 0x01, 0x01, 0x00 };
+	/* Fallback defaults, used when the proactive command cannot be fetched or parsed:
+	 * cmd_num=1, REFRESH, NAA Initialization and Full File Change Notification. */
+	uint8_t cmd_details[3] = { 0x01, PROACTIVE_CMD_REFRESH, REFRESH_NAA_INIT_AND_FULL_FILE_CHANGE };
+	bool parsed = false;
 
 	IPA_LOGP(SEUICC, LINFO,
 		 "SW=91xx: proactive REFRESH pending (%u bytes), issuing FETCH + TERMINAL RESPONSE\n", fetch_len);
 
 	proactive_cmd = do_fetch(ctx, fetch_len);
 	if (proactive_cmd) {
-		parse_proactive_cmd_details(proactive_cmd, &cmd_details[0], &cmd_details[1], &cmd_details[2]);
+		parsed = parse_proactive_cmd_details(proactive_cmd, &cmd_details[0], &cmd_details[1],
+						     &cmd_details[2]);
+		if (!parsed)
+			IPA_LOGP(SEUICC, LERROR,
+				 "unable to parse the command details of the proactive command\n");
 		IPA_FREE(proactive_cmd);
 	}
 
 	send_terminal_response(ctx, cmd_details);
 
-	/* REFRESH qualifiers 0x01-0x04 (Init, Init+FileChange, Init+FullFileChange,
-	 * UICC Reset) all cause the card to close all logical channels.  Re-open the
-	 * ES10x channel and re-select ISD-R so subsequent STORE DATA commands work. */
-	if (cmd_details[2] >= 0x01 && cmd_details[2] <= 0x04) {
-		if (ipa_euicc_init_es10x(ctx) < 0)
-			IPA_LOGP(SEUICC, LERROR, "ES10x channel re-initialization after REFRESH failed\n");
-		else
-			IPA_LOGP(SEUICC, LINFO, "ES10x channel re-initialized after REFRESH\n");
+	/* The proactive command details could not be read, so the qualifier below is a guess
+	 * and must not be acted upon. */
+	if (!parsed)
+		return;
+
+	/* SW=91xx only tells us that a proactive command is pending, not which one. Anything
+	 * other than REFRESH does not concern the ES10x link. */
+	if (cmd_details[1] != PROACTIVE_CMD_REFRESH) {
+		IPA_LOGP(SEUICC, LINFO, "pending proactive command is not a REFRESH (type=%02x), ignoring\n",
+			 cmd_details[1]);
+		return;
 	}
+
+	IPA_LOGP(SEUICC, LINFO, "proactive REFRESH, qualifier %02x (%s)\n", cmd_details[2],
+		 refresh_qualifier_name(cmd_details[2]));
+
+	/* Of the qualifiers defined in ETSI TS 102 223 section 6.6.7 only "UICC Reset" asks the
+	 * terminal to reset the card. The others concern NAA initialization, NAA/session reset or
+	 * file change notifications and leave the ISD-R logical channel intact, so re-opening it
+	 * would be wrong: MANAGE CHANNEL addresses a fixed channel number here and some cards
+	 * reject opening a channel that was never closed.
+	 *
+	 * This path only covers eUICCs that ask for the reset. Those that silently require one
+	 * after a profile change are handled in ipa_poll(), which keys on the package contents
+	 * rather than on card behaviour. */
+	if (cmd_details[2] != REFRESH_UICC_RESET)
+		return;
+
+	if (ipa_euicc_reset_es10x(ctx) < 0)
+		IPA_LOGP(SEUICC, LERROR, "eUICC reset after REFRESH (UICC Reset) failed\n");
+	else
+		IPA_LOGP(SEUICC, LINFO, "eUICC reset and ES10x re-initialized after REFRESH (UICC Reset)\n");
 }
 
 static int euicc_transceive_es10x(struct ipa_context *ctx, struct ipa_buf **es10x_res, const struct ipa_buf *es10x_req)
@@ -760,6 +824,38 @@ int ipa_euicc_init_es10x(struct ipa_context *ctx)
 
 	rc = select_isd_r(ctx);
 	return rc;
+}
+
+/*! reset the eUICC and re-establish the communication channel between eUICC and IPAd.
+ *
+ *  An eUICC may refuse any further ES10b command with SW=6985 until it has been reset, in
+ *  particular after the active profile has changed. Closing and re-opening the logical
+ *  channel does not satisfy this: the card keeps answering MANAGE CHANNEL and SELECT, it
+ *  is only the ES10b STORE DATA commands that are rejected. The card must be reset on the
+ *  reader level.
+ *
+ *  \param[inout] ctx pointer to ipa_context.
+ *  \returns 0 on success, negative on error. */
+int ipa_euicc_reset_es10x(struct ipa_context *ctx)
+{
+	int rc;
+
+	rc = ipa_scard_reset(ctx->scard_ctx);
+	if (rc < 0) {
+		IPA_LOGP(SEUICC, LERROR, "unable to reset the eUICC\n");
+		ctx->check_scard = true;
+		return rc;
+	}
+
+	/* The reset dropped all logical channels and the TERMINAL CAPABILITIES the eUICC was
+	 * told about, so the initialization has to run again in full. */
+	rc = ipa_euicc_init_es10x(ctx);
+	if (rc < 0) {
+		IPA_LOGP(SEUICC, LERROR, "unable to re-initialize the ES10x link after the eUICC reset\n");
+		return rc;
+	}
+
+	return 0;
 }
 
 /*! close the communication channel between eUICC and IPAd.

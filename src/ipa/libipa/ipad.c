@@ -423,7 +423,33 @@ int ipa_poll(struct ipa_context *ctx)
 	ctx->check_http = false;
 
 	if (ctx->proc_eucc_pkg_dwnld_exec_res) {
-		/* There is an eUICC package execution ongoing, which we have to finish first */
+		/* There is an eUICC package execution ongoing, which we have to finish first.
+		 *
+		 * Reaching this point means that the previous ipa_poll returned
+		 * IPA_POLL_AGAIN_WHEN_ONLINE, which is only the case when the eUICC package (or a
+		 * subsequent profile rollback) has changed the active profile. An eUICC in that
+		 * state may refuse every further ES10b command with SW=6985 until it is reset, so
+		 * the remaining steps of the procedure (ES10b.RetrieveNotificationsList and the
+		 * removal of the delivered notifications) would fail and the EuiccPackageResult
+		 * would never reach the eIM.
+		 *
+		 * The reset is done here, and not on the proactive REFRESH path in euicc.c, because
+		 * not every eUICC asks for it: some raise a REFRESH with the "UICC Reset" qualifier,
+		 * others require the reset without signalling anything at all. The condition used
+		 * here comes from the package contents instead of from card behaviour, so it holds
+		 * for both. Resetting an eUICC that has already reset itself is harmless. */
+		rc = ipa_euicc_reset_es10x(ctx);
+		if (rc < 0) {
+			/* Without a usable ES10x link the procedure cannot be completed. The
+			 * EuiccPackageResult stays pending as a notification on the eUICC and will be
+			 * delivered by ipa_notif_delivery() once the link is working again. */
+			IPA_LOGP(SIPA, LERROR,
+				 "unable to reset the eUICC after a profile change, eUICC package execution aborted!\n");
+			ipa_proc_eucc_pkg_dwnld_exec_res_free(ctx->proc_eucc_pkg_dwnld_exec_res);
+			ctx->proc_eucc_pkg_dwnld_exec_res = NULL;
+			return check_canaries(ctx);
+		}
+
 		rc = ipa_proc_eucc_pkg_dwnld_exec_onset(ctx, ctx->proc_eucc_pkg_dwnld_exec_res);
 		if (rc < 0) {
 			/* ipa_proc_eucc_pkg_dwnld_exec_onset indicates an error that can not be recovered from. */
