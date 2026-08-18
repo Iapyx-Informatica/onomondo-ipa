@@ -9,6 +9,7 @@ option(SHOW_ASN_OUTPUT "Show ASN.1 decoded output in the log" OFF)
 option(ASN_EMIT_DEBUG "Enable built-in debug output of asn1c" OFF)
 option(MEM_EMIT_DEBUG "Enable debug output for heap memory usage" OFF)
 option(M32 "Compile for 32 bit mode" OFF)
+option(CERT_ALLOW_UNSET_CLOCK "Skip the certificate validity period check when the system clock is not set" OFF)
 
 if (ENABLE_SANITIZE)
   add_compile_options(-fsanitize=address)
@@ -25,6 +26,19 @@ endif()
 
 if(MEM_EMIT_DEBUG)
   add_definitions(-DMEM_EMIT_DEBUG)
+endif()
+
+# The validity period of a certificate can only be judged against a clock that can be trusted, and an IPA that boots
+# without a battery-backed RTC has none until it has IP connectivity -- which it cannot have before it is
+# provisioned. Such a build has to skip the check rather than fail it, or the device can never provision itself.
+# That is a real weakening (an attacker who keeps the clock unset also keeps the check away), so it is not the
+# default: everywhere else an unusable clock fails the check. See src/ipa/libipa/cert.c.
+if(CERT_ALLOW_UNSET_CLOCK)
+  message(STATUS "certificate validity: an unset system clock SKIPS the check (build for a device without an RTC)")
+  add_definitions(-DCERT_ALLOW_UNSET_CLOCK)
+else()
+  message(STATUS "certificate validity: an unset system clock FAILS the check "
+                 "(-DCERT_ALLOW_UNSET_CLOCK=ON for a device without an RTC)")
 endif()
 
 # asn1c's asn_system.h defines _BSD_SOURCE, which glibc deprecated in favour of

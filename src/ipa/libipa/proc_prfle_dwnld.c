@@ -19,6 +19,7 @@
 #include <onomondo/ipa/log.h>
 #include "context.h"
 #include "utils.h"
+#include "cert.h"
 #include "es10b_prep_dwnld.h"
 #include "esipa_get_bnd_prfle_pkg.h"
 #include "proc_prfle_dwnld.h"
@@ -34,6 +35,11 @@ struct ipa_esipa_get_bnd_prfle_pkg_res *ipa_proc_prfle_dwnlod(struct ipa_context
 	struct ipa_es10b_prep_dwnld_res *prep_dwnld_res = NULL;
 	struct ipa_esipa_get_bnd_prfle_pkg_req get_bnd_prfle_pkg_req = { 0 };
 	struct ipa_esipa_get_bnd_prfle_pkg_res *get_bnd_prfle_pkg_res = NULL;
+
+	/* The eUICC verifies CERT.DPpb.SIG in ES10b.PrepareDownload, but it has no clock, so the validity period of
+	 * the certificate is checked here (same reasoning as for CERT.XXauth.SIG, see cert.c). */
+	if (ipa_cert_check_validity(&pars->auth_clnt_ok_dpe->smdpCertificate, "SM-DP+ (CERT.DPpb.SIG)") < 0)
+		goto error;
 
 	prep_dwnld_req.req.smdpSigned2 = pars->auth_clnt_ok_dpe->smdpSigned2;
 	prep_dwnld_req.req.smdpSignature2 = pars->auth_clnt_ok_dpe->smdpSignature2;

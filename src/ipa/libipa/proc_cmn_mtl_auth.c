@@ -38,6 +38,7 @@
 #include <UTF8String.h>
 #include "context.h"
 #include "utils.h"
+#include "cert.h"
 #include "es10b_get_euicc_info.h"
 #include "es10b_get_euicc_chlg.h"
 #include "es10b_auth_serv.h"
@@ -143,10 +144,10 @@ static int check_certificate(const struct ipa_buf *allowed_ca, const Certificate
 		}
 	}
 
-	/* TODO: Verify that the certificate is valid in respect to its time window. This is an optional step but it
-	 * may make sense to catch such problems early. */
-
-	return 0;
+	/* Verify that the certificate is valid in respect to its time window. The eUICC verifies the certificate
+	 * itself in the next step (ES10b.AuthenticateServer) but has no clock, so this is the one part of the
+	 * verification that only the IPA can do. */
+	return ipa_cert_check_validity(certificate, "SM-DP+ (CERT.XXauth.SIG)");
 }
 
 static void gen_ctx_params_1(struct CtxParams1 *ctx_params_1, const uint8_t *tac, const char *ac_token)

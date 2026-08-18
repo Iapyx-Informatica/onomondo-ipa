@@ -94,6 +94,14 @@ non-standard API. However, the function is available on GNU LINUX and FreeBSD (s
 * `-DM32`
 use this option to compile onomondo-ipa for 32-BIT x86 architectures,
 see also GCC manual, section 3.19.54 x86 Options.
+* `-DCERT_ALLOW_UNSET_CLOCK`
+onomondo-ipa checks the validity period (notBefore/notAfter) of the SM-DP+ certificates it receives, since the eUICC
+verifies those certificates but has no clock to check them against. That check needs a system clock that can be
+trusted. By default a clock that is unset (it reads earlier than 2025-01-01) fails the check and the certificate is
+refused. Enable this option for a device that has no battery-backed RTC and can only learn the time over an IP
+connection it does not have until it is provisioned: an unset clock then skips the check (with a log message)
+instead of failing it. Note that this weakens the check, as an attacker who can keep the clock unset also keeps the
+check away.
 
 
 Usage
