@@ -110,8 +110,10 @@ int ipa_proc_indirect_prfle_dwnlod(struct ipa_context *ctx, const struct ipa_pro
 		goto error;
 	}
 
-	/* TODO: remove this part as it is not required (see also github issue #5) */
-	/* Execute sub procedure: Sub-procedure Profile Download and Installation – Download Confirmation */
+	/* Steps 16 and 17: ES10b.PrepareDownload, then ESipa.GetBoundProfilePackage. Both are spelled out by
+	 * SGP.32, section 3.2.3.2 itself; the SGP.22 sub-procedure this module is named after belongs to the
+	 * direct download instead (see the file comment in proc_prfle_dwnld.c). The Bound Profile Package that
+	 * comes back is what step 20 installs, so there is nothing optional about either step. */
 	prfle_dwnlod_pars.auth_clnt_ok_dpe = auth_clnt_res->auth_clnt_ok_dpe;
 	get_bnd_prfle_pkg_res = ipa_proc_prfle_dwnlod(ctx, &prfle_dwnlod_pars);
 	if (!get_bnd_prfle_pkg_res) {
@@ -122,10 +124,10 @@ int ipa_proc_indirect_prfle_dwnlod(struct ipa_context *ctx, const struct ipa_pro
 		goto error;
 	}
 
-	/* At this point we must ask the user for consent before we proceed with the profile installation. In case the
-	 * user does not consent, we must abort by calling the common cancel session procedure. This is the consent to
-	 * the download as such; consent to the profile policy rules is a separate question and was settled above
-	 * (SGP.22, section 3.1.3, step 8, calls the two Simple and Strong Confirmation). */
+	/* Simple Confirmation: consent to the download as such. SGP.32, section 3.2.3.2 step 15 has the IPA verify
+	 * the Profile Metadata "according to steps 7a, b, c and 8 of section 3.1.3" of SGP.22, and step 8 is where
+	 * both confirmations live: Strong Confirmation when the metadata carries Profile Policy Rules subject to
+	 * end user consent (settled above, see ppr.c), Simple Confirmation when it carries none. */
 	if (ctx->cfg->prfle_inst_consent_cb
 	    && !ctx->cfg->prfle_inst_consent_cb(activation_code->sm_dp_plus_address, activation_code->ac_token)) {
 		IPA_LOGP(SIPA, LERROR, "no end user consent for profile installation -- canceling session!\n");

@@ -5,10 +5,14 @@
  *
  * Author: Philipp Maier <pmaier@sysmocom.de> / sysmocom - s.f.m.c. GmbH
  *
- * See also: GSMA SGP.22, section 3.1.3.2: Sub-procedure Profile Download and Installation – Download Confirmation
+ * See also: GSMA SGP.32, section 3.2.3.2: Indirect Profile Download, steps 16 and 17
+ *
+ * The name of this module comes from SGP.22, section 3.1.3.2 (Sub-procedure Profile Download and Installation --
+ * Download Confirmation), but that sub-procedure is not what the indirect download runs: SGP.32, section 3.2.3.2
+ * spells the two steps out itself, as ES10b.PrepareDownload (step 16, which defers to section 5.7.5 of SGP.22)
+ * followed by ESipa.GetBoundProfilePackage (step 17). Only the direct download refers to the SGP.22
+ * sub-procedure, in section 3.2.3.1 step 11, and that flow is not implemented here.
  */
-
-/* TODO: fix spec reference, see github issue #5 */
 
 #include <stdio.h>
 #include <assert.h>

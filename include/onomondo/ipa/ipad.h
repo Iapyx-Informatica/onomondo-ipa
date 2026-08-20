@@ -34,7 +34,7 @@ enum ipa_state_change_cause {
 	IPA_STATE_CHANGE_UNDEFINED = 127,
 };
 
-/* (deprecated, see github issue #5) */
+/* Simple Confirmation on a profile download, see ipa_config.prfle_inst_consent_cb. */
 typedef bool (*ipa_prfle_inst_consent_cb)(char *sm_dp_plus_address, char *ac_token);
 
 /*! Profile Policy Rules of a profile that the Rules Authorisation Table of the eUICC allows only with the consent of
@@ -158,10 +158,14 @@ struct ipa_config {
 	 *  devices without a user interface are not expected to be given a RAT that demands consent at all. */
 	ipa_ppr_consent_cb ppr_consent_cb;
 
-	/*! (deprecated, see github issue #5) Consent to profile installation.
-	 *  SGP.32 requires to prompt the user to consent to a profile installation. The API user may pass a callback
-	 *  function here to handle the consent request. In case no callback function is provided onomondo-eim will
-	 *  automatically consent to any profile installation. */
+	/*! Consent to the profile download as such (Simple Confirmation).
+	 *  SGP.32, section 3.2.3.2 step 15 (and section 3.2.3.1 step 10 for the direct download) has the IPA verify
+	 *  the Profile Metadata "according to steps 7a, b, c and 8 of section 3.1.3" of SGP.22, and step 8 requires
+	 *  Simple Confirmation on the profile download when the metadata carries neither Profile Policy Rules nor
+	 *  Enterprise Rules. When those rules are present and the RAT marks them as needing end user consent, the
+	 *  question to ask is the Strong Confirmation of ppr_consent_cb above instead.
+	 *  The API user may pass a callback function here to handle the consent request. In case no callback
+	 *  function is provided onomondo-ipa will automatically consent to any profile download. */
 	ipa_prfle_inst_consent_cb prfle_inst_consent_cb;
 };
 
