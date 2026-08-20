@@ -326,7 +326,14 @@ struct ipa_buf *ipa_esipa_json_enc_init_auth_req(const struct ipa_esipa_init_aut
 	/* smdpAddress: plain string (optional) */
 	if (req->smdp_addr)
 		json_object_set_new(obj, "smdpAddress", json_string(req->smdp_addr));
-	/* eimTransactionId (v1.1 new) - not yet plumbed from caller side; skip. */
+	/* eimTransactionId: hex, present only when the eIM supplied one in the
+	 * ProfileDownloadTriggerRequest that started this download. */
+	if (req->eim_transaction_id) {
+		char *eim_tid_hex = hex_encode(req->eim_transaction_id->buf, req->eim_transaction_id->size);
+		if (!eim_tid_hex) goto err;
+		json_object_set_new(obj, "eimTransactionId", json_string(eim_tid_hex));
+		IPA_FREE(eim_tid_hex);
+	}
 
 	struct ipa_buf *buf = json_dump_to_buf(obj);
 	json_decref(obj);
