@@ -102,6 +102,15 @@ refused. Enable this option for a device that has no battery-backed RTC and can 
 connection it does not have until it is provisioned: an unset clock then skips the check (with a log message)
 instead of failing it. Note that this weakens the check, as an attacker who can keep the clock unset also keeps the
 check away.
+* `-DPPR_ALLOW_WITHOUT_CONSENT`
+the Rules Authorisation Table of an eUICC can mark a Profile Policy Rule as one the end user has to consent to before
+a profile carrying it may be installed. A device with a user interface answers that by registering
+`ipa_config.ppr_consent_cb`, which is handed the rules in question together with the profile name and service
+provider name, and returns the end user's decision. A device without a user interface has nobody to ask; this option
+decides what it does instead. By default such a profile is refused. Enable this option to install it as if consent
+had been given. Note that SGP.32 section 3.2.3.1 observes that IoT devices without a user interface are not expected
+to be given a RAT that demands consent in the first place, so needing this option usually points at a RAT that does
+not suit the device.
 
 
 Usage

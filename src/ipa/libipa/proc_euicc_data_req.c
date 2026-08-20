@@ -108,8 +108,10 @@ struct IpaCapabilities *make_ipa_capabilties(void)
 	/* We do generate ctxParams1, see also proc_cmn_mtl_auth.c */
 	bit_string_set_named_bit(ipa_ipaFeatures_buf, IpaCapabilities__ipaFeatures_eimCtxParams1Generation);
 
-	/* We do not yet support the ProfileMetadata verification (see TODO in proc_indirect_prfle_dwnld.c),
-	 * nor minimizeEsipaBytes (compact ESipa messages); both bits stay cleared. */
+	/* eimProfileMetadataVerification set would mean "the IPA cannot verify the Profile Metadata, the eIM has to
+	 * do it". We do verify it (the Profile Policy Rules against the RAT of the eUICC, see ppr.c and
+	 * proc_indirect_prfle_dwnld.c), so the bit stays cleared and the eIM sends the metadata along.
+	 * minimizeEsipaBytes (compact ESipa messages) is not supported and stays cleared as well. */
 
 	ipa_capabilties.ipaSupportedProtocols = &ipa_supported_protocols;
 

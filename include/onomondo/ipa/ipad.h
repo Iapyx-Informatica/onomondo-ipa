@@ -37,6 +37,33 @@ enum ipa_state_change_cause {
 /* (deprecated, see github issue #5) */
 typedef bool (*ipa_prfle_inst_consent_cb)(char *sm_dp_plus_address, char *ac_token);
 
+/*! Profile Policy Rules of a profile that the Rules Authorisation Table of the eUICC allows only with the consent of
+ *  the end user. A rule that the RAT allows outright, or that the profile does not set at all, is false here -- the
+ *  struct describes what the end user is being asked about, not everything the profile carries.
+ *  See also GSMA SGP.22, section 2.9.1 (the rules) and section 3.1.3, step 8 (the consent). */
+struct ipa_ppr_consent {
+	/*! PPR1, 'Disabling of this Profile is not allowed'. */
+	bool ppr1;
+
+	/*! PPR2, 'Deletion of this Profile is not allowed'. */
+	bool ppr2;
+
+	/*! Profile name of the profile about to be installed ('Short Description' in SGP.21), from the profile
+	 *  metadata. Valid for the duration of the call only. */
+	const char *profile_name;
+
+	/*! Service provider name of the profile about to be installed, from the profile metadata. Valid for the
+	 *  duration of the call only. */
+	const char *service_provider_name;
+};
+
+/*! Ask the end user to consent to the Profile Policy Rules of a profile that is about to be installed.
+ *  A device with a user interface is expected to present the rules and their consequences and to let the end user
+ *  decide (SGP.22, section 3.1.3, step 8 calls this a Strong Confirmation).
+ *  \param[in] consent the rules the consent is being asked for, and the profile they belong to.
+ *  \return true when the end user consents and the profile may be installed. */
+typedef bool (*ipa_ppr_consent_cb)(const struct ipa_ppr_consent *consent);
+
 /* NEW in v1.1: §6.1 / §6.4 — ESipa transport binding.  SGP.32 v1.2 defines
  * two wire encodings for messages between IPA and eIM: ASN.1 (BER/DER)
  * and JSON.  The eIM MUST support both; the IPA may pick either.  Default
@@ -120,6 +147,16 @@ struct ipa_config {
 	 *  IoT eUICC emulation is enabled, the IPAd will adapt the interface on ES10x function level so that the
 	 *  consumer eUICC appears as an IoT eUICC on procedure level. */
 	bool iot_euicc_emu_enabled;
+
+	/*! Consent to the Profile Policy Rules of a profile about to be installed.
+	 *  This is asked only for the rules the RAT of the eUICC marks as requiring end user consent, and it is a
+	 *  separate question from prfle_inst_consent_cb below, which is about the download as such.
+	 *
+	 *  A device with a user interface SHOULD provide this callback. A device without one cannot ask, and what
+	 *  happens then is decided when the library is built: by default such a profile is refused, and
+	 *  -DPPR_ALLOW_WITHOUT_CONSENT=ON installs it instead (see README). SGP.32, section 3.2.3.1 notes that IoT
+	 *  devices without a user interface are not expected to be given a RAT that demands consent at all. */
+	ipa_ppr_consent_cb ppr_consent_cb;
 
 	/*! (deprecated, see github issue #5) Consent to profile installation.
 	 *  SGP.32 requires to prompt the user to consent to a profile installation. The API user may pass a callback

@@ -10,6 +10,7 @@ option(ASN_EMIT_DEBUG "Enable built-in debug output of asn1c" OFF)
 option(MEM_EMIT_DEBUG "Enable debug output for heap memory usage" OFF)
 option(M32 "Compile for 32 bit mode" OFF)
 option(CERT_ALLOW_UNSET_CLOCK "Skip the certificate validity period check when the system clock is not set" OFF)
+option(PPR_ALLOW_WITHOUT_CONSENT "Install profiles whose policy rules need end user consent even when no consent callback is registered" OFF)
 
 if (ENABLE_SANITIZE)
   add_compile_options(-fsanitize=address)
@@ -39,6 +40,18 @@ if(CERT_ALLOW_UNSET_CLOCK)
 else()
   message(STATUS "certificate validity: an unset system clock FAILS the check "
                  "(-DCERT_ALLOW_UNSET_CLOCK=ON for a device without an RTC)")
+endif()
+
+# The Rules Authorisation Table of an eUICC can mark a Profile Policy Rule as requiring the consent of the end user.
+# A device with a user interface answers that by registering ipa_config.ppr_consent_cb and asking. A device without
+# one has nobody to ask, and this option decides what it does instead: refuse the profile (the default) or install
+# it as if consent had been given. See src/ipa/libipa/ppr.c.
+if(PPR_ALLOW_WITHOUT_CONSENT)
+  message(STATUS "profile policy rules: consent that cannot be asked for is ASSUMED GRANTED (build for a device without a user interface)")
+  add_definitions(-DPPR_ALLOW_WITHOUT_CONSENT)
+else()
+  message(STATUS "profile policy rules: consent that cannot be asked for REFUSES the profile "
+                 "(-DPPR_ALLOW_WITHOUT_CONSENT=ON to install it anyway)")
 endif()
 
 # asn1c's asn_system.h defines _BSD_SOURCE, which glibc deprecated in favour of
