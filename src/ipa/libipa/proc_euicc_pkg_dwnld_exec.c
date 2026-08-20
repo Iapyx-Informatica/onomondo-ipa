@@ -176,8 +176,6 @@ int ipa_proc_eucc_pkg_dwnld_exec_onset(struct ipa_context *ctx, struct ipa_proc_
 	/* Make sure Step #3-#8 (ES10b.LoadEuiccPackage) was successful */
 	if (!res->load_euicc_pkg_res)
 		goto error;
-	else if (!res->load_euicc_pkg_res)
-		goto error;
 
 	seq_number = ipa_euicc_pkg_result_seq_number(res->load_euicc_pkg_res->res);
 
