@@ -98,13 +98,6 @@ int ipa_http_set_ca_pk_spki(void *http_ctx, const uint8_t *spki, size_t len)
 	return 0;
 }
 
-int ipa_http_set_client_cert_der(void *http_ctx,
-				 const uint8_t *cert_der, size_t cert_len,
-				 ipa_tls_sign_fn sign_fn, void *sign_arg)
-{
-	return 0;
-}
-
 void ipa_http_close(void *http_ctx)
 {
 	return;

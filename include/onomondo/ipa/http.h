@@ -31,17 +31,6 @@ void ipa_http_free(void *http_ctx);
  * download.  Takes effect on the next request. */
 void ipa_http_set_timeouts(void *http_ctx, long connect_timeout_s, long total_timeout_s);
 
-/* Signing callback used for TLS client authentication with a hardware key.
- * The TLS layer calls this when it needs the ECDSA CertificateVerify signature.
- *   hash/hash_len — pre-computed digest bytes (e.g. 32 bytes for SHA-256).
- *   sig/sig_len   — output buffer; *sig_len is the buffer capacity on entry
- *                   and is updated to the actual signature length on exit.
- *                   The signature must be DER-encoded ECDSA (r, s SEQUENCE).
- * Returns 1 on success, 0 on failure. */
-typedef int (*ipa_tls_sign_fn)(void *arg,
-			       const unsigned char *hash, unsigned int hash_len,
-			       unsigned char *sig, unsigned int *sig_len);
-
 /* Set the CA certificate used to verify the eIM TLS server, from a
  * DER-encoded X.509 blob (eUICC trustedCertificateTls).
  * Returns 0 on success, -EINVAL on parse failure. */
@@ -55,13 +44,3 @@ int ipa_http_set_ca_cert_der(void *http_ctx, const uint8_t *der, size_t len);
  * Returns 0 on success, -EINVAL on parse failure. */
 int ipa_http_set_ca_pk_spki(void *http_ctx, const uint8_t *spki, size_t len);
 
-/* Set the TLS client certificate and signing callback for mutual TLS.
- * cert_der/cert_len — DER-encoded eUICC X.509 certificate.
- * sign_fn/sign_arg  — callback and opaque argument; the callback must
- *                     invoke the eUICC to perform the ECDSA signing
- *                     (e.g. via ES10b or a raw PC/SC APDU).
- * Both cert and sign_fn must be non-NULL; the certificate is parsed and
- * copied immediately.  Returns 0 on success, -EINVAL on failure. */
-int ipa_http_set_client_cert_der(void *http_ctx,
-				 const uint8_t *cert_der, size_t cert_len,
-				 ipa_tls_sign_fn sign_fn, void *sign_arg);

@@ -205,16 +205,6 @@ int eim_init(struct ipa_context *ctx)
 				 "no trustedPublicKeyDataTls in EimConfigurationData; "
 				 "HTTPS server verification uses cabundle\n");
 		}
-		/* TODO: install eUICC client certificate for mutual TLS once
-		 * an ES10b-backed or PC/SC-APDU signing function is available:
-		 *
-		 *   ipa_http_set_client_cert_der(ctx->http_ctx,
-		 *       euicc_cert_der, euicc_cert_len,
-		 *       euicc_tls_sign, ctx);
-		 *
-		 * euicc_tls_sign() would obtain the eUICC certificate from
-		 * ipa_es10b_get_certs() and delegate ECDSA signing to the chip
-		 * via a COMPUTE DIGITAL SIGNATURE APDU or equivalent. */
 		break;
 	}
 

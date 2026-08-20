@@ -14,14 +14,12 @@
 #include <assert.h>
 #include <string.h>
 #include <curl/curl.h>
-/* OpenSSL is used to install eUICC-provisioned TLS credentials into the
+/* OpenSSL is used to install the eUICC-provisioned TLS trust anchor into the
  * SSL_CTX before each handshake via CURLOPT_SSL_CTX_FUNCTION. */
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <openssl/evp.h>
-#include <openssl/ec.h>
-#include <openssl/ecdsa.h>
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include <openssl/bio.h>
@@ -30,88 +28,6 @@
 #include <onomondo/ipa/http_hdr.h>
 #include <onomondo/ipa/log.h>
 #include <onomondo/ipa/mem.h>
-
-/* -------------------------------------------------------------------------
- * Per-key signing context — carries the ipa_tls_sign_fn pointer and its
- * opaque argument, stored as OpenSSL EC_KEY ex-data so the module-wide
- * EC_KEY_METHOD can reach back to the per-connection callback.
- * ------------------------------------------------------------------------- */
-struct http_sign_ctx {
-	ipa_tls_sign_fn fn;
-	void *arg;
-};
-
-/* OpenSSL ex-data free callback: releases http_sign_ctx when the EC_KEY
- * that owns it is freed (e.g. at the end of a TLS handshake). */
-static void sign_ctx_ex_free(void *parent, void *ptr, CRYPTO_EX_DATA *ad,
-			     int idx, long argl, void *argp)
-{
-	(void)parent;
-	(void)ad;
-	(void)idx;
-	(void)argl;
-	(void)argp;
-	IPA_FREE(ptr);
-}
-
-/* OpenSSL 3.0 deprecates the low-level EC_KEY API in favour of providers, but
- * routing ECDSA signing to external hardware still requires an EC_KEY_METHOD
- * (or a full custom provider, which is a much larger undertaking).  The
- * deprecated API is still functional, so keep using it and confine the
- * deprecation warnings to the code that needs it rather than disabling them
- * project-wide.  Revisit if OpenSSL removes EC_KEY_METHOD outright.
- * NOTE: this signing path is not reachable yet — nothing calls
- * ipa_http_set_client_cert_der(); see the mTLS TODO in eim_init(). */
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-
-/* Module-wide EC_KEY_METHOD and its ex-data index; initialised once. */
-static int g_sign_ctx_ex_idx = -1;
-static EC_KEY_METHOD *g_sign_method;
-
-/* ECDSA sign_sig hook — called by the OpenSSL ECDSA path with the
- * pre-computed hash bytes.  Delegates the actual signing to the eUICC
- * via the per-key ipa_tls_sign_fn stored in ex-data.
- * The function must return a heap-allocated ECDSA_SIG * on success, or
- * NULL on failure; OpenSSL frees the returned struct. */
-static ECDSA_SIG *tls_ecdsa_sign_sig(const unsigned char *dgst, int dlen,
-				     const BIGNUM *kinv, const BIGNUM *rp,
-				     EC_KEY *ec)
-{
-	struct http_sign_ctx *sc;
-	unsigned char raw[256]; /* DER ECDSA sig; 256 bytes covers P-521 */
-	unsigned int raw_len = sizeof(raw);
-	const unsigned char *p;
-
-	(void)kinv;
-	(void)rp;
-
-	sc = EC_KEY_get_ex_data(ec, g_sign_ctx_ex_idx);
-	if (!sc || !sc->fn)
-		return NULL;
-
-	if (!sc->fn(sc->arg, dgst, (unsigned int)dlen, raw, &raw_len))
-		return NULL;
-
-	/* Decode the DER-encoded ECDSA signature returned by the eUICC */
-	p = raw;
-	return d2i_ECDSA_SIG(NULL, &p, (long)raw_len);
-}
-
-static void init_sign_method_once(void)
-{
-	if (g_sign_method)
-		return;
-	g_sign_ctx_ex_idx = EC_KEY_get_ex_new_index(0, NULL, NULL, NULL,
-						     sign_ctx_ex_free);
-	g_sign_method = EC_KEY_METHOD_new(EC_KEY_OpenSSL());
-	/* Override only the sign_sig leaf; leave sign and sign_setup NULL so
-	 * OpenSSL uses its default k-generation but routes the actual signing
-	 * through our callback. */
-	EC_KEY_METHOD_set_sign(g_sign_method, NULL, NULL, tls_ecdsa_sign_sig);
-}
-
-#pragma GCC diagnostic pop
 
 /* -------------------------------------------------------------------------
  * HTTP client context
@@ -136,70 +52,7 @@ struct http_ctx {
 	char *ca_pem;          /* PEM text of CA cert (trustedCertificateTls) */
 	size_t ca_pem_len;
 	EVP_PKEY *ca_pk;       /* trust-anchor public key (trustedEimPkTls) */
-	X509 *client_cert;     /* eUICC cert for TLS client authentication */
-	ipa_tls_sign_fn sign_fn;
-	void *sign_arg;
 };
-
-/* Install the eUICC certificate and its eUICC-backed ECDSA key for TLS client
- * authentication.  The private key never leaves the chip: we clone the public
- * EC_KEY out of the certificate and attach the EC_KEY_METHOD above, whose
- * sign_sig hook calls back into the eUICC.
- * (Deprecated EC_KEY API — see the note above init_sign_method_once().) */
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-static CURLcode install_client_key(SSL_CTX *ssl_ctx, struct http_ctx *ctx)
-{
-	const EC_KEY *ec_orig;
-	EC_KEY *ec;
-	EVP_PKEY *pub, *pkey;
-	struct http_sign_ctx *sc;
-
-	if (SSL_CTX_use_certificate(ssl_ctx, ctx->client_cert) != 1)
-		return CURLE_SSL_CERTPROBLEM;
-
-	/* Extract the public-key EC_KEY from the certificate (no private key
-	 * component — the private key lives in the eUICC and is never exported). */
-	pub = X509_get_pubkey(ctx->client_cert);
-	if (!pub)
-		return CURLE_SSL_CERTPROBLEM;
-	ec_orig = EVP_PKEY_get0_EC_KEY(pub); /* borrowed, owned by pub */
-	ec = ec_orig ? EC_KEY_dup(ec_orig) : NULL;
-	EVP_PKEY_free(pub);
-	if (!ec)
-		return CURLE_SSL_CERTPROBLEM;
-
-	/* Attach our custom method; signing is delegated to the ipa_tls_sign_fn
-	 * stored in the per-key ex-data. */
-	init_sign_method_once();
-	EC_KEY_set_method(ec, g_sign_method);
-
-	sc = IPA_ALLOC(struct http_sign_ctx);
-	if (!sc) {
-		EC_KEY_free(ec);
-		return CURLE_OUT_OF_MEMORY;
-	}
-	sc->fn = ctx->sign_fn;
-	sc->arg = ctx->sign_arg;
-	/* sign_ctx_ex_free releases sc when ec is eventually freed. */
-	EC_KEY_set_ex_data(ec, g_sign_ctx_ex_idx, sc);
-
-	pkey = EVP_PKEY_new();
-	if (!pkey) {
-		EC_KEY_free(ec); /* also frees sc via ex-data */
-		return CURLE_OUT_OF_MEMORY;
-	}
-	EVP_PKEY_assign_EC_KEY(pkey, ec); /* pkey takes ownership of ec */
-
-	if (SSL_CTX_use_PrivateKey(ssl_ctx, pkey) != 1) {
-		EVP_PKEY_free(pkey); /* also frees ec and sc */
-		return CURLE_SSL_CERTPROBLEM;
-	}
-	EVP_PKEY_free(pkey);
-
-	return CURLE_OK;
-}
-#pragma GCC diagnostic pop
 
 /* -------------------------------------------------------------------------
  * Trust-anchor-by-public-key verification (SGP.32 trustedEimPkTls).
@@ -283,7 +136,6 @@ static int trust_anchor_verify_cb(int preverify_ok, X509_STORE_CTX *store_ctx)
  *     eUICC can act as a direct trust anchor (SGP.32 §3.1 encourages
  *     self-signed certs, which need not chain to a public root).
  *  2. trustedEimPkTls: install trust_anchor_verify_cb (see above).
- *  3. Client certificate: install the eUICC-backed ECDSA key for mTLS.
  * ------------------------------------------------------------------------- */
 static CURLcode ssl_ctx_cb(CURL *curl, void *ssl_ctx_void, void *clientp)
 {
@@ -312,9 +164,6 @@ static CURLcode ssl_ctx_cb(CURL *curl, void *ssl_ctx_void, void *clientp)
 		SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, trust_anchor_verify_cb);
 	}
 
-	if (ctx->client_cert && ctx->sign_fn)
-		return install_client_key(ssl_ctx, ctx);
-
 	return CURLE_OK;
 }
 
@@ -326,8 +175,8 @@ static CURLcode ssl_ctx_cb(CURL *curl, void *ssl_ctx_void, void *clientp)
  *  \param[in] cabundle path to a CA bundle (used when no DER cert is set).
  *  \param[in] no_verif skip SSL certificate verification (insecure).
  *  \returns pointer to newly allocated HTTP client context. */
-/* The eUICC-provisioned TLS credential paths (SGP.32 trustedPublicKeyDataTls,
- * mTLS client auth) manipulate the SSL_CTX directly via
+/* The eUICC-provisioned TLS trust anchor (SGP.32 trustedPublicKeyDataTls)
+ * is installed by manipulating the SSL_CTX directly via
  * CURLOPT_SSL_CTX_FUNCTION, which libcurl only implements on OpenSSL-family
  * backends.  Against e.g. a GnuTLS-backed libcurl that option fails with
  * CURLE_NOT_BUILT_IN and the credentials can never be installed. */
@@ -481,43 +330,6 @@ int ipa_http_set_ca_pk_spki(void *http_ctx, const uint8_t *spki, size_t len)
 	return 0;
 }
 
-/*! Set the TLS client certificate and ECDSA signing callback for mTLS.
- *  \param[in] cert_der  DER-encoded eUICC X.509 certificate.
- *  \param[in] cert_len  byte length of cert_der.
- *  \param[in] sign_fn   callback that performs ECDSA signing via the eUICC.
- *  \param[in] sign_arg  opaque argument forwarded to every sign_fn call.
- *  \returns 0 on success, -EINVAL on bad arguments or parse failure. */
-int ipa_http_set_client_cert_der(void *http_ctx,
-				 const uint8_t *cert_der, size_t cert_len,
-				 ipa_tls_sign_fn sign_fn, void *sign_arg)
-{
-	struct http_ctx *ctx = http_ctx;
-	const unsigned char *p = cert_der;
-	X509 *cert;
-
-	assert(ctx);
-	if (!cert_der || !cert_len || !sign_fn)
-		return -EINVAL;
-
-	cert = d2i_X509(NULL, &p, (long)cert_len);
-	if (!cert) {
-		IPA_LOGP(SHTTP, LERROR,
-			 "cannot parse DER client certificate: %s\n",
-			 ERR_reason_error_string(ERR_get_error()));
-		return -EINVAL;
-	}
-
-	if (ctx->client_cert)
-		X509_free(ctx->client_cert);
-	ctx->client_cert = cert;
-	ctx->sign_fn = sign_fn;
-	ctx->sign_arg = sign_arg;
-
-	IPA_LOGP(SHTTP, LINFO,
-		 "eUICC client certificate installed for TLS client authentication.\n");
-	return 0;
-}
-
 /* Callback function to extract the HTTP response */
 static size_t store_response_cb(void *ptr, size_t size, size_t nmemb, void *clientp)
 {
@@ -597,11 +409,10 @@ struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req,
 		IPA_LOGP(SHTTP, LDEBUG, "TLS CA: system CAs (no eUICC cert, no -C flag)\n");
 	}
 
-	/* ssl_ctx_cb is needed for three reasons:
-	 *   - ca_pem set:      add eUICC cert to trust store + PARTIAL_CHAIN
-	 *   - ca_pk set:       install trust-anchor-by-public-key verify callback
-	 *   - client_cert set: install eUICC-backed ECDSA key for mTLS */
-	if (ctx->ca_pem || ctx->ca_pk || ctx->client_cert) {
+	/* ssl_ctx_cb is needed for two reasons:
+	 *   - ca_pem set: add eUICC cert to trust store + PARTIAL_CHAIN
+	 *   - ca_pk set:  install trust-anchor-by-public-key verify callback */
+	if (ctx->ca_pem || ctx->ca_pk) {
 		rc = curl_easy_setopt(ctx->curl, CURLOPT_SSL_CTX_FUNCTION, ssl_ctx_cb);
 		if (rc != CURLE_OK) {
 			if (rc == CURLE_NOT_BUILT_IN)
@@ -774,11 +585,6 @@ void ipa_http_free(void *http_ctx)
 		EVP_PKEY_free(ctx->ca_pk);
 		ctx->ca_pk = NULL;
 	}
-	if (ctx->client_cert) {
-		X509_free(ctx->client_cert);
-		ctx->client_cert = NULL;
-	}
-
 	/* Only the last live HTTP context tears down the curl global state
 	 * (see curl_global_refcnt note in ipa_http_init). */
 	if (ctx->initialized && curl_global_refcnt > 0 && --curl_global_refcnt == 0)
