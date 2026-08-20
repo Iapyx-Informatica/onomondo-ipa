@@ -36,6 +36,7 @@
 #include <onomondo/ipa/log.h>
 #include "length.h"
 #include "utils.h"
+#include "esipa.h"
 #include "esipa_json.h"
 #include "esipa_init_auth.h"
 #include "esipa_auth_clnt.h"
@@ -510,14 +511,23 @@ struct ipa_buf *ipa_esipa_json_enc_get_bnd_prfle_pkg_req(const struct ipa_esipa_
 {
 	json_t *obj = json_object();
 	if (!obj) return NULL;
-	/* transactionId: the caller's GetBoundProfilePackageRequestEsipa (ASN.1)
-	 * carries transactionId as a sibling field.  Here we only have the
-	 * SGP32-PrepareDownloadResponse pointer; if the caller needs the
-	 * transactionId populated, the ASN.1 binding is the path to use.
-	 * TODO: plumb transactionId through ipa_esipa_get_bnd_prfle_pkg_req. */
 	const struct PrepareDownloadResponse *pdr = req->prep_dwnld_res;
-	if (pdr && json_set_asn1_b64(obj, "prepareDownloadResponse",
-				     &asn_DEF_PrepareDownloadResponse, pdr) < 0) {
+	/* transactionId: hex, and required by the schema of section 6.4.1.3. It is not a member of the request
+	 * struct; it sits inside the PrepareDownloadResponse, which is where the ASN.1 binding takes it from
+	 * too (see ipa_esipa_get_bnd_prfle_pkg_transaction_id). */
+	const TransactionId_t *tid = ipa_esipa_get_bnd_prfle_pkg_transaction_id(pdr);
+	if (!tid) {
+		IPA_LOGP_ESIPA("GetBoundProfilePackage", LERROR,
+			       "prepare download response carries no transaction id, cannot encode request\n");
+		json_decref(obj);
+		return NULL;
+	}
+	char *tid_hex = hex_encode(tid->buf, tid->size);
+	if (!tid_hex) { json_decref(obj); return NULL; }
+	json_object_set_new(obj, "transactionId", json_string(tid_hex));
+	IPA_FREE(tid_hex);
+	if (json_set_asn1_b64(obj, "prepareDownloadResponse",
+			      &asn_DEF_PrepareDownloadResponse, pdr) < 0) {
 		json_decref(obj);
 		return NULL;
 	}

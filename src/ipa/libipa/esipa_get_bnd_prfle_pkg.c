@@ -46,10 +46,28 @@ static const struct num_str_map error_code_strings[] = {
 	{ 0, NULL }
 };
 
+/*! The transaction id that belongs to a PrepareDownloadResponse, see the header for why both bindings need it. */
+const TransactionId_t *ipa_esipa_get_bnd_prfle_pkg_transaction_id(const struct PrepareDownloadResponse
+								  *prep_dwnld_res)
+{
+	if (!prep_dwnld_res)
+		return NULL;
+
+	switch (prep_dwnld_res->present) {
+	case PrepareDownloadResponse_PR_downloadResponseOk:
+		return &prep_dwnld_res->choice.downloadResponseOk.euiccSigned2.transactionId;
+	case PrepareDownloadResponse_PR_downloadResponseError:
+		return &prep_dwnld_res->choice.downloadResponseError.transactionId;
+	default:
+		return NULL;
+	}
+}
+
 static struct ipa_buf *enc_get_bnd_prfle_pkg_req(struct ipa_context *ctx, const void *req_)
 {
 	const struct ipa_esipa_get_bnd_prfle_pkg_req *req = req_;
 	struct EsipaMessageFromIpaToEim msg_to_eim = { 0 };
+	const TransactionId_t *transaction_id;
 	(void)ctx;
 
 	msg_to_eim.present = EsipaMessageFromIpaToEim_PR_getBoundProfilePackageRequestEsipa;
@@ -60,22 +78,26 @@ static struct ipa_buf *enc_get_bnd_prfle_pkg_req(struct ipa_context *ctx, const 
 		    SGP32_PrepareDownloadResponse_PR_downloadResponseOk;
 		msg_to_eim.choice.getBoundProfilePackageRequestEsipa.prepareDownloadResponse.choice.downloadResponseOk =
 		    req->prep_dwnld_res->choice.downloadResponseOk;
-		msg_to_eim.choice.getBoundProfilePackageRequestEsipa.transactionId =
-		    req->prep_dwnld_res->choice.downloadResponseOk.euiccSigned2.transactionId;
 		break;
 	case PrepareDownloadResponse_PR_downloadResponseError:
 		msg_to_eim.choice.getBoundProfilePackageRequestEsipa.prepareDownloadResponse.present =
 		    SGP32_PrepareDownloadResponse_PR_downloadResponseError;
 		msg_to_eim.choice.getBoundProfilePackageRequestEsipa.prepareDownloadResponse.choice.
 		    downloadResponseError = req->prep_dwnld_res->choice.downloadResponseError;
-		msg_to_eim.choice.getBoundProfilePackageRequestEsipa.transactionId =
-		    req->prep_dwnld_res->choice.downloadResponseError.transactionId;
 		break;
 	default:
 		IPA_LOGP_ESIPA("GetBoundProfilePackage", LINFO,
 			       "prepare download response is empty, cannot encode request\n");
 		return NULL;
 	}
+
+	transaction_id = ipa_esipa_get_bnd_prfle_pkg_transaction_id(req->prep_dwnld_res);
+	if (!transaction_id) {
+		IPA_LOGP_ESIPA("GetBoundProfilePackage", LERROR,
+			       "prepare download response carries no transaction id, cannot encode request\n");
+		return NULL;
+	}
+	msg_to_eim.choice.getBoundProfilePackageRequestEsipa.transactionId = *transaction_id;
 
 	/* Encode */
 	return ipa_esipa_msg_to_eim_enc(&msg_to_eim, "GetBoundProfilePackage");
