@@ -39,6 +39,7 @@ int ipa_proc_indirect_prfle_dwnlod(struct ipa_context *ctx, const struct ipa_pro
 	struct ipa_proc_cmn_mtl_auth_pars cmn_mtl_auth_pars = { 0 };
 	struct ipa_proc_cmn_cancel_sess_pars cmn_cancel_sess_pars = { 0 };
 	struct ipa_proc_prfle_dwnlod_pars prfle_dwnlod_pars = { 0 };
+	long dwnld_cancel_reason = CancelSessionReason_undefinedReason;
 	struct ipa_proc_prfle_inst_pars prfle_inst_pars = { 0 };
 	int rc = -EINVAL;
 	int ppr_rc;
@@ -115,10 +116,10 @@ int ipa_proc_indirect_prfle_dwnlod(struct ipa_context *ctx, const struct ipa_pro
 	 * direct download instead (see the file comment in proc_prfle_dwnld.c). The Bound Profile Package that
 	 * comes back is what step 20 installs, so there is nothing optional about either step. */
 	prfle_dwnlod_pars.auth_clnt_ok_dpe = auth_clnt_res->auth_clnt_ok_dpe;
-	get_bnd_prfle_pkg_res = ipa_proc_prfle_dwnlod(ctx, &prfle_dwnlod_pars);
+	get_bnd_prfle_pkg_res = ipa_proc_prfle_dwnlod(ctx, &prfle_dwnlod_pars, &dwnld_cancel_reason);
 	if (!get_bnd_prfle_pkg_res) {
 		IPA_LOGP(SIPA, LERROR, "sub procedure profile download has failed -- canceling session!\n");
-		cmn_cancel_sess_pars.reason = CancelSessionReason_loadBppExecutionError;
+		cmn_cancel_sess_pars.reason = dwnld_cancel_reason;
 		cmn_cancel_sess_pars.transaction_id = *auth_clnt_res->transaction_id;
 		ipa_proc_cmn_cancel_sess(ctx, &cmn_cancel_sess_pars);
 		goto error;
