@@ -163,12 +163,18 @@ int eim_init(struct ipa_context *ctx)
 	if (!ctx->eim_id)
 		goto error;
 
+	/* eimIdType is OPTIONAL on the wire, so it must be checked before it is dereferenced: a spec compliant
+	 * eUICC assigns eimIdTypeProprietary when the IPA leaves it out, but nothing guarantees that the value
+	 * we read back actually carries it. */
 	if (eim_cfg_data_item->eimFqdn)
 		ctx->eim_fqdn = IPA_STR_FROM_ASN(eim_cfg_data_item->eimFqdn);
-	else if (*eim_cfg_data_item->eimIdType == 2)
+	else if (eim_cfg_data_item->eimIdType && *eim_cfg_data_item->eimIdType == EimIdType_eimIdTypeFqdn)
 		ctx->eim_fqdn = IPA_STR_FROM_ASN(&eim_cfg_data_item->eimId);
-	else
+	else {
+		IPA_LOGP(SIPA, LERROR,
+			 "no eimFqdn in the eIM configuration and the eimId is not an FQDN, cannot reach the eIM!\n");
 		goto error;
+	}
 
 	/* Install the eIM's TLS CA certificate into the HTTP context so that
 	 * HTTPS server certificate verification uses the certificate stored on
@@ -290,9 +296,25 @@ int ipa_add_init_eim_cfg(struct ipa_context *ctx, struct ipa_buf *cfg)
 		return -EINVAL;
 	}
 
+	/* An initial configuration may only *request* an association token, by setting it to -1 (SGP.32,
+	 * section 5.9.4). The remaining checks are done by ipa_es10b_add_init_eim() itself, for both the real
+	 * eUICC and the emulation. */
+	if (ipa_es10b_add_init_eim_check_assoc_tokens(eim_cfg_decoded)) {
+		IPA_LOGP(SIPA, LERROR, "refusing the initial eIM configuration\n");
+		ASN_STRUCT_FREE(asn_DEF_AddInitialEimRequest, eim_cfg_decoded);
+		return -EINVAL;
+	}
+
 	/* Call ES10b function AddInitialEim */
 	add_init_eim_req.req = *eim_cfg_decoded;
 	add_init_eim_res = ipa_es10b_add_init_eim(ctx, &add_init_eim_req);
+
+	if (!add_init_eim_res || add_init_eim_res->add_init_eim_err) {
+		IPA_LOGP(SIPA, LERROR, "the initial eIM configuration was not accepted\n");
+		ipa_es10b_add_init_eim_res_free(add_init_eim_res);
+		ASN_STRUCT_FREE(asn_DEF_AddInitialEimRequest, eim_cfg_decoded);
+		return -EINVAL;
+	}
 
 	ipa_es10b_add_init_eim_res_free(add_init_eim_res);
 	ASN_STRUCT_FREE(asn_DEF_AddInitialEimRequest, eim_cfg_decoded);
