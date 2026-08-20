@@ -44,6 +44,8 @@ static void print_help(void)
 	printf("options:\n");
 	printf(" -h .................. print this text.\n");
 	printf(" -t TAC .............. set TAC (default: %s)\n", DEFAULT_TAC);
+	printf(" -M IMEI ............. set IMEI, %d hex digits (default: not sent, it is optional)\n",
+	       IPA_LEN_IMEI * 2);
 	printf(" -e eimId ............ set preferred eIM (in case the eUICC has multiple)\n");
 	printf(" -r N ................ set reader number (default: %d)\n", DEFAULT_READER_NUMBER);
 	printf(" -c N ................ set logical channel number (default: %d)\n", DEFAULT_CHANNEL_NUMBER);
@@ -239,6 +241,7 @@ int main(int argc, char **argv)
 	bool getopt_one_euicc_pkg_only = false;
 	enum getopt_action getopt_action = ACTION_NONE;
 	char *getopt_default_dp = NULL;
+	uint8_t getopt_imei[IPA_LEN_IMEI];
 
 	signal(SIGUSR1, sig_usr1);
 
@@ -252,7 +255,7 @@ int main(int argc, char **argv)
 
 	/* Overwrite configuration values with user defined parameters */
 	while (1) {
-		opt = getopt(argc, argv, "ht:e:r:c:f:mn:C:SIEy:a1RiFbXxGD:");
+		opt = getopt(argc, argv, "ht:M:e:r:c:f:mn:C:SIEy:a1RiFbXxGD:");
 		if (opt == -1)
 			break;
 
@@ -263,6 +266,15 @@ int main(int argc, char **argv)
 			break;
 		case 't':
 			ipa_binary_from_hexstr(cfg.tac, sizeof(cfg.tac), optarg);
+			break;
+		case 'M':
+			if (strlen(optarg) != IPA_LEN_IMEI * 2) {
+				IPA_LOGP(SMAIN, LERROR, "-M expects %d hex digits (IMEI as Octet8)\n",
+					 IPA_LEN_IMEI * 2);
+				return -EINVAL;
+			}
+			ipa_binary_from_hexstr(getopt_imei, sizeof(getopt_imei), optarg);
+			cfg.imei = getopt_imei;
 			break;
 		case 'e':
 			cfg.preferred_eim_id = optarg;
@@ -345,6 +357,8 @@ int main(int argc, char **argv)
 	printf(" eim_disable_ssl = %d\n", cfg.eim_disable_ssl);
 	printf(" eim_disable_ssl_verif = %d\n", cfg.eim_disable_ssl_verif);
 	printf(" tac = %s\n", ipa_hexdump(cfg.tac, sizeof(cfg.tac)));
+	if (cfg.imei)
+		printf(" imei = %s\n", ipa_hexdump(cfg.imei, IPA_LEN_IMEI));
 	printf(" iot_euicc_emu_enabled = %u\n", cfg.iot_euicc_emu_enabled);
 	printf(" esipa_req_retries = %u\n", cfg.esipa_req_retries);
 	printf(" refresh_flag = %u\n", cfg.refresh_flag);

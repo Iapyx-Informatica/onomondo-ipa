@@ -65,6 +65,7 @@
 #include <IpaCapabilities.h>
 #include <BIT_STRING.h>
 #include <DeviceInfo.h>
+#include "device_info.h"
 #include <DeviceCapabilities.h>
 #include <IpaEuiccDataResponse.h>
 #include "context.h"
@@ -125,17 +126,14 @@ struct IpaCapabilities *make_ipa_capabilties(void)
 	return &ipa_capabilties;
 }
 
-/* See also SGP.22, section 4.2 */
+/* See also SGP.22, section 4.2. The same structure is built for ctxParams1 during the Common Mutual
+ * Authentication procedure, so both go through device_info.c. */
 static struct DeviceInfo *make_device_info(struct ipa_context *ctx)
 {
-	static struct DeviceInfo device_info = { 0 };
+	static struct DeviceInfo device_info;
+	static struct ipa_device_info_store device_info_store;
 
-	IPA_ASSIGN_BUF_TO_ASN(device_info.tac, ctx->cfg->tac, IPA_LEN_TAC);
-	/* TODO: Optionally it would also be possible to submint the IMEI here, The question is: Do we need that? */
-
-	/* TODO: The struct "device_info.deviceCapabilities" contains only optional parameters that refer supported
-	 * features of the supported RAN. We should find a suitable way to present those fields to the user so that
-	 * he can set the parameter via the ipa_context. For now we leave those parameters unpopulated. */
+	ipa_device_info_fill(&device_info, &device_info_store, ctx->cfg);
 
 	return &device_info;
 }

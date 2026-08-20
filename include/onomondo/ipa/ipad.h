@@ -12,11 +12,38 @@
 
 #define IPA_LEN_FQDN 255
 #define IPA_LEN_TAC 4
+/*! Length of an IMEI as carried in DeviceInfo (SGP.22 Octet8: 8 BCD digits plus check digit and a filler). */
+#define IPA_LEN_IMEI 8
+/*! Length of a VersionType: major, minor and revision, one binary byte each (e.g. { 0x0f, 0x00, 0x00 } for
+ *  3GPP release 15). */
+#define IPA_LEN_VERSION 3
 #define IPA_LEN_ALLOWED_CA 20
 #define IPE_LEN_EIM_ID 256
 
 struct ipa_context;
 struct ipa_buf;
+
+/*! Radio access technologies the device supports, for the deviceCapabilities of DeviceInfo.
+ *
+ *  SGP.22, section 4.2: "Device Information is mainly in destination of the SM-DP+ for the purpose of Device
+ *  eligibility check. The SM-DP+/Operator is free to use or ignore this information at their discretion", and
+ *  "Device capabilities: The Device SHALL set all the capabilities it supports". Every entry is OPTIONAL on the
+ *  wire, so an entry left NULL says the device does not support that technology -- which is why they should be
+ *  filled in for a device that does, even though nothing breaks if they are not.
+ *
+ *  Each entry points at IPA_LEN_VERSION bytes holding the highest fully supported release. The IPA cannot
+ *  discover any of this by itself; it belongs to the device the IPA is integrated into, like the TAC. */
+struct ipa_device_capabilities {
+	const uint8_t *gsm;
+	const uint8_t *utran;
+	const uint8_t *cdma2000_onex;
+	const uint8_t *cdma2000_hrpd;
+	const uint8_t *cdma2000_ehrpd;
+	const uint8_t *eutran_epc;
+	const uint8_t *nr_epc;
+	const uint8_t *nr_5gc;
+	const uint8_t *eutran_5gc;
+};
 
 /* NEW in v1.1: SGP.32 §6.3.2.6 — StateChangeCause.  The IPA sets this on
  * ESipa.GetEimPackage after a local state change so the eIM can correlate.
@@ -104,6 +131,14 @@ struct ipa_config {
 
 	/*! current TAC (This struct member may be updated at any time after context creation.) */
 	uint8_t tac[IPA_LEN_TAC];
+
+	/*! IMEI of the device, IPA_LEN_IMEI bytes, or NULL to leave it out. It is OPTIONAL in DeviceInfo
+	 *  (SGP.22, section 4.2), but an SM-DP+ may use it for its eligibility check. */
+	const uint8_t *imei;
+
+	/*! Radio access technologies of the device, all entries NULL by default. See the struct comment: leaving
+	 *  these unset tells the SM-DP+ that the device supports none of them. */
+	struct ipa_device_capabilities device_capabilities;
 
 	/*! The caller may specify a path to a CA bundle file. The string is passed to ipa_http_init() on
 	 *  initialization (see also http.h and http.c) */
