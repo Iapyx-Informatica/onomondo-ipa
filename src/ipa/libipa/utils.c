@@ -89,6 +89,11 @@ void ipa_hexdump_multiline(const uint8_t *data, size_t len, size_t width, uint8_
 	size_t bsize;
 	char indent_str[8];
 
+	/* Formatting a large buffer into hex is not free, and neither is the log line per row of it. Ask first
+	 * whether any of it would reach the log at all, rather than let ipa_logp() drop it row by row. */
+	if (!ipa_log_check(log_subsys, log_level))
+		return;
+
 	assert(indent < sizeof(indent_str));
 	memset(indent_str, ' ', indent);
 	indent_str[indent] = '\0';
@@ -117,6 +122,9 @@ void ipa_buf_hexdump_multiline(const struct ipa_buf *buf, size_t width, uint8_t 
 			       enum log_level log_level)
 {
 	char indent_str[8];
+
+	if (!ipa_log_check(log_subsys, log_level))
+		return;
 
 	assert(indent < sizeof(indent_str));
 	memset(indent_str, ' ', indent);
@@ -207,6 +215,11 @@ static int ipa_asn1c_dump_consume(const void *buffer, size_t size, void *app_key
 #endif
 
 /*! dump contents of a decoded ASN.1 structure.
+ *
+ *  The output goes to the subsystem of the caller, so that raising one interface to LDEBUG brings up the dumps of
+ *  that interface and of no other: someone debugging ESipa traffic wants the payloads of that traffic, not every
+ *  ASN.1 structure the IPA happens to decode meanwhile.
+ *
  *  \param[in] td pointer to asn_TYPE_descriptor.
  *  \param[in] struct_ptr pointer to decoded ASN.1 struct.
  *  \param[in] indent indentation level of the generated output.
@@ -219,6 +232,12 @@ void ipa_asn1c_dump(const struct asn_TYPE_descriptor_s *td, const void *struct_p
 	struct ipa_asn1c_dump_buf buf = { 0 };
 #endif
 	char indent_str[8];
+
+	/* Rendering the structure means allocating IPA_LEN_ASN1_PRINTER_BUF and walking it with asn1c's printer,
+	 * which is the most expensive thing done for the sake of a log line anywhere in the IPA. */
+	if (!ipa_log_check(log_subsys, log_level))
+		return;
+
 	assert(indent < sizeof(indent_str));
 	memset(indent_str, ' ', indent);
 	indent_str[indent] = '\0';

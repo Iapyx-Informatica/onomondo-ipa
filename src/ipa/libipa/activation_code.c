@@ -130,6 +130,9 @@ void ipa_activation_code_dump(const struct ipa_activation_code *ac_decoded,
 {
 	char indent_str[8];
 
+	if (!ipa_log_check(log_subsys, log_level))
+		return;
+
 	assert(indent < sizeof(indent_str));
 	memset(indent_str, ' ', indent);
 	indent_str[indent] = '\0';

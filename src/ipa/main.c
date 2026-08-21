@@ -39,6 +39,76 @@ bool prfle_inst_consent(char *sm_dp_plus_address, char *ac_token)
 	return false;
 }
 
+/* Print every subsystem and level name the -l and -d options accept. The names come from libipa rather than from a
+ * list kept here, so that adding a subsystem does not silently leave the help text (or the parser) behind. */
+static void print_log_names(void)
+{
+	unsigned int i;
+
+	fprintf(stderr, "subsystems:");
+	for (i = 0; i < _NUM_LOG_SUBSYS; i++)
+		fprintf(stderr, " %s", ipa_log_subsys_name(i));
+	fprintf(stderr, "\nlevels:");
+	for (i = 0; i < _NUM_LOG_LEVEL; i++)
+		fprintf(stderr, " %s", ipa_log_level_name(i));
+	fprintf(stderr, "\n");
+}
+
+/*! Parse the argument of -l (a level, applying to every subsystem) or -d (SUBSYS:LEVEL, applying to one).
+ *  \param[in] arg option argument.
+ *  \param[in] per_subsys true when arg carries a subsystem prefix, i.e. the option was -d.
+ *  \returns 0 on success, -EINVAL when a name is not recognised or the syntax is wrong. */
+static int parse_log_level_opt(const char *arg, bool per_subsys)
+{
+	char buf[32];
+	char *sep;
+	int subsys;
+	int level;
+
+	if (!per_subsys) {
+		level = ipa_log_level_by_name(arg);
+		if (level < 0) {
+			fprintf(stderr, "unknown log level \"%s\"\n", arg);
+			print_log_names();
+			return -EINVAL;
+		}
+		ipa_log_set_level_all(level);
+		return 0;
+	}
+
+	/* Split SUBSYS:LEVEL in a scratch copy: optarg points into argv, which is not ours to modify. */
+	if (strlen(arg) >= sizeof(buf)) {
+		fprintf(stderr, "log level specification \"%s\" is too long\n", arg);
+		return -EINVAL;
+	}
+	strcpy(buf, arg);
+
+	sep = strchr(buf, ':');
+	if (!sep) {
+		fprintf(stderr, "log level specification \"%s\" is not of the form SUBSYS:LEVEL\n", arg);
+		print_log_names();
+		return -EINVAL;
+	}
+	*sep = '\0';
+
+	subsys = ipa_log_subsys_by_name(buf);
+	if (subsys < 0) {
+		fprintf(stderr, "unknown log subsystem \"%s\"\n", buf);
+		print_log_names();
+		return -EINVAL;
+	}
+
+	level = ipa_log_level_by_name(sep + 1);
+	if (level < 0) {
+		fprintf(stderr, "unknown log level \"%s\"\n", sep + 1);
+		print_log_names();
+		return -EINVAL;
+	}
+
+	ipa_log_set_level(subsys, level);
+	return 0;
+}
+
 static void print_help(void)
 {
 	printf("options:\n");
@@ -59,6 +129,18 @@ static void print_help(void)
 	printf(" -S .................. disable HTTPS\n");
 	printf(" -I .................. disable SSL certificate verification (insecure)\n");
 	printf(" -L .................. prefix each log line with the source file and line that produced it\n");
+	printf(" -l LEVEL ............ set the log level of every subsystem (default: %s)\n",
+	       ipa_log_level_name(LDEBUG));
+	printf(" -d SUBSYS:LEVEL ..... set the log level of one subsystem, may be given more than once\n");
+	printf("                       (applied in the order given, so -l %s -d %s:%s works as it reads)\n",
+	       ipa_log_level_name(LERROR), ipa_log_subsys_name(SESIPA), ipa_log_level_name(LDEBUG));
+	printf("                       subsystems:");
+	for (unsigned int i = 0; i < _NUM_LOG_SUBSYS; i++)
+		printf(" %s", ipa_log_subsys_name(i));
+	printf("\n                       levels:");
+	for (unsigned int i = 0; i < _NUM_LOG_LEVEL; i++)
+		printf(" %s", ipa_log_level_name(i));
+	printf("\n");
 	printf(" -E .................. emulate IoT eUICC (compatibility mode to use consumer eUICCs)\n");
 	printf(" -1 .................. force the IPAd to process only one eUICC package (debug, use with caution)\n");
 	printf("\n");
@@ -256,7 +338,7 @@ int main(int argc, char **argv)
 
 	/* Overwrite configuration values with user defined parameters */
 	while (1) {
-		opt = getopt(argc, argv, "ht:M:e:r:c:f:mn:C:SIELy:a1RiFbXxGD:");
+		opt = getopt(argc, argv, "ht:M:e:r:c:f:mn:C:SIELl:d:y:a1RiFbXxGD:");
 		if (opt == -1)
 			break;
 
@@ -270,6 +352,11 @@ int main(int argc, char **argv)
 			break;
 		case 'L':
 			ipa_log_set_print_source(true);
+			break;
+		case 'l':
+		case 'd':
+			if (parse_log_level_opt(optarg, opt == 'd') < 0)
+				exit(1);
 			break;
 		case 'M':
 			if (strlen(optarg) != IPA_LEN_IMEI * 2) {
