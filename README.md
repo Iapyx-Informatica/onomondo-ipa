@@ -62,8 +62,13 @@ On a Debian GNU/Linux system, the following packages are required:
 * `libcurl4-openssl-dev`
 * `libssl-dev`
 * `libpcsclite-dev`
+* `libjansson-dev`
+* `pkg-config`
 * `build-essential`
 * `cmake`
+
+`libjansson-dev` and `pkg-config` are needed only by the ESipa JSON binding, which is built by default.  A build
+configured with `-DESIPA_BINDING_JSON=OFF` does not need either; see Options below.
 
 The OpenSSL flavour of libcurl is required, not the GnuTLS one: `CURLOPT_SSL_CTX_FUNCTION` is
 implemented only on OpenSSL-family backends.  Against a GnuTLS-backed libcurl that option fails

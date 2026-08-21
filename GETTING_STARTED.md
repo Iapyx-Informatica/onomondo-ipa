@@ -10,7 +10,8 @@ for the full state.
 On Debian/Ubuntu:
 
 ```bash
-sudo apt install asn1c build-essential cmake libcurl4-openssl-dev libssl-dev libpcsclite-dev
+sudo apt install asn1c build-essential cmake pkg-config libcurl4-openssl-dev libssl-dev \
+            libpcsclite-dev libjansson-dev
 cmake -S . -B build -DENABLE_SANITIZE=ON -DSHOW_ASN_OUTPUT=ON
 cmake --build build --parallel
 ```
@@ -50,9 +51,14 @@ struct ipa_config cfg = { 0 };
 cfg.esipa_binding = IPA_ESIPA_BINDING_JSON; /* or _ASN1 (default) */
 ```
 
-The JSON binding requires `libjansson-dev` at build time (auto-detected by
-CMake).  Without jansson, the binding compiles to a stub and only the
-ASN.1 path is functional — the ASN.1 build is unaffected.
+Both bindings are built by default, and each has a CMake option:
+`-DESIPA_BINDING_ASN1`, `-DESIPA_BINDING_JSON`.  At least one has to stay on.
+
+The JSON binding requires `libjansson-dev` (found through `pkg-config`).  With
+`-DESIPA_BINDING_JSON=ON` — the default — a missing jansson is a configure
+error, not a silent downgrade to an ASN.1-only library; drop the binding
+explicitly with `-DESIPA_BINDING_JSON=OFF` if that is what you want.  Selecting
+a binding the build does not have makes `ipa_init()` fail with `-EINVAL`.
 
 Note: the JSON encoders and decoders are compile-verified but have not yet
 been interop-tested against a real JSON-speaking eIM.  A first-pass run
