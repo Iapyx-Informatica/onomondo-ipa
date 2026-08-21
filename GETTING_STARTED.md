@@ -10,7 +10,7 @@ for the full state.
 On Debian/Ubuntu:
 
 ```bash
-sudo apt install asn1c build-essential cmake libcurl4-gnutls-dev libpcsclite-dev
+sudo apt install asn1c build-essential cmake libcurl4-openssl-dev libssl-dev libpcsclite-dev
 cmake -S . -B build -DENABLE_SANITIZE=ON -DSHOW_ASN_OUTPUT=ON
 cmake --build build --parallel
 ```

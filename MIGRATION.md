@@ -29,7 +29,7 @@ regeneration; change [`asn1/*.asn`](asn1/) instead.
 
 ## Build workflow after migration
 
-Native Linux build (needs `asn1c` + `cmake` + `libcurl` + `libpcsclite`):
+Native Linux build (needs `asn1c` + `cmake` + `libcurl` (OpenSSL backend) + `libssl` + `libpcsclite`):
 
 ```sh
 cmake -S . -B build -DENABLE_SANITIZE=ON -DSHOW_ASN_OUTPUT=ON

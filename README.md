@@ -51,16 +51,24 @@ C-compiler. However, onomondo-ipa still requires platform dependent modules that
 to access the eUICC via some sort of smart card reader. This repository ships with a sample implementation of those
 platform-dependent modules that can run on a standard Linux system:
 
-* `http.c`: Contains a libcurl based implementation to make HTTP(s) requests.
+* `http.c`: Contains a libcurl based implementation to make HTTP(s) requests.  It also uses OpenSSL
+  directly, to install the eUICC-provisioned TLS credentials (SGP.32 `trustedPublicKeyDataTls`) into
+  the handshake via `CURLOPT_SSL_CTX_FUNCTION`.
 * `scard.c`: Contains a libpcsclite based implementation to access the eUICC.
 
 On a Debian GNU/Linux system, the following packages are required:
 
 * `asn1c`
-* `libcurl4-gnutls-dev`
+* `libcurl4-openssl-dev`
+* `libssl-dev`
 * `libpcsclite-dev`
 * `build-essential`
 * `cmake`
+
+The OpenSSL flavour of libcurl is required, not the GnuTLS one: `CURLOPT_SSL_CTX_FUNCTION` is
+implemented only on OpenSSL-family backends.  Against a GnuTLS-backed libcurl that option fails
+with `CURLE_NOT_BUILT_IN`, `http.c` logs the loss and carries on with the system trust store, and
+the eUICC-provisioned trust anchor is never installed.
 
 On a Debian system, the standard `apt-get install ...` command can be used to install those dependencies.
 
