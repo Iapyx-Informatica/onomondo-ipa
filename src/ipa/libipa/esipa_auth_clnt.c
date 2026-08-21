@@ -179,7 +179,13 @@ static void *dec_auth_clnt_res(const struct ipa_buf *msg_to_ipa_encoded, const v
 	case AuthenticateClientResponseEsipa_PR_authenticateClientOkDPEsipa:
 		res->auth_clnt_ok_dpe =
 		    &msg_to_ipa->choice.authenticateClientResponseEsipa.choice.authenticateClientOkDPEsipa;
-		res->transaction_id = res->auth_clnt_ok_dpe->transactionId;
+		/* SGP.32 section 5.14.3: transactionId is OPTIONAL here because it is also carried inside
+		 * smdpSigned2, and the eIM SHALL NOT send it to an IPA with IPA Capability minimizeEsipaBytes.
+		 * Fall back to the signed copy when the explicit field is absent, so that the session still has a
+		 * transaction ID and the check below still runs -- an omitted field must not become a way around
+		 * it. Both alternatives live in the decoded message, so neither outlives the response. */
+		res->transaction_id = res->auth_clnt_ok_dpe->transactionId ?
+		    res->auth_clnt_ok_dpe->transactionId : &res->auth_clnt_ok_dpe->smdpSigned2.transactionId;
 		if (!IPA_ASN_STR_CMP(res->transaction_id, &req->req.transactionId)) {
 			IPA_LOGP_ESIPA("AuthenticateClient", LERROR,
 				       "eIM responded with unexpected transaction ID (expected: %s, got: %s)\n",

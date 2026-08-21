@@ -488,6 +488,7 @@ struct ipa_esipa_auth_clnt_res *ipa_esipa_json_dec_auth_clnt_res(const struct ip
 	StoreMetadataRequest_t *smr = json_get_asn1_b64(obj, "profileMetadata", &asn_DEF_StoreMetadataRequest);
 	if (smr) ok->profileMetaData = smr;
 	SmdpSigned2_t *s2 = json_get_asn1_b64(obj, "smdpSigned2", &asn_DEF_SmdpSigned2);
+	bool have_smdp_signed2 = s2 != NULL;
 	if (s2) { ok->smdpSigned2 = *s2; IPA_FREE(s2); }
 	j = json_object_get(obj, "smdpSignature2");
 	if (j && json_is_string(j)) {
@@ -505,7 +506,13 @@ struct ipa_esipa_auth_clnt_res *ipa_esipa_json_dec_auth_clnt_res(const struct ip
 	if (hc) ok->hashCc = hc;
 
 	res->auth_clnt_ok_dpe = ok;
-	if (ok->transactionId) res->transaction_id = ok->transactionId;
+	/* Same rule as the ASN.1 binding: SGP.32 section 5.14.3 makes transactionId optional because
+	 * smdpSigned2 carries it too, and the eIM omits it towards an IPA with IPA Capability
+	 * minimizeEsipaBytes.  Fall back to the signed copy rather than leaving the session without one. */
+	if (ok->transactionId)
+		res->transaction_id = ok->transactionId;
+	else if (have_smdp_signed2)
+		res->transaction_id = &ok->smdpSigned2.transactionId;
 	json_decref(obj);
 	return res;
 }
