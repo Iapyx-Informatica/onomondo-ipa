@@ -22,6 +22,7 @@
 #include "esipa.h"
 #include "esipa_cancel_session.h"
 
+#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 static const struct num_str_map error_code_strings[] = {
 	{ CancelSessionResponseEsipa__cancelSessionError_invalidTransactionId, "invalidTransactionId" },
 	{ CancelSessionResponseEsipa__cancelSessionError_euiccSignatureInvalid, "euiccSignatureInvalid" },
@@ -88,6 +89,9 @@ static void *dec_cancel_session_res(const struct ipa_buf *msg_to_ipa_encoded, co
 	return res;
 }
 
+#endif /* IPA_HAVE_ESIPA_ASN1 */
+
+#ifdef IPA_HAVE_ESIPA_JSON		/* ESipa JSON binding, SGP.32 section 6.4 */
 struct ipa_buf *ipa_esipa_json_enc_cancel_session_req(const struct ipa_esipa_cancel_session_req *);
 
 static struct ipa_buf *json_enc_cancel_session_req(struct ipa_context *ctx, const void *req)
@@ -110,6 +114,8 @@ static void *json_dec_cancel_session_res(const struct ipa_buf *res_buf, const vo
 	return res;
 }
 
+#endif /* IPA_HAVE_ESIPA_JSON */
+
 /*! Function (ESipa): CancelSession.
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] req pointer to struct that holds the function parameters.
@@ -120,8 +126,8 @@ struct ipa_esipa_cancel_session_res *ipa_esipa_cancel_session(struct ipa_context
 	IPA_LOGP_ESIPA("CancelSession", LINFO, "Requesting cancellation of session\n");
 
 	return ipa_esipa_call(ctx, "CancelSession", req,
-			      enc_cancel_session_req, dec_cancel_session_res,
-			      json_enc_cancel_session_req, json_dec_cancel_session_res);
+			      IPA_ESIPA_ASN1_CB(enc_cancel_session_req, dec_cancel_session_res),
+			      IPA_ESIPA_JSON_CB(json_enc_cancel_session_req, json_dec_cancel_session_res));
 }
 
 /*! Free results of function (ESipa): CancelSession.

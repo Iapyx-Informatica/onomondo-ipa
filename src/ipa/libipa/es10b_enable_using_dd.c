@@ -212,7 +212,7 @@ error:
  *  \returns positive status code on success, negative on error. */
 int ipa_es10b_enable_using_dd(struct ipa_context *ctx)
 {
-	if (ctx->cfg->iot_euicc_emu_enabled)
+	if (IPA_EUICC_EMU(ctx))
 		return enable_using_dd_emu(ctx);
 	else
 		return enable_using_dd(ctx);

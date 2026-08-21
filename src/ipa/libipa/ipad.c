@@ -245,6 +245,37 @@ int ipa_init(struct ipa_context *ctx)
 {
 	int rc;
 
+	/* Refuse rather than quietly ignore: a caller that asks for the emulation is telling us it has a consumer
+	 * eUICC in the reader, and carrying on against it as if it were an IoT eUICC would fail later in ways that
+	 * are much harder to read than this. */
+#ifndef IPA_HAVE_IOT_EUICC_EMULATION
+	if (ctx->cfg->iot_euicc_emu_enabled) {
+		IPA_LOGP(SIPA, LERROR,
+			 "IoT eUICC emulation was requested, but this build does not have it "
+			 "(rebuild with -DIOT_EUICC_EMULATION=ON)\n");
+		return -EINVAL;
+	}
+#endif
+
+	/* Likewise for the wire binding: better to say so here than to have every ESipa call fail the same way. */
+#ifndef IPA_HAVE_ESIPA_ASN1
+	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_ASN1) {
+		IPA_LOGP(SIPA, LERROR,
+			 "the ASN.1 ESipa binding was selected, but this build does not have it "
+			 "(set ipa_config.esipa_binding to IPA_ESIPA_BINDING_JSON, or rebuild with "
+			 "-DESIPA_BINDING_ASN1=ON)\n");
+		return -EINVAL;
+	}
+#endif
+#ifndef IPA_HAVE_ESIPA_JSON
+	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON) {
+		IPA_LOGP(SIPA, LERROR,
+			 "the JSON ESipa binding was selected, but this build does not have it "
+			 "(rebuild with -DESIPA_BINDING_JSON=ON)\n");
+		return -EINVAL;
+	}
+#endif
+
 	ctx->http_ctx = ipa_http_init(ctx->cfg->eim_cabundle, ctx->cfg->eim_disable_ssl_verif);
 	if (!ctx->http_ctx)
 		return -EINVAL;

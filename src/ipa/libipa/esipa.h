@@ -37,11 +37,27 @@ typedef struct ipa_buf *(*ipa_esipa_enc_cb)(struct ipa_context *ctx, const void 
  * error. */
 typedef void *(*ipa_esipa_dec_cb)(const struct ipa_buf *res, const void *req);
 
+/*! Pass a binding's encoder/decoder pair to ipa_esipa_call(), or a pair of NULLs when this build does not have that
+ *  binding (see ESIPA_BINDING_ASN1 / ESIPA_BINDING_JSON in the top-level CMakeLists.txt).  The per-function
+ *  encoders and decoders behind them are compiled under the same conditions, so a binding that is not built leaves
+ *  nothing to link and nothing to strip. */
+#ifdef IPA_HAVE_ESIPA_ASN1
+#define IPA_ESIPA_ASN1_CB(enc, dec) (enc), (dec)
+#else
+#define IPA_ESIPA_ASN1_CB(enc, dec) NULL, NULL
+#endif
+#ifdef IPA_HAVE_ESIPA_JSON
+#define IPA_ESIPA_JSON_CB(enc, dec) (enc), (dec)
+#else
+#define IPA_ESIPA_JSON_CB(enc, dec) NULL, NULL
+#endif
+
 /*! Run the common ESipa round-trip shared by every ipa_esipa_* function:
  *  select the ASN.1 vs JSON binding from ctx->cfg->esipa_binding, encode the
  *  request, send it via ipa_esipa_req(), then decode the response.  Both
- *  intermediate buffers are always freed before returning.  All four callbacks
- *  must be non-NULL.
+ *  intermediate buffers are always freed before returning.  The callbacks of a
+ *  binding this build does not have are NULL (see IPA_ESIPA_ASN1_CB above), and
+ *  asking for such a binding fails the call with a log line saying so.
  *  \returns the decoded result object, or NULL on any failure. */
 void *ipa_esipa_call(struct ipa_context *ctx, const char *function_name, const void *req,
 		     ipa_esipa_enc_cb enc, ipa_esipa_dec_cb dec,

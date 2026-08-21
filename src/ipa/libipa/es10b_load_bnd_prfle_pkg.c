@@ -96,7 +96,7 @@ struct ipa_es10b_load_bnd_prfle_pkg_res *ipa_es10b_load_bnd_prfle_pkg(struct ipa
 
 		/* In case IoT eUICC emulation is active, collect auto enable data to support the emulation of
 		 * the ES10b function EnableUsingDD. */
-		if (ctx->cfg->iot_euicc_emu_enabled)
+		if (IPA_EUICC_EMU(ctx))
 			collect_auto_enable_data_from_prfle_inst_rslt(ctx, res->res);
 	}
 

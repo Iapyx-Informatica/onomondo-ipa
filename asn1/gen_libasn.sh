@@ -2,11 +2,13 @@
 # Generate the libasn ASN.1 codec (C sources) from asn1/*.asn using asn1c.
 #
 # Usage:
-#   gen_libasn.sh <asn1c> <asn_src_dir> <out_dir>
+#   gen_libasn.sh <asn1c> <asn_src_dir> <out_dir> [keep_print]
 #
 #   <asn1c>        path to the asn1c executable
 #   <asn_src_dir>  directory holding the *.asn schema + patch files (this dir)
 #   <out_dir>      directory to (re)generate the C sources into
+#   [keep_print]   1 to keep the asn1c type printers, 0 (default) to drop them;
+#                  CMake passes 1 exactly when SHOW_ASN_OUTPUT is ON
 #
 # This script is invoked by src/ipa/libasn/CMakeLists.txt; CMake owns *when* it
 # runs (only when the schema or this script changes, or the tree is missing).
@@ -26,12 +28,13 @@
 
 set -euo pipefail
 
-if [ "$#" -ne 3 ]; then
-  echo "usage: $0 <asn1c> <asn_src_dir> <out_dir>" >&2
+if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
+  echo "usage: $0 <asn1c> <asn_src_dir> <out_dir> [keep_print]" >&2
   exit 2
 fi
 
 ASN1C="$1"
+KEEP_PRINT="${4:-0}"
 # Absolutise so the paths survive the `cd` into the staging dir below.
 ASN_SRC_DIR="$(cd "$2" && pwd)"
 mkdir -p "$3"
@@ -66,6 +69,24 @@ ASN1C_FLAGS=(-fcompound-names)
 if "${ASN1C}" -h 2>&1 | grep -q -- "-no-gen-example"; then
   ASN1C_FLAGS+=(-no-gen-example)
 fi
+
+# Codecs this project never uses.  Everything on the wire here is DER (ES10x
+# APDUs, the ESipa ASN.1 binding) or hand-built JSON; nothing reads or writes
+# XER, and the asn1c type printers are reachable only from ipa_asn1c_dump()
+# under -DSHOW_ASN_OUTPUT.  Left in, they are dead weight the linker cannot
+# drop on its own, because asn1c emits a type's whole codec set into one object
+# file.  Newer asn1c can be told not to emit them at all; 0.9.28 cannot, and is
+# handled after generation instead (see "codec trimming" below).
+ASN1C_TRIMMED_BY_FLAG=" "
+for _flag in -no-gen-XER -no-gen-print; do
+  if "${ASN1C}" -h 2>&1 | grep -q -- "${_flag}"; then
+    if [ "${_flag}" = "-no-gen-print" ] && [ "${KEEP_PRINT}" = "1" ]; then
+      continue
+    fi
+    ASN1C_FLAGS+=("${_flag}")
+    ASN1C_TRIMMED_BY_FLAG+="${_flag} "
+  fi
+done
 
 ( cd "${STAGING}" && "${ASN1C}" "${ASN1C_FLAGS[@]}" "${ASN_FILES[@]}" )
 
@@ -109,6 +130,54 @@ if [ -f "${STAGING}/Psmo.h" ] && grep -qE '\} Delete;' "${STAGING}/Psmo.h" 2>/de
   perl -pi -e 's/\.Delete\b/.delete/g; s/\} Delete;/} delete;/g; s/choice\.Delete\b/choice.delete/g' \
     "${STAGING}/Psmo.h" "${STAGING}/Psmo.c"
   echo "[gen_libasn] normalised Psmo.Delete -> Psmo.delete"
+fi
+
+# --- Codec trimming (asn1c 0.9.28) -----------------------------------------
+# 0.9.28 has no -no-gen-XER / -no-gen-print, and lays the codec entry points out
+# as positional members of each asn_TYPE_descriptor_t:
+#
+#     asn_TYPE_descriptor_t asn_DEF_Foo = {
+#             "Foo", "Foo",
+#             SEQUENCE_free,
+#             SEQUENCE_print,        <- printer
+#             SEQUENCE_constraint,
+#             SEQUENCE_decode_ber,
+#             SEQUENCE_encode_der,
+#             SEQUENCE_decode_xer,   <- XER
+#             SEQUENCE_encode_xer,   <- XER
+#
+# A NULL there is what asn1c itself emits for a codec it did not generate (see
+# the "No PER support" slots), and the runtime never calls a slot this project
+# does not reach.  Zeroing them makes the functions unreferenced, and with
+# -ffunction-sections/--gc-sections the linker then drops them.
+#
+# asn1c master moved these pointers into a shared asn_TYPE_operation_t, where
+# there is nothing per type to zero -- that layout is served by the -no-gen-*
+# flags above instead.
+trim_slot() {
+  # $1: regex matching the member name, $2: what it is (for the log)
+  local n
+  n=$(grep -cE "^\s+[A-Za-z_0-9]+${1},$" "${STAGING}"/*.c 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')
+  if [ "${n}" -gt 0 ]; then
+    sed -i -E "s/^(\s+)[A-Za-z_0-9]+${1},$/\1"'0,/' "${STAGING}"/*.c
+    echo "[gen_libasn] codec trimming: dropped ${n} ${2} slot(s)"
+  fi
+}
+
+if [ "${ASN1C_TRIMMED_BY_FLAG}" != " " ]; then
+  echo "[gen_libasn] codec trimming: asn1c did it (${ASN1C_TRIMMED_BY_FLAG})"
+fi
+case "${ASN1C_TRIMMED_BY_FLAG}" in
+  *" -no-gen-XER "*) ;;
+  *) trim_slot "_(decode|encode)_xer" "XER" ;;
+esac
+if [ "${KEEP_PRINT}" = "1" ]; then
+  echo "[gen_libasn] codec trimming: keeping the type printers (SHOW_ASN_OUTPUT is ON)"
+else
+  case "${ASN1C_TRIMMED_BY_FLAG}" in
+    *" -no-gen-print "*) ;;
+    *) trim_slot "_print" "printer" ;;
+  esac
 fi
 
 # --- Sync staging -> OUT_DIR, touching only files that actually changed -----

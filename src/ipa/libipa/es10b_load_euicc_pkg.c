@@ -750,7 +750,7 @@ struct ipa_es10b_load_euicc_pkg_res *ipa_es10b_load_euicc_pkg(struct ipa_context
 {
 	struct ipa_es10b_load_euicc_pkg_res *res;
 
-	if (ctx->cfg->iot_euicc_emu_enabled)
+	if (IPA_EUICC_EMU(ctx))
 		res = load_euicc_pkg_iot_emu(ctx, req);
 	else
 		res = load_euicc_pkg(ctx, req);

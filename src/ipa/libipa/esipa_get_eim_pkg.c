@@ -36,6 +36,7 @@
 #include "esipa_json.h"
 #include "esipa_get_eim_pkg.h"
 
+#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 static const struct num_str_map error_code_strings[] = {
 	{ GetEimPackageResponse__eimPackageError_noEimPackageAvailable, "noEimPackageAvailable" },
 	/* UPDATE for v1.1: 6.3.2.6 - new eIM error codes covering EID handling. */
@@ -107,6 +108,9 @@ static void *dec_get_eim_pkg_req(const struct ipa_buf *msg_to_ipa_encoded, const
 	return res;
 }
 
+#endif /* IPA_HAVE_ESIPA_ASN1 */
+
+#ifdef IPA_HAVE_ESIPA_JSON		/* ESipa JSON binding, SGP.32 section 6.4 */
 static struct ipa_buf *json_enc_get_eim_pkg_req(struct ipa_context *ctx, const void *req)
 {
 	(void)ctx;
@@ -122,6 +126,8 @@ static void *json_dec_get_eim_pkg_res(const struct ipa_buf *res, const void *req
 	return ipa_esipa_json_dec_get_eim_pkg_res(res);
 }
 
+#endif /* IPA_HAVE_ESIPA_JSON */
+
 /*! Function (ESipa): GetEimPackage.
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] eid pointer to the eID (IPA_LEN_EID bytes).
@@ -131,8 +137,8 @@ struct ipa_esipa_get_eim_pkg_res *ipa_esipa_get_eim_pkg(struct ipa_context *ctx,
 	IPA_LOGP_ESIPA("GetEimPackage", LINFO, "Requesting eIM package for eID: %s\n", ipa_hexdump(eid, IPA_LEN_EID));
 
 	return ipa_esipa_call(ctx, "GetEimPackage", eid,
-			      enc_get_eim_pkg_req, dec_get_eim_pkg_req,
-			      json_enc_get_eim_pkg_req, json_dec_get_eim_pkg_res);
+			      IPA_ESIPA_ASN1_CB(enc_get_eim_pkg_req, dec_get_eim_pkg_req),
+			      IPA_ESIPA_JSON_CB(json_enc_get_eim_pkg_req, json_dec_get_eim_pkg_res));
 }
 
 /*! Free results of function (ESipa): GetEimPackage.

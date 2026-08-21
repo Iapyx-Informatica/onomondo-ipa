@@ -19,7 +19,7 @@
  *   - matchingId, smdpAddress: plain JSON strings.
  *   - eimPackageError, stateChangeCause: plain JSON integers.
  *
- * Compile-time switch: IPA_HAVE_JANSSON (set from CMake when jansson is
+ * Compile-time switch: IPA_HAVE_ESIPA_JSON (set from CMake when jansson is
  * detected).  When absent, every entrypoint returns NULL / -1 so the
  * ASN.1 binding continues to work unchanged.
  */
@@ -47,7 +47,7 @@
 #include "esipa_cancel_session.h"
 #include "context.h"
 
-#ifdef IPA_HAVE_JANSSON
+#ifdef IPA_HAVE_ESIPA_JSON
 
 #include <jansson.h>
 #include <AuthenticateServerResponse.h>
@@ -858,7 +858,7 @@ err:
 	return NULL;
 }
 
-#else  /* !IPA_HAVE_JANSSON --------------------------------------------- */
+#else  /* !IPA_HAVE_ESIPA_JSON --------------------------------------------- */
 
 #include <errno.h>
 
@@ -887,7 +887,7 @@ struct ipa_esipa_get_bnd_prfle_pkg_res *ipa_esipa_json_dec_get_bnd_prfle_pkg_res
 struct ipa_esipa_get_eim_pkg_res *ipa_esipa_json_dec_get_eim_pkg_res(const struct ipa_buf *body) { (void)body; return NULL; }
 struct ipa_esipa_prvde_eim_pkg_rslt_res *ipa_esipa_json_dec_prvde_eim_pkg_rslt_res(const struct ipa_buf *body) { (void)body; return NULL; }
 
-#endif /* IPA_HAVE_JANSSON */
+#endif /* IPA_HAVE_ESIPA_JSON */
 
 /* ---------------------------------------------------------------------- */
 /* Content-Type helper (available regardless of jansson presence)          */

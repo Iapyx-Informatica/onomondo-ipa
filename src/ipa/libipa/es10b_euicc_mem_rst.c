@@ -275,7 +275,7 @@ error:
  *  \returns 0 on success, negative on error. */
 int ipa_es10b_euicc_mem_rst(struct ipa_context *ctx, const struct ipa_es10b_euicc_mem_rst *req)
 {
-	if (ctx->cfg->iot_euicc_emu_enabled)
+	if (IPA_EUICC_EMU(ctx))
 		return euicc_mem_rst_emu(ctx, req);
 	else
 		return euicc_mem_rst(ctx, req);

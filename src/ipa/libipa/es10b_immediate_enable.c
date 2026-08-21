@@ -206,7 +206,7 @@ error:
  *  \returns positive status code on success, negative on error. */
 int ipa_es10b_immediate_enable(struct ipa_context *ctx, bool refresh_flag)
 {
-	if (ctx->cfg->iot_euicc_emu_enabled)
+	if (IPA_EUICC_EMU(ctx))
 		return immediate_enable_emu(ctx);
 	else
 		return immediate_enable(ctx, refresh_flag);

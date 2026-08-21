@@ -38,6 +38,8 @@ available. The emulation replaces missing IoT eUICC functionality by calling an 
 as a replacement. In case no equivalent function is available, the function is emulated by onomondo-ipa directly. This
 is in particular the case for the functions related to the management of the eIM configuration.
 
+The emulation is a build option and is **not** built by default, see `-DIOT_EUICC_EMULATION` under Options below.
+
 
 Installation
 ------------
@@ -111,6 +113,27 @@ decides what it does instead. By default such a profile is refused. Enable this 
 had been given. Note that SGP.32 section 3.2.3.1 observes that IoT devices without a user interface are not expected
 to be given a RAT that demands consent in the first place, so needing this option usually points at a RAT that does
 not suit the device.
+* `-DIOT_EUICC_EMULATION`
+build the IoT eUICC emulation described under ES10x above, which lets a consumer (SGP.22) eUICC be used where an IoT
+(SGP.32) one is expected. **Off by default**: a product ships with the eUICC it ships with, and a build that will
+never meet a consumer card should not carry the adaptation layer -- it is about 17 kB of the image. Without it the
+`-E` command-line option is gone and `ipa_init()` refuses a configuration that sets
+`ipa_config.iot_euicc_emu_enabled`, rather than quietly ignoring it. libipa defines `IPA_HAVE_IOT_EUICC_EMULATION`
+when the emulation is built.
+* `-DESIPA_BINDING_ASN1`, `-DESIPA_BINDING_JSON`
+the two ESipa wire bindings of SGP.32 v1.2 (sections 6.3 and 6.4). Both are built by default; a deployment that
+knows which binding its eIM speaks can drop the other, and at least one has to remain. The JSON binding needs
+jansson, and asking for it without jansson present is an error rather than a silent downgrade -- pass
+`-DESIPA_BINDING_JSON=OFF` if that is what you meant. libipa defines `IPA_HAVE_ESIPA_ASN1` and `IPA_HAVE_ESIPA_JSON`
+for the bindings it has, and selecting one the build does not have makes `ipa_init()` fail. Note that ASN.1 is the
+zero value of `ipa_config.esipa_binding`, so a JSON-only build has to set that field explicitly.
+
+#### What the build leaves out
+
+The ASN.1 codec is generated without the codecs this project cannot reach: nothing here reads or writes XER, and the
+asn1c type printers are only reachable under `-DSHOW_ASN_OUTPUT`. Together with link-time dead code elimination
+(`-ffunction-sections`/`--gc-sections`, enabled for GCC and Clang) that is roughly 30 kB of image that used to be
+carried but never executed. Nothing needs to be passed for this; it is how the codec is generated.
 
 
 Usage
@@ -128,7 +151,9 @@ There are a number of command-line options supported. The most relevant options 
 * `-f` specifies the path to an initial eIM configuration file.
 * `-I` omit verification of the SSL certificate of the eIM. This option makes the operation of onomondo-ipa insecure,
 but may be helpful for testing and debugging in lab setups.
-* `-E` enable the IoT eUICC emulation in case a regular consumer eUICC should be used.
+* `-E` enable the IoT eUICC emulation in case a regular consumer eUICC should be used. Only present when built with
+`-DIOT_EUICC_EMULATION=ON`.
+* `-j` use the JSON ESipa binding instead of ASN.1. Only present when both bindings are built.
 
 The sample app also exposes the SGP.32 v1.1 ES10b trigger functions as one-shot
 options (they run once against the eUICC and exit): `-i` ImmediateEnable,

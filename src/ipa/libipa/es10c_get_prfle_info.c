@@ -202,7 +202,7 @@ struct ipa_es10c_get_prfle_info_res *ipa_es10c_get_prfle_info(struct ipa_context
 		goto error;
 	}
 
-	if (ctx->cfg->iot_euicc_emu_enabled) {
+	if (IPA_EUICC_EMU(ctx)) {
 		IPA_LOGP_ES10X("GetProfilesInfo", LINFO,
 			       "IoT eUICC emulation active, will derive SGP32_ProfileInfoListResponse from (SGP.22) ProfileInfoListResponse.\n");
 		rc = dec_get_prfle_info_res(res, es10c_res);

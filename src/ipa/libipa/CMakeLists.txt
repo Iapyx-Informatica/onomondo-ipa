@@ -64,21 +64,40 @@ target_include_directories(libipa PUBLIC ${CMAKE_SOURCE_DIR}/include PRIVATE ${C
 target_link_libraries(libipa PUBLIC libasn)
 target_compile_options(libipa PRIVATE -Wall)
 
-# Jansson for the v1.2 §6.4 JSON binding on ESipa.  Optional — if not found,
-# the JSON dispatcher compiles to a stub that rejects with an error, and
-# IPA_ESIPA_BINDING_ASN1 still works unchanged.
-find_package(PkgConfig QUIET)
-if(PkgConfig_FOUND)
-  pkg_check_modules(JANSSON QUIET jansson)
+# The IoT eUICC emulation (see the top-level CMakeLists.txt).  PUBLIC because the sample application, the tests and
+# any other consumer of libipa have to agree with the library about whether the emulation exists -- ipa_config keeps
+# the runtime flag either way, so the difference is not visible in the struct layout.
+if(IOT_EUICC_EMULATION)
+  target_compile_definitions(libipa PUBLIC IPA_HAVE_IOT_EUICC_EMULATION=1)
 endif()
-if(JANSSON_FOUND)
-  message(STATUS "jansson found; ESipa JSON binding enabled")
-  target_compile_definitions(libipa PUBLIC IPA_HAVE_JANSSON=1)
+
+# The two ESipa wire bindings (see the top-level CMakeLists.txt for the options).  PUBLIC, because the sample
+# application, the tests and any other consumer have to agree with the library about which bindings exist.
+if(ESIPA_BINDING_ASN1)
+  target_compile_definitions(libipa PUBLIC IPA_HAVE_ESIPA_ASN1=1)
+endif()
+
+# The JSON binding needs jansson.  ESIPA_BINDING_JSON is ON by default, and when it is on the dependency is a hard
+# requirement: silently degrading to an ASN.1-only library because the build host happened not to have
+# libjansson-dev is how two machines end up producing two different libipa from the same source.
+if(ESIPA_BINDING_JSON)
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(JANSSON QUIET jansson)
+  endif()
+  if(NOT JANSSON_FOUND)
+    message(FATAL_ERROR
+      "ESipa binding JSON (section 6.4) is enabled but jansson was not found. "
+      "Install it (e.g. 'apt-get install libjansson-dev'), or build without the JSON binding "
+      "by passing -DESIPA_BINDING_JSON=OFF.")
+  endif()
+  message(STATUS "ESipa binding JSON (section 6.4): built (jansson ${JANSSON_VERSION})")
+  target_compile_definitions(libipa PUBLIC IPA_HAVE_ESIPA_JSON=1)
   target_include_directories(libipa PRIVATE ${JANSSON_INCLUDE_DIRS})
   target_link_libraries(libipa PUBLIC ${JANSSON_LIBRARIES})
   target_link_directories(libipa PUBLIC ${JANSSON_LIBRARY_DIRS})
 else()
-  message(STATUS "jansson NOT found; ESipa JSON binding will be a compile-time stub (install libjansson-dev to enable)")
+  message(STATUS "ESipa binding JSON (section 6.4): NOT built")
 endif()
 if (M32)
   set_target_properties(libipa PROPERTIES COMPILE_FLAGS "-m32" LINK_FLAGS "-m32")

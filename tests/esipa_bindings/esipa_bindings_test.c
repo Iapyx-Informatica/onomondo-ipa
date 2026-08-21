@@ -85,7 +85,7 @@ static void transaction_id_lookup_test(void)
 	assert(ipa_esipa_get_bnd_prfle_pkg_transaction_id(NULL) == NULL);
 }
 
-#ifdef IPA_HAVE_JANSSON
+#ifdef IPA_HAVE_ESIPA_JSON
 
 /* "required": ["transactionId", "prepareDownloadResponse"] */
 static void json_request_test(void)
@@ -129,8 +129,9 @@ static void json_refuses_without_transaction_id_test(void)
 	assert(ipa_esipa_json_enc_get_bnd_prfle_pkg_req(&req) == NULL);
 }
 
-#endif /* IPA_HAVE_JANSSON */
+#endif /* IPA_HAVE_ESIPA_JSON */
 
+#ifdef IPA_HAVE_ESIPA_ASN1
 /* The same requirement in the ASN.1 binding: eimTransactionId [2] is OPTIONAL, so it is either encoded as a
  * context-tag-2 primitive or absent altogether. */
 static void asn1_init_auth_transaction_id_test(void)
@@ -162,7 +163,9 @@ static void asn1_init_auth_transaction_id_test(void)
 	ipa_buf_free(buf);
 }
 
-#ifdef IPA_HAVE_JANSSON
+#endif /* IPA_HAVE_ESIPA_ASN1 */
+
+#ifdef IPA_HAVE_ESIPA_JSON
 
 /* SGP.32, section 5.14.1: "If the eIM has sent eimTransactionId in ProfileDownloadTriggerRequest, the IPA
  * SHALL include the same eimTransactionId." Section 6.4.1.1 spells it as upper-case hex and leaves it out of
@@ -195,18 +198,22 @@ static void json_init_auth_transaction_id_test(void)
 	ipa_buf_free(buf);
 }
 
-#endif /* IPA_HAVE_JANSSON */
+#endif /* IPA_HAVE_ESIPA_JSON */
 
 int main(int argc, char **argv)
 {
 	transaction_id_lookup_test();
+#ifdef IPA_HAVE_ESIPA_ASN1
 	asn1_init_auth_transaction_id_test();
-#ifdef IPA_HAVE_JANSSON
+#else
+	printf("== ASN.1 binding not built, its encoder cases skipped ==\n");
+#endif
+#ifdef IPA_HAVE_ESIPA_JSON
 	json_request_test();
 	json_refuses_without_transaction_id_test();
 	json_init_auth_transaction_id_test();
 #else
-	printf("== JSON binding not built (jansson missing), encoder cases skipped ==\n");
+	printf("== JSON binding not built, its encoder cases skipped ==\n");
 #endif
 	printf("esipa_bindings_test: all checks passed\n");
 	return 0;

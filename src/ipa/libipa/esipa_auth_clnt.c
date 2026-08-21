@@ -42,6 +42,7 @@
 #include "esipa_json.h"
 #include "esipa_auth_clnt.h"
 
+#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 static const struct num_str_map error_code_strings[] = {
 	{ AuthenticateErrorCode_invalidCertificate, "invalidCertificate" },
 	{ AuthenticateErrorCode_invalidSignature, "invalidSignature" },
@@ -219,6 +220,9 @@ static struct ipa_buf *enc_auth_clnt_req_cb(struct ipa_context *ctx, const void 
 	return enc_auth_clnt_req(req);
 }
 
+#endif /* IPA_HAVE_ESIPA_ASN1 */
+
+#ifdef IPA_HAVE_ESIPA_JSON		/* ESipa JSON binding, SGP.32 section 6.4 */
 static struct ipa_buf *json_enc_auth_clnt_req(struct ipa_context *ctx, const void *req)
 {
 	(void)ctx;
@@ -230,6 +234,8 @@ static void *json_dec_auth_clnt_res(const struct ipa_buf *res, const void *req)
 	return ipa_esipa_json_dec_auth_clnt_res(res, req);
 }
 
+#endif /* IPA_HAVE_ESIPA_JSON */
+
 /*! Function: (Esipa) AuthenticateClient.
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] req pointer to struct that holds the function parameters.
@@ -239,8 +245,8 @@ struct ipa_esipa_auth_clnt_res *ipa_esipa_auth_clnt(struct ipa_context *ctx, con
 	IPA_LOGP_ESIPA("AuthenticateClient", LINFO, "Requesting client authentication\n");
 
 	return ipa_esipa_call(ctx, "AuthenticateClient", req,
-			      enc_auth_clnt_req_cb, dec_auth_clnt_res,
-			      json_enc_auth_clnt_req, json_dec_auth_clnt_res);
+			      IPA_ESIPA_ASN1_CB(enc_auth_clnt_req_cb, dec_auth_clnt_res),
+			      IPA_ESIPA_JSON_CB(json_enc_auth_clnt_req, json_dec_auth_clnt_res));
 }
 
 /*! Free results of function: (Esipa) AuthenticateClient.

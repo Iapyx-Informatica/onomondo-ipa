@@ -468,7 +468,7 @@ struct ipa_es10b_add_init_eim_res *ipa_es10b_add_init_eim(struct ipa_context *ct
 		return res;
 	}
 
-	if (ctx->cfg->iot_euicc_emu_enabled)
+	if (IPA_EUICC_EMU(ctx))
 		return add_init_eim_iot_emu(ctx, req);
 	else
 		return add_init_eim(ctx, req);

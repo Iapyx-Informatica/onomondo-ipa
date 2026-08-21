@@ -12,6 +12,22 @@
 
 #define IPA_NVSTATE_VERSION 3
 
+/*! Whether the IoT eUICC emulation may run, see ipa_config.iot_euicc_emu_enabled.
+ *
+ *  Reads the runtime flag in a build that has the emulation (-DIOT_EUICC_EMULATION=ON), and folds to a compile-time
+ *  0 in one that does not.  The dispatch sites are written the same way either way; what changes is that in a build
+ *  without the emulation every branch behind this is unreachable, so the optimiser drops the calls and the linker
+ *  then drops the emulation functions themselves (see the dead code elimination set up in the top-level
+ *  CMakeLists.txt).  Doing it this way keeps eleven dispatch sites free of preprocessor conditionals.
+ *
+ *  ipa_init() refuses a configuration that asks for the emulation in a build that cannot provide it, so this never
+ *  silently ignores the flag. */
+#ifdef IPA_HAVE_IOT_EUICC_EMULATION
+#define IPA_EUICC_EMU(ctx) ((ctx)->cfg->iot_euicc_emu_enabled)
+#else
+#define IPA_EUICC_EMU(ctx) 0
+#endif
+
 /* Non volatile state: All struct members in this struct are automatically backed up to a non volatile memory location.
  * (see below). However, this only covers statically allocated struct members. When struct members contain a pointer
  * to a dynamically allocated memory location, then appropriate code must be added to nvstate_serialize,

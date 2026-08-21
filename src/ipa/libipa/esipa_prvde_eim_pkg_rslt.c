@@ -205,6 +205,7 @@ err:
  *     <eim_pkg_der> EimPackageResult  (CHOICE, no outer tag — built by
  *                                      ipa_esipa_build_eim_pkg_result_der)
  */
+#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 static struct ipa_buf *enc_prvde_eim_pkg_rslt_req_passthru(
 	const struct ipa_context *ctx,
 	const struct ipa_esipa_prvde_eim_pkg_rslt_req *req)
@@ -384,6 +385,9 @@ static void *dec_prvde_eim_pkg_rslt_res_cb(const struct ipa_buf *res, const void
 	return dec_prvde_eim_pkg_rslt_res(res);
 }
 
+#endif /* IPA_HAVE_ESIPA_ASN1 */
+
+#ifdef IPA_HAVE_ESIPA_JSON		/* ESipa JSON binding, SGP.32 section 6.4 */
 static struct ipa_buf *json_enc_prvde_eim_pkg_rslt_req(struct ipa_context *ctx, const void *req)
 {
 	return ipa_esipa_json_enc_prvde_eim_pkg_rslt_req(ctx, req);
@@ -394,6 +398,8 @@ static void *json_dec_prvde_eim_pkg_rslt_res(const struct ipa_buf *res, const vo
 	(void)req;
 	return ipa_esipa_json_dec_prvde_eim_pkg_rslt_res(res);
 }
+
+#endif /* IPA_HAVE_ESIPA_JSON */
 
 /*! Function (ESipa): ProvideEimPackageResult.
  *  \param[inout] ctx pointer to ipa_context.
@@ -406,8 +412,8 @@ struct ipa_esipa_prvde_eim_pkg_rslt_res *ipa_esipa_prvde_eim_pkg_rslt(struct ipa
 		       "Providing eUICC package result and eUICC notifications to eIM\n");
 
 	return ipa_esipa_call(ctx, "ProvideEimPackageResult", req,
-			      enc_prvde_eim_pkg_rslt_req_cb, dec_prvde_eim_pkg_rslt_res_cb,
-			      json_enc_prvde_eim_pkg_rslt_req, json_dec_prvde_eim_pkg_rslt_res);
+			      IPA_ESIPA_ASN1_CB(enc_prvde_eim_pkg_rslt_req_cb, dec_prvde_eim_pkg_rslt_res_cb),
+			      IPA_ESIPA_JSON_CB(json_enc_prvde_eim_pkg_rslt_req, json_dec_prvde_eim_pkg_rslt_res));
 }
 
 /*! Free results of function (ESipa): ProvideEimPackageResult.

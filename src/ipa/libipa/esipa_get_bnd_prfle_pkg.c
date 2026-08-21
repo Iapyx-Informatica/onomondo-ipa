@@ -24,6 +24,24 @@
 #include "esipa_json.h"
 #include "esipa_get_bnd_prfle_pkg.h"
 
+/*! The transaction id that belongs to a PrepareDownloadResponse, see the header for why both bindings need it. */
+const TransactionId_t *ipa_esipa_get_bnd_prfle_pkg_transaction_id(const struct PrepareDownloadResponse
+								  *prep_dwnld_res)
+{
+	if (!prep_dwnld_res)
+		return NULL;
+
+	switch (prep_dwnld_res->present) {
+	case PrepareDownloadResponse_PR_downloadResponseOk:
+		return &prep_dwnld_res->choice.downloadResponseOk.euiccSigned2.transactionId;
+	case PrepareDownloadResponse_PR_downloadResponseError:
+		return &prep_dwnld_res->choice.downloadResponseError.transactionId;
+	default:
+		return NULL;
+	}
+}
+
+#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 static const struct num_str_map error_code_strings[] = {
 	{ GetBoundProfilePackageResponseEsipa__getBoundProfilePackageErrorEsipa_euiccSignatureInvalid,
 	 "euiccSignatureInvalid" },
@@ -45,23 +63,6 @@ static const struct num_str_map error_code_strings[] = {
 	{ GetBoundProfilePackageResponseEsipa__getBoundProfilePackageErrorEsipa_undefinedError, "undefinedError" },
 	{ 0, NULL }
 };
-
-/*! The transaction id that belongs to a PrepareDownloadResponse, see the header for why both bindings need it. */
-const TransactionId_t *ipa_esipa_get_bnd_prfle_pkg_transaction_id(const struct PrepareDownloadResponse
-								  *prep_dwnld_res)
-{
-	if (!prep_dwnld_res)
-		return NULL;
-
-	switch (prep_dwnld_res->present) {
-	case PrepareDownloadResponse_PR_downloadResponseOk:
-		return &prep_dwnld_res->choice.downloadResponseOk.euiccSigned2.transactionId;
-	case PrepareDownloadResponse_PR_downloadResponseError:
-		return &prep_dwnld_res->choice.downloadResponseError.transactionId;
-	default:
-		return NULL;
-	}
-}
 
 static struct ipa_buf *enc_get_bnd_prfle_pkg_req(struct ipa_context *ctx, const void *req_)
 {
@@ -141,6 +142,9 @@ static void *dec_get_bnd_prfle_pkg_res(const struct ipa_buf *msg_to_ipa_encoded,
 	return res;
 }
 
+#endif /* IPA_HAVE_ESIPA_ASN1 */
+
+#ifdef IPA_HAVE_ESIPA_JSON		/* ESipa JSON binding, SGP.32 section 6.4 */
 static struct ipa_buf *json_enc_get_bnd_prfle_pkg_req(struct ipa_context *ctx, const void *req)
 {
 	(void)ctx;
@@ -153,6 +157,8 @@ static void *json_dec_get_bnd_prfle_pkg_res(const struct ipa_buf *res, const voi
 	return ipa_esipa_json_dec_get_bnd_prfle_pkg_res(res);
 }
 
+#endif /* IPA_HAVE_ESIPA_JSON */
+
 /*! Function: (ESipa) GetBoundProfilePackage.
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] req pointer to struct that holds the function parameters.
@@ -163,8 +169,8 @@ struct ipa_esipa_get_bnd_prfle_pkg_res *ipa_esipa_get_bnd_prfle_pkg(struct ipa_c
 	IPA_LOGP_ESIPA("GetBoundProfilePackage", LINFO, "Requesting profile package from eIM\n");
 
 	return ipa_esipa_call(ctx, "GetBoundProfilePackage", req,
-			      enc_get_bnd_prfle_pkg_req, dec_get_bnd_prfle_pkg_res,
-			      json_enc_get_bnd_prfle_pkg_req, json_dec_get_bnd_prfle_pkg_res);
+			      IPA_ESIPA_ASN1_CB(enc_get_bnd_prfle_pkg_req, dec_get_bnd_prfle_pkg_res),
+			      IPA_ESIPA_JSON_CB(json_enc_get_bnd_prfle_pkg_req, json_dec_get_bnd_prfle_pkg_res));
 }
 
 /*! Free results of function: (ESipa) GetBoundProfilePackage.

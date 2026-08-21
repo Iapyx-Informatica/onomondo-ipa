@@ -172,7 +172,7 @@ static struct ipa_es10b_prfle_rollback_res *prfle_rollback_emu(struct ipa_contex
  *  \returns pointer newly allocated struct with function result, NULL on error. */
 struct ipa_es10b_prfle_rollback_res *ipa_es10b_prfle_rollback(struct ipa_context *ctx, bool refresh_flag)
 {
-	if (ctx->cfg->iot_euicc_emu_enabled)
+	if (IPA_EUICC_EMU(ctx))
 		return prfle_rollback_emu(ctx, refresh_flag);
 	else
 		return prfle_rollback(ctx, refresh_flag);

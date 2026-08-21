@@ -76,7 +76,8 @@ pcsc_scan
 ```
 
 For testing against a consumer eUICC (not an IoT eUICC) add `-E` to enable
-emulation mode.  **Note**: `-E` against a strict v1.2 eIM may fail because
+emulation mode -- which requires a build configured with
+`-DIOT_EUICC_EMULATION=ON`, since the emulation is not built by default.  **Note**: `-E` against a strict v1.2 eIM may fail because
 the consumer-emulation signing-input change (§2.11.2.1) is still a TODO —
 see [MIGRATION_STATUS.md](MIGRATION_STATUS.md).
 
@@ -99,7 +100,7 @@ The highest-risk items today are:
 1. Does your eIM enforce v1.2 strictly (rejecting if `eidValue` is missing,
    etc.)?
 2. Does it exercise Fallback / Emergency Profile flows (§5.9.20–23)?
-3. Are you using `-E` (consumer-eUICC emulation)?
+3. Are you using `-E` (consumer-eUICC emulation), and was the build configured with `-DIOT_EUICC_EMULATION=ON`?
 
 A short write-up of what works / what doesn't against your eIM would be
 hugely valuable for closing the remaining TODOs.

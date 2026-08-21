@@ -236,7 +236,7 @@ error:
  *  \returns pointer newly allocated struct with function result, NULL on error. */
 struct ipa_es10b_eim_cfg_data *ipa_es10b_get_eim_cfg_data(struct ipa_context *ctx)
 {
-	if (ctx->cfg->iot_euicc_emu_enabled)
+	if (IPA_EUICC_EMU(ctx))
 		return get_eim_cfg_data_iot_emu(ctx);
 	else
 		return get_eim_cfg_data(ctx);

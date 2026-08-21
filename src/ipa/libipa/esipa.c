@@ -238,6 +238,17 @@ void *ipa_esipa_call(struct ipa_context *ctx, const char *function_name, const v
 		use_dec = dec;
 	}
 
+	/* A binding that was not built has no callbacks.  Say which one is missing rather than fail inside the
+	 * encoder: the fix is a build option, not anything the caller can do at runtime. */
+	if (!use_enc || !use_dec) {
+		IPA_LOGP_ESIPA(function_name, LERROR,
+			       "the %s ESipa binding is not built into this libipa "
+			       "(rebuild with -DESIPA_BINDING_%s=ON)\n",
+			       ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON ? "JSON" : "ASN.1",
+			       ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON ? "JSON" : "ASN1");
+		return NULL;
+	}
+
 	esipa_req = use_enc(ctx, req);
 	if (!esipa_req)
 		goto out;

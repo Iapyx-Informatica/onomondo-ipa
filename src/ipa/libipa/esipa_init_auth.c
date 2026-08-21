@@ -39,6 +39,7 @@
 #include "esipa_json.h"
 #include "esipa_init_auth.h"
 
+#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 static const struct num_str_map error_code_strings[] = {
 	{ InitiateAuthenticationResponseEsipa__initiateAuthenticationErrorEsipa_invalidDpAddress, "invalidDpAddress" },
 	{ InitiateAuthenticationResponseEsipa__initiateAuthenticationErrorEsipa_euiccVersionNotSupportedByDp,
@@ -122,6 +123,9 @@ static void *dec_init_auth_res(const struct ipa_buf *msg_to_ipa_encoded, const v
 	return res;
 }
 
+#endif /* IPA_HAVE_ESIPA_ASN1 */
+
+#ifdef IPA_HAVE_ESIPA_JSON		/* ESipa JSON binding, SGP.32 section 6.4 */
 static struct ipa_buf *json_enc_init_auth_req(struct ipa_context *ctx, const void *req)
 {
 	(void)ctx;
@@ -133,6 +137,8 @@ static void *json_dec_init_auth_res(const struct ipa_buf *res, const void *req)
 	(void)req;
 	return ipa_esipa_json_dec_init_auth_res(res);
 }
+
+#endif /* IPA_HAVE_ESIPA_JSON */
 
 /*! Function (ESipa): InitiateAuthentication.
  *  \param[inout] ctx pointer to ipa_context.
@@ -146,8 +152,8 @@ struct ipa_esipa_init_auth_res *ipa_esipa_init_auth(struct ipa_context *ctx, con
 		       ipa_hexdump(req->euicc_challenge, IPA_LEN_EUICC_CHLG));
 
 	res = ipa_esipa_call(ctx, "InitiateAuthentication", req,
-			     ipa_esipa_init_auth_enc_req, dec_init_auth_res,
-			     json_enc_init_auth_req, json_dec_init_auth_res);
+			     IPA_ESIPA_ASN1_CB(ipa_esipa_init_auth_enc_req, dec_init_auth_res),
+			     IPA_ESIPA_JSON_CB(json_enc_init_auth_req, json_dec_init_auth_res));
 
 	/* The serverSigned1 cross-checks below only apply to the ASN.1 binding;
 	 * the JSON binding did not run them before this was factored out, so keep

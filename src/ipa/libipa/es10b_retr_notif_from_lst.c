@@ -287,7 +287,7 @@ struct ipa_es10b_retr_notif_from_lst_res *ipa_es10b_retr_notif_from_lst(struct i
 	struct ipa_es10b_retr_notif_from_lst_res *res = IPA_ALLOC_ZERO(struct ipa_es10b_retr_notif_from_lst_res);
 	int rc;
 
-	if (ctx->cfg->iot_euicc_emu_enabled)
+	if (IPA_EUICC_EMU(ctx))
 		es10b_req = enc_retr_notif_from_lst_req(req);
 	else
 		es10b_req = enc_retr_notif_from_lst_req_sgp32(req);
@@ -302,7 +302,7 @@ struct ipa_es10b_retr_notif_from_lst_res *ipa_es10b_retr_notif_from_lst(struct i
 		goto error;
 	}
 
-	if (ctx->cfg->iot_euicc_emu_enabled) {
+	if (IPA_EUICC_EMU(ctx)) {
 		IPA_LOGP_ES10X("RetrieveNotificationsList", LINFO,
 			       "IoT eUICC emulation active, will derive notificationList from (SGP.22) RetrieveNotificationsListResponse.\n");
 		rc = dec_retr_notif_from_lst_res(res, es10b_res);

@@ -156,7 +156,13 @@ struct ipa_config {
 	/*! ESipa wire binding — ASN.1 (default) or JSON per SGP.32 v1.2 §6.4.
 	 *  Set IPA_ESIPA_BINDING_JSON to talk to an eIM that prefers / requires
 	 *  the JSON binding.  Both bindings are spec-compliant; ASN.1 is more
-	 *  compact and recommended for constrained IoT uplinks. */
+	 *  compact and recommended for constrained IoT uplinks.
+	 *
+	 *  Both are built by default, and a deployment that knows which one its eIM speaks can drop the other with
+	 *  -DESIPA_BINDING_ASN1=OFF or -DESIPA_BINDING_JSON=OFF. libipa defines IPA_HAVE_ESIPA_ASN1 and
+	 *  IPA_HAVE_ESIPA_JSON for the ones it has; selecting a binding the build does not have makes ipa_init()
+	 *  fail with -EINVAL. Note that ASN.1 is the zero value of this enum, so a JSON-only build has to set this
+	 *  explicitly. */
 	enum ipa_esipa_binding esipa_binding;
 
 	/*! When a profile rollback is performed an optional refresh flag can be set. (See also SGP.32, section 5.9.16)
@@ -180,7 +186,12 @@ struct ipa_config {
 	/*! Enable IoT eUICC emulation.
 	 *  This IPAd also supports the use of consumer eUICCs, which have a slightly different interface. When the
 	 *  IoT eUICC emulation is enabled, the IPAd will adapt the interface on ES10x function level so that the
-	 *  consumer eUICC appears as an IoT eUICC on procedure level. */
+	 *  consumer eUICC appears as an IoT eUICC on procedure level.
+	 *
+	 *  The emulation is a build option and is OFF by default, because a product ships with the eUICC it ships
+	 *  with and one that will never see a consumer card should not carry the adaptation layer. libipa defines
+	 *  IPA_HAVE_IOT_EUICC_EMULATION when it was built with -DIOT_EUICC_EMULATION=ON; setting this flag in a
+	 *  build without it makes ipa_init() fail with -EINVAL rather than silently ignore the request. */
 	bool iot_euicc_emu_enabled;
 
 	/*! Consent to the Profile Policy Rules of a profile about to be installed.

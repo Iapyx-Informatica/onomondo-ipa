@@ -195,7 +195,7 @@ static struct ipa_es10b_euicc_info *get_euicc_info2(struct ipa_context *ctx)
 		goto error;
 	}
 
-	if (ctx->cfg->iot_euicc_emu_enabled) {
+	if (IPA_EUICC_EMU(ctx)) {
 		IPA_LOGP_ES10X("GetEuiccInfo2Request", LINFO, "IoT eUICC emulation active, will derive SGP32-EUICCInfo2 from (SGP.22) EUICCInfo2.\n");
 		rc = dec_get_euicc_info2(euicc_info, es10b_res);
 	} else {

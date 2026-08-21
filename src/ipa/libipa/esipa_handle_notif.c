@@ -22,6 +22,7 @@
 #include "esipa_json.h"
 #include "esipa_handle_notif.h"
 
+#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 static struct ipa_buf *enc_handle_notif_req(const struct ipa_esipa_handle_notif_req *req)
 {
 	struct EsipaMessageFromIpaToEim msg_to_eim = { 0 };
@@ -64,6 +65,8 @@ static int dec_handle_notif_res(const struct ipa_buf *msg_to_ipa_encoded)
 	return 0;
 }
 
+#endif /* IPA_HAVE_ESIPA_ASN1 */
+
 /*! Function (ESipa): HandleNotification.
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] req pointer to struct that holds the function parameters.
@@ -85,14 +88,26 @@ int ipa_esipa_handle_notif(struct ipa_context *ctx, const struct ipa_esipa_handl
 	/* NEW v1.2 §6.4: JSON binding dispatcher — HandleNotification has no
 	 * response body in either binding. */
 	if (ctx->cfg->esipa_binding == IPA_ESIPA_BINDING_JSON) {
+#ifdef IPA_HAVE_ESIPA_JSON
 		esipa_req = ipa_esipa_json_enc_handle_notif_req(req);
 		if (!esipa_req) goto error;
 		esipa_res = ipa_esipa_req(ctx, esipa_req, "HandleNotification");
 		if (!esipa_res) goto error;
 		rc = 0;
+#else
+		IPA_LOGP_ESIPA("HandleNotification", LERROR,
+			       "the JSON ESipa binding is not built into this libipa "
+			       "(rebuild with -DESIPA_BINDING_JSON=ON)\n");
+#endif
 		goto error;
 	}
 
+#ifndef IPA_HAVE_ESIPA_ASN1
+	IPA_LOGP_ESIPA("HandleNotification", LERROR,
+		       "the ASN.1 ESipa binding is not built into this libipa "
+		       "(rebuild with -DESIPA_BINDING_ASN1=ON)\n");
+	goto error;
+#else
 	esipa_req = enc_handle_notif_req(req);
 	if (!esipa_req)
 		goto error;
@@ -104,6 +119,7 @@ int ipa_esipa_handle_notif(struct ipa_context *ctx, const struct ipa_esipa_handl
 	rc = dec_handle_notif_res(esipa_res);
 	if (rc < 0)
 		goto error;
+#endif
 
 	rc = 0;
 error:

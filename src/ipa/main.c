@@ -141,7 +141,12 @@ static void print_help(void)
 	for (unsigned int i = 0; i < _NUM_LOG_LEVEL; i++)
 		printf(" %s", ipa_log_level_name(i));
 	printf("\n");
+#ifdef IPA_HAVE_IOT_EUICC_EMULATION
 	printf(" -E .................. emulate IoT eUICC (compatibility mode to use consumer eUICCs)\n");
+#endif
+#if defined(IPA_HAVE_ESIPA_JSON) && defined(IPA_HAVE_ESIPA_ASN1)
+	printf(" -j .................. use the JSON ESipa binding (default: ASN.1)\n");
+#endif
 	printf(" -1 .................. force the IPAd to process only one eUICC package (debug, use with caution)\n");
 	printf("\n");
 	printf(" ES10b triggers (one-shot; run once against the eUICC, then exit --\n");
@@ -335,10 +340,17 @@ int main(int argc, char **argv)
 	cfg.euicc_channel = DEFAULT_CHANNEL_NUMBER;
 	ipa_binary_from_hexstr(cfg.tac, sizeof(cfg.tac), DEFAULT_TAC);
 	cfg.esipa_req_retries = DEFAULT_ESIPA_REQ_RETRIES;
+	/* ASN.1 is the default binding and also the zero value of the enum, but a build may not have it -- then
+	 * there is only one binding to pick and no reason to make the operator pick it. */
+#ifdef IPA_HAVE_ESIPA_ASN1
+	cfg.esipa_binding = IPA_ESIPA_BINDING_ASN1;
+#else
+	cfg.esipa_binding = IPA_ESIPA_BINDING_JSON;
+#endif
 
 	/* Overwrite configuration values with user defined parameters */
 	while (1) {
-		opt = getopt(argc, argv, "ht:M:e:r:c:f:mn:C:SIELl:d:y:a1RiFbXxGD:");
+		opt = getopt(argc, argv, "ht:M:e:r:c:f:mn:C:SIEjLl:d:y:a1RiFbXxGD:");
 		if (opt == -1)
 			break;
 
@@ -349,6 +361,14 @@ int main(int argc, char **argv)
 			break;
 		case 't':
 			ipa_binary_from_hexstr(cfg.tac, sizeof(cfg.tac), optarg);
+			break;
+		case 'j':
+#ifndef IPA_HAVE_ESIPA_JSON
+			fprintf(stderr, "-j: this build has no ESipa JSON binding "
+					"(rebuild with -DESIPA_BINDING_JSON=ON)\n");
+			exit(1);
+#endif
+			cfg.esipa_binding = IPA_ESIPA_BINDING_JSON;
 			break;
 		case 'L':
 			ipa_log_set_print_source(true);
@@ -395,6 +415,11 @@ int main(int argc, char **argv)
 			cfg.eim_disable_ssl_verif = true;
 			break;
 		case 'E':
+#ifndef IPA_HAVE_IOT_EUICC_EMULATION
+			fprintf(stderr, "-E: this build has no IoT eUICC emulation "
+					"(rebuild with -DIOT_EUICC_EMULATION=ON)\n");
+			exit(1);
+#endif
 			cfg.iot_euicc_emu_enabled = true;
 			break;
 		case 'y':
