@@ -8,6 +8,8 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
+#include <stdbool.h>
 #include <assert.h>
 #include <onomondo/ipa/log.h>
 #include <onomondo/ipa/utils.h>
@@ -37,6 +39,29 @@ static const char *subsys_str[_NUM_LOG_SUBSYS] = {
 	[SESIPA] = "ESIPA",
 };
 
+/* Whether each log line carries the source location, see ipa_log_set_print_source(). */
+static bool print_source;
+
+/*! Print the source file and line that produced each log line. */
+void ipa_log_set_print_source(bool enable)
+{
+	print_source = enable;
+}
+
+/* __FILE__ expands to the path the compiler was given, which for this project is an absolute one. Only the last
+ * component belongs in a log line: the rest says where the tree happened to be built, which is noise to the
+ * reader and would make the output differ from one build machine to the next. */
+static const char *source_file_name(const char *file)
+{
+	const char *slash;
+
+	if (!file)
+		return "?";
+
+	slash = strrchr(file, '/');
+	return slash ? slash + 1 : file;
+}
+
 static const char *level_str[_NUM_LOG_LEVEL] = {
 	[LERROR] = "ERROR",
 	[LINFO] = "INFO",
@@ -61,12 +86,13 @@ void ipa_logp(uint32_t subsys, uint32_t level, const char *file, int line, const
 	if (level > subsys_lvl[subsys])
 		return;
 
-	/* TODO: print file and line, but make it an optional feature that
-	 * can be selected via commandline option. The reason for this is that
-	 * the unit-tests may compare the log output against .err files and
-	 * even on minor changes we would constantly upset the unit-tests. */
-
 	fprintf(stderr, "%8s %8s ", subsys_str[subsys], level_str[level]);
+
+	/* Off unless asked for: the unit tests compare log output against golden .err files, which any extra
+	 * column would upset. */
+	if (print_source)
+		fprintf(stderr, "(%s:%d) ", source_file_name(file), line);
+
 	va_start(ap, format);
 	vfprintf(stderr, format, ap);
 	va_end(ap);

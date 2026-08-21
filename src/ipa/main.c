@@ -58,6 +58,7 @@ static void print_help(void)
 	printf(" -C .................. CA (Certificate Authority) Bundle file\n");
 	printf(" -S .................. disable HTTPS\n");
 	printf(" -I .................. disable SSL certificate verification (insecure)\n");
+	printf(" -L .................. prefix each log line with the source file and line that produced it\n");
 	printf(" -E .................. emulate IoT eUICC (compatibility mode to use consumer eUICCs)\n");
 	printf(" -1 .................. force the IPAd to process only one eUICC package (debug, use with caution)\n");
 	printf("\n");
@@ -255,7 +256,7 @@ int main(int argc, char **argv)
 
 	/* Overwrite configuration values with user defined parameters */
 	while (1) {
-		opt = getopt(argc, argv, "ht:M:e:r:c:f:mn:C:SIEy:a1RiFbXxGD:");
+		opt = getopt(argc, argv, "ht:M:e:r:c:f:mn:C:SIELy:a1RiFbXxGD:");
 		if (opt == -1)
 			break;
 
@@ -266,6 +267,9 @@ int main(int argc, char **argv)
 			break;
 		case 't':
 			ipa_binary_from_hexstr(cfg.tac, sizeof(cfg.tac), optarg);
+			break;
+		case 'L':
+			ipa_log_set_print_source(true);
 			break;
 		case 'M':
 			if (strlen(optarg) != IPA_LEN_IMEI * 2) {
