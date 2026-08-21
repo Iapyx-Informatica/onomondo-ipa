@@ -14,4 +14,5 @@ if (M32)
 endif()
 
 add_test(NAME device_info_test
-    COMMAND sh -c "$<TARGET_FILE:device_info_test>")
+    COMMAND $<TARGET_FILE:device_info_test>
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

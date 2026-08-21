@@ -14,4 +14,5 @@ if (M32)
 endif()
 
 add_test(NAME add_init_eim_test
-    COMMAND sh -c "$<TARGET_FILE:add_init_eim_test>")
+    COMMAND $<TARGET_FILE:add_init_eim_test>
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

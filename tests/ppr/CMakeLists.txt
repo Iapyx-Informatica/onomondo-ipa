@@ -14,4 +14,5 @@ if (M32)
 endif()
 
 add_test(NAME ppr_test
-    COMMAND sh -c "$<TARGET_FILE:ppr_test>")
+    COMMAND $<TARGET_FILE:ppr_test>
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

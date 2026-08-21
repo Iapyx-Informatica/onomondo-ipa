@@ -14,4 +14,5 @@ if (M32)
 endif()
 
 add_test(NAME esipa_bindings_test
-    COMMAND sh -c "$<TARGET_FILE:esipa_bindings_test>")
+    COMMAND $<TARGET_FILE:esipa_bindings_test>
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

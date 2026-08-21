@@ -14,4 +14,5 @@ if (M32)
 endif()
 
 add_test(NAME build_options_test
-    COMMAND sh -c "$<TARGET_FILE:build_options_test>")
+    COMMAND $<TARGET_FILE:build_options_test>
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

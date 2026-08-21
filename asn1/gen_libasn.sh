@@ -118,8 +118,11 @@ find "${STAGING}" -maxdepth 1 \( -name '*.orig' -o -name '*.rej' \) -delete
 if [ -f "${STAGING}/Time.h" ]; then
   mv "${STAGING}/Time.h" "${STAGING}/PKIX_Time.h"
   mv "${STAGING}/Time.c" "${STAGING}/PKIX_Time.c"
-  grep -l '"Time\.h"' "${STAGING}"/*.c "${STAGING}"/*.h 2>/dev/null \
-    | xargs -r perl -pi -e 's|"Time\.h"|"PKIX_Time.h"|g'
+  # -Z/-0: the staging directory is inside the build tree, whose path may
+  # contain spaces; plain xargs would split such a name into several arguments
+  # and silently leave the references unpatched.
+  grep -lZ '"Time\.h"' "${STAGING}"/*.c "${STAGING}"/*.h 2>/dev/null \
+    | xargs -0r perl -pi -e 's|"Time\.h"|"PKIX_Time.h"|g'
   echo "[gen_libasn] renamed Time.{c,h} -> PKIX_Time.{c,h}"
 fi
 

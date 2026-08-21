@@ -14,4 +14,5 @@ if (M32)
 endif()
 
 add_test(NAME euicc_pkg_notif_test
-    COMMAND sh -c "$<TARGET_FILE:euicc_pkg_notif_test>")
+    COMMAND $<TARGET_FILE:euicc_pkg_notif_test>
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

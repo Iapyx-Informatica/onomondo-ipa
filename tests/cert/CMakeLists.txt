@@ -14,4 +14,5 @@ if (M32)
 endif()
 
 add_test(NAME cert_test
-    COMMAND sh -c "$<TARGET_FILE:cert_test>")
+    COMMAND $<TARGET_FILE:cert_test>
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
