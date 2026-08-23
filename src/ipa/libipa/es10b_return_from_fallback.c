@@ -23,6 +23,8 @@
 #include "utils.h"
 #include "euicc.h"
 #include "es10x.h"
+#include "es10c_enable_prfle.h"
+#include "es10c_get_prfle_info.h"
 #include "es10b_return_from_fallback.h"
 
 static const struct num_str_map error_code_strings[] = {
@@ -59,7 +61,67 @@ static int dec_return_from_fallback_res(const struct ipa_buf *es10b_res)
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] refresh_flag request a UICC REFRESH after the swap.
  *  \returns eUICC result code (0 = ok, positive = eUICC error status), negative on transport error. */
-int ipa_es10b_return_from_fallback(struct ipa_context *ctx, bool refresh_flag)
+/* SGP.32 section 5.9.21 against a consumer eUICC. The "Profile that was previously enabled" is the
+ * one execute_fallback_emu() recorded on its way out; a real IoT eUICC keeps that internally.
+ *
+ * As there, the swap is a single ES10c EnableProfile, which implicitly disables the Fallback Profile.
+ * refresh_flag is passed through to ES10c, which handles the REFRESH itself. */
+static int return_from_fallback_emu(struct ipa_context *ctx, bool refresh_flag)
+{
+	struct ipa_es10c_get_prfle_info_res *get_prfle_info_res = NULL;
+	struct ipa_es10c_enable_prfle_req enable_prfle_req = { 0 };
+	struct ipa_es10c_enable_prfle_res *enable_prfle_res = NULL;
+	const struct SGP32_ProfileInfo *previous;
+	int rc = ReturnFromFallbackResponse__returnFromFallbackResult_undefinedError;
+
+	get_prfle_info_res = ipa_es10c_get_prfle_info(ctx, NULL);
+	if (!get_prfle_info_res)
+		goto leave;
+
+	/* The enabled Profile must be the Fallback Profile, otherwise there is nothing to return from. */
+	if (!IPA_EMU_FALLBACK_SET(ctx) || !get_prfle_info_res->currently_active_prfle ||
+	    get_prfle_info_res->currently_active_prfle !=
+	    ipa_es10c_prfle_by_iccid(get_prfle_info_res, ctx->nvstate.iot_euicc_emu.fallback_iccid)) {
+		IPA_LOGP_ES10X("ReturnFromFallback", LERROR,
+			       "IoT eUICC emulation active, but the fallback profile is not the enabled one\n");
+		rc = ReturnFromFallbackResponse__returnFromFallbackResult_fallbackNotAvailable;
+		goto leave;
+	}
+
+	/* Section 5.9.21 does not name a result for "the previous Profile is gone", because a real eUICC
+	 * cannot lose it. Here it can: it may have been deleted while the fallback was in effect. */
+	previous = ipa_es10c_prfle_by_iccid(get_prfle_info_res, ctx->nvstate.iot_euicc_emu.pre_fallback_iccid);
+	if (!previous) {
+		IPA_LOGP_ES10X("ReturnFromFallback", LERROR,
+			       "IoT eUICC emulation active, but the profile enabled before the fallback is gone\n");
+		rc = ReturnFromFallbackResponse__returnFromFallbackResult_commandError;
+		goto leave;
+	}
+
+	enable_prfle_req.req.profileIdentifier.present = EnableProfileRequest__profileIdentifier_PR_iccid;
+	enable_prfle_req.req.profileIdentifier.choice.iccid = *previous->iccid;
+	enable_prfle_req.req.refreshFlag = refresh_flag;
+
+	enable_prfle_res = ipa_es10c_enable_prfle(ctx, &enable_prfle_req);
+	if (!enable_prfle_res || enable_prfle_res->res->enableResult != EnableProfileResponse__enableResult_ok) {
+		IPA_LOGP_ES10X("ReturnFromFallback", LERROR,
+			       "IoT eUICC emulation active, but re-enabling the previous profile failed\n");
+		goto leave;
+	}
+
+	IPA_LOGP_ES10X("ReturnFromFallback", LINFO,
+		       "IoT eUICC emulation active, returned from fallback to ICCID %s\n",
+		       ipa_hexdump(ctx->nvstate.iot_euicc_emu.pre_fallback_iccid, IPA_LEN_ICCID));
+	memset(ctx->nvstate.iot_euicc_emu.pre_fallback_iccid, 0, IPA_LEN_ICCID);
+	rc = ReturnFromFallbackResponse__returnFromFallbackResult_ok;
+
+leave:
+	ipa_es10c_enable_prfle_res_free(enable_prfle_res);
+	ipa_es10c_get_prfle_info_res_free(get_prfle_info_res);
+	return rc;
+}
+
+static int return_from_fallback(struct ipa_context *ctx, bool refresh_flag)
 {
 	struct ipa_buf *es10b_req = NULL;
 	struct ipa_buf *es10b_res = NULL;
@@ -86,4 +148,16 @@ error:
 	IPA_FREE(es10b_req);
 	IPA_FREE(es10b_res);
 	return rc;
+}
+
+/*! Function (ES10b): ReturnFromFallback.
+ *  \param[inout] ctx pointer to ipa_context.
+ *  \param[in] refresh_flag request a UICC REFRESH after the swap.
+ *  \returns eUICC result code (0 = ok, positive = eUICC error status), negative on transport error. */
+int ipa_es10b_return_from_fallback(struct ipa_context *ctx, bool refresh_flag)
+{
+	if (IPA_EUICC_EMU(ctx))
+		return return_from_fallback_emu(ctx, refresh_flag);
+	else
+		return return_from_fallback(ctx, refresh_flag);
 }

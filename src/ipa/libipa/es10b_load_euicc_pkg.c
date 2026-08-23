@@ -291,41 +291,6 @@ struct EuiccResultData *iot_emo_do_configureImmediateEnable_psmo(struct ipa_cont
 	return euicc_result_data;
 }
 
-/* Is any Profile currently flagged as the Fallback Profile?  The emulation keeps that flag in nvstate
- * rather than in the Profile Metadata, so "no Fallback Profile" is an all-zero ICCID. */
-static bool fallback_profile_set(const struct ipa_context *ctx)
-{
-	static const uint8_t none[IPA_LEN_ICCID] = { 0 };
-
-	return memcmp(ctx->nvstate.iot_euicc_emu.fallback_iccid, none, IPA_LEN_ICCID) != 0;
-}
-
-/* Look one Profile up by ICCID in a GetProfilesInfo result.  Returns NULL when the eUICC does not
- * have it, which is what iccidOrAidNotFound reports. */
-static const struct SGP32_ProfileInfo *find_profile_by_iccid(const struct ipa_es10c_get_prfle_info_res *res,
-							     const uint8_t *iccid)
-{
-	int i;
-
-	if (!res || !res->sgp32_res ||
-	    res->sgp32_res->present != SGP32_ProfileInfoListResponse_PR_profileInfoListOk)
-		return NULL;
-
-	for (i = 0; i < res->sgp32_res->choice.profileInfoListOk.list.count; i++) {
-		const struct SGP32_ProfileInfo *p = res->sgp32_res->choice.profileInfoListOk.list.array[i];
-
-		if (p->iccid && p->iccid->size == IPA_LEN_ICCID && !memcmp(p->iccid->buf, iccid, IPA_LEN_ICCID))
-			return p;
-	}
-
-	return NULL;
-}
-
-static bool profile_is_enabled(const struct SGP32_ProfileInfo *p)
-{
-	return p && p->profileState && *p->profileState == ProfileState_enabled;
-}
-
 /* SGP.32 section 3.4.6: set the Fallback Attribute on the target Profile.
  *
  * The steps below follow the procedure literally, with one deliberate departure.  Step 4 has the
@@ -356,7 +321,7 @@ struct EuiccResultData *iot_emo_do_setFallbackAttribute_psmo(struct ipa_context 
 	get_prfle_info_res = ipa_es10c_get_prfle_info(ctx, NULL);
 
 	/* Step 2: find the target Profile. */
-	target = find_profile_by_iccid(get_prfle_info_res, setFallbackAttribute_psmo->iccid.buf);
+	target = ipa_es10c_prfle_by_iccid(get_prfle_info_res, setFallbackAttribute_psmo->iccid.buf);
 	if (!target) {
 		IPA_LOGP_ES10X("LoadEuiccPackage", LERROR, "setFallbackAttribute: no profile with ICCID %s\n",
 			       ipa_hexdump(setFallbackAttribute_psmo->iccid.buf, IPA_LEN_ICCID));
@@ -384,11 +349,11 @@ struct EuiccResultData *iot_emo_do_setFallbackAttribute_psmo(struct ipa_context 
 			       "IoT eUICC emulation active, treating it as allowed\n");
 
 	/* Step 5: an existing Fallback Profile must be disabled before it gives up the attribute. */
-	if (fallback_profile_set(ctx)) {
+	if (IPA_EMU_FALLBACK_SET(ctx)) {
 		const struct SGP32_ProfileInfo *current =
-		    find_profile_by_iccid(get_prfle_info_res, ctx->nvstate.iot_euicc_emu.fallback_iccid);
+		    ipa_es10c_prfle_by_iccid(get_prfle_info_res, ctx->nvstate.iot_euicc_emu.fallback_iccid);
 
-		if (profile_is_enabled(current)) {
+		if (ipa_es10c_prfle_is_enabled(current)) {
 			IPA_LOGP_ES10X("LoadEuiccPackage", LERROR,
 				       "setFallbackAttribute: the current fallback profile is enabled\n");
 			result = SetFallbackAttributeResult_fallbackProfileEnabled;
@@ -417,7 +382,7 @@ struct EuiccResultData *iot_emo_do_unsetFallbackAttribute_psmo(struct ipa_contex
 	euicc_result_data->present = EuiccResultData_PR_unsetFallbackAttributeResult;
 
 	/* Step 1a: nothing carries the attribute. */
-	if (!fallback_profile_set(ctx)) {
+	if (!IPA_EMU_FALLBACK_SET(ctx)) {
 		IPA_LOGP_ES10X("LoadEuiccPackage", LERROR, "unsetFallbackAttribute: no fallback profile is set\n");
 		result = UnsetFallbackAttributeResult_noFallbackAttribute;
 		goto leave;
@@ -425,7 +390,7 @@ struct EuiccResultData *iot_emo_do_unsetFallbackAttribute_psmo(struct ipa_contex
 
 	/* Step 1b: only a disabled Fallback Profile may give up the attribute. */
 	get_prfle_info_res = ipa_es10c_get_prfle_info(ctx, NULL);
-	if (profile_is_enabled(find_profile_by_iccid(get_prfle_info_res, ctx->nvstate.iot_euicc_emu.fallback_iccid))) {
+	if (ipa_es10c_prfle_is_enabled(ipa_es10c_prfle_by_iccid(get_prfle_info_res, ctx->nvstate.iot_euicc_emu.fallback_iccid))) {
 		IPA_LOGP_ES10X("LoadEuiccPackage", LERROR,
 			       "unsetFallbackAttribute: the fallback profile is enabled\n");
 		result = UnsetFallbackAttributeResult_fallbackProfileEnabled;

@@ -153,6 +153,31 @@ static int dec_get_prfle_info_res_sgp32(struct ipa_es10c_get_prfle_info_res *res
 	return 0;
 }
 
+const struct SGP32_ProfileInfo *ipa_es10c_prfle_by_iccid(const struct ipa_es10c_get_prfle_info_res *res,
+							 const uint8_t *iccid)
+{
+	int i;
+
+	if (!res || !res->sgp32_res || !iccid ||
+	    res->sgp32_res->present != SGP32_ProfileInfoListResponse_PR_profileInfoListOk)
+		return NULL;
+
+	for (i = 0; i < res->sgp32_res->choice.profileInfoListOk.list.count; i++) {
+		const struct SGP32_ProfileInfo *prfle_info = res->sgp32_res->choice.profileInfoListOk.list.array[i];
+
+		if (prfle_info->iccid && prfle_info->iccid->size == IPA_LEN_ICCID &&
+		    !memcmp(prfle_info->iccid->buf, iccid, IPA_LEN_ICCID))
+			return prfle_info;
+	}
+
+	return NULL;
+}
+
+bool ipa_es10c_prfle_is_enabled(const struct SGP32_ProfileInfo *prfle_info)
+{
+	return prfle_info && prfle_info->profileState && *prfle_info->profileState == ProfileState_enabled;
+}
+
 /* Find the currently active profile */
 static void find_currently_active_prfle(struct ipa_es10c_get_prfle_info_res *res)
 {

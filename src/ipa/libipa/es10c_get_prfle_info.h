@@ -6,6 +6,9 @@
 
 #pragma once
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include <ProfileInfoListRequest.h>
 #include <ProfileInfoListResponse.h>
 #include <SGP32-ProfileInfoListResponse.h>
@@ -32,3 +35,14 @@ struct ipa_es10c_get_prfle_info_res {
 struct ipa_es10c_get_prfle_info_res *ipa_es10c_get_prfle_info(struct ipa_context *ctx,
 							      const struct ipa_es10c_get_prfle_info_req *req);
 void ipa_es10c_get_prfle_info_res_free(struct ipa_es10c_get_prfle_info_res *res);
+
+/*! Find one Profile by ICCID in a GetProfilesInfo result.
+ *  \param[in] res result to search, may be NULL or hold an error.
+ *  \param[in] iccid IPA_LEN_ICCID bytes to match.
+ *  \returns the matching ProfileInfo, NULL when the eUICC does not have it. */
+const struct SGP32_ProfileInfo *ipa_es10c_prfle_by_iccid(const struct ipa_es10c_get_prfle_info_res *res,
+							 const uint8_t *iccid);
+
+/*! Is this Profile enabled? Tolerates a NULL Profile and an absent profileState, both of which mean
+ *  "not enabled" rather than an error. */
+bool ipa_es10c_prfle_is_enabled(const struct SGP32_ProfileInfo *prfle_info);

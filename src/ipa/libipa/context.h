@@ -10,7 +10,7 @@
 #include <onomondo/ipa/ipad.h>
 #include <onomondo/ipa/utils.h>
 
-#define IPA_NVSTATE_VERSION 4
+#define IPA_NVSTATE_VERSION 5
 
 /*! Whether the IoT eUICC emulation may run, see ipa_config.iot_euicc_emu_enabled.
  *
@@ -59,9 +59,21 @@ struct ipa_nvstate {
 		 * Fixed size on purpose: it rides along in the wholesale serialization of this struct and
 		 * needs no entry in nvstate_serialize()/_deserialize()/_free_contents(). */
 		uint8_t fallback_iccid[IPA_LEN_ICCID];
+
+		/*! ICCID of the Profile that ExecuteFallbackMechanism disabled to make room for the
+		 * Fallback Profile, all-zero when the fallback is not in effect. SGP.32 section 5.9.21 has
+		 * ReturnFromFallback re-enable "the Profile that was previously enabled", which a real IoT
+		 * eUICC remembers internally; under emulation this is where that memory lives. */
+		uint8_t pre_fallback_iccid[IPA_LEN_ICCID];
 	} iot_euicc_emu;
 
 } __attribute__((packed));
+
+/*! Is any Profile flagged as the Fallback Profile? The emulation keeps that flag in nvstate rather than
+ *  in the Profile Metadata (SGP.32 section 4.4), so "none" is an all-zero ICCID. */
+#define IPA_EMU_FALLBACK_SET(ctx) \
+	(memcmp((ctx)->nvstate.iot_euicc_emu.fallback_iccid, (const uint8_t[IPA_LEN_ICCID]){ 0 }, \
+		IPA_LEN_ICCID) != 0)
 
 /*! Context for one IPAd instance. */
 struct ipa_context {
