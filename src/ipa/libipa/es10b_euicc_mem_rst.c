@@ -20,10 +20,8 @@
  *   - resetResult adds new error ecallActive(104).
  *   - resetAutoEnableConfigResult renamed to resetImmediateEnableConfigResult;
  *     the tagging is dropped (field is now untagged, relying on order).
- * TODO v1.1: struct ipa_es10b_euicc_mem_rst still lacks fields for the two options added in v1.2
- *   (deletePreLoadedTestProfiles, deleteProvisioningProfiles), and auto_enable_cfg should be renamed
- *   to immediate_enable_cfg to match the new field name.  Everything else in the list above is done:
- *   libasn has been regenerated and the symbols below already use the v1.2 names.
+ * All of the above is done: libasn has been regenerated, the symbols below use the v1.2 names, and
+ * struct ipa_es10b_euicc_mem_rst carries all seven options.
  * =====================================================================
  */
 
@@ -167,21 +165,13 @@ int euicc_mem_rst(struct ipa_context *ctx, const struct ipa_es10b_euicc_mem_rst 
 		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_deleteFieldLoadedTestProfiles));
 	if (req->default_smdp_addr)
 		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_resetDefaultSmdpAddress));
-	/* TODO v1.1: 5.9.5 — add new options once struct ipa_es10b_euicc_mem_rst
-	 * is extended:
-	 *   if (req->pre_loaded_test_profiles)
-	 *       rst_opt[0] |= (1 << (7 - ..._deletePreLoadedTestProfiles));
-	 *   if (req->provisioning_profiles)
-	 *       rst_opt[0] |= (1 << (7 - ..._deleteProvisioningProfiles));
-	 */
+	if (req->pre_loaded_test_profiles)
+		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_deletePreLoadedTestProfiles));
+	if (req->provisioning_profiles)
+		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_deleteProvisioningProfiles));
 	if (req->eim_cfg_data)
-		/* UPDATE for v1.1: 5.9.5 — resetEimConfigData moved from bit (3) to bit (5). */
 		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_resetEimConfigData));
-	/* UPDATE for v1.1: 5.9.5 — resetAutoEnableConfig (bit 4) renamed to
-	 * resetImmediateEnableConfig (bit 6); after regeneration, rename the
-	 * symbol below accordingly.  Also note bits 3 and 4 are now occupied by
-	 * deletePreLoadedTestProfiles / deleteProvisioningProfiles respectively. */
-	if (req->auto_enable_cfg)
+	if (req->immediate_enable_cfg)
 		rst_opt[0] |= (1 << (7 - SGP32_EuiccMemoryResetRequest__resetOptions_resetImmediateEnableConfig));
 
 	es10b_req = ipa_es10x_req_enc(&asn_DEF_SGP32_EuiccMemoryResetRequest, &mem_rst_req, "eUICCMemoryReset");
@@ -226,13 +216,18 @@ int euicc_mem_rst_emu(struct ipa_context *ctx, const struct ipa_es10b_euicc_mem_
 	if (req->default_smdp_addr)
 		rst_opt[0] |= (1 << (7 - EuiccMemoryResetRequest__resetOptions_resetDefaultSmdpAddress));
 
+	if (req->pre_loaded_test_profiles || req->provisioning_profiles)
+		IPA_LOGP_ES10X("eUICCMemoryReset", LERROR,
+			       "IoT eUICC emulation active, but SGP.22 resetOptions cannot express "
+			       "deletePreLoadedTestProfiles / deleteProvisioningProfiles -- ignoring them!\n");
+
 	if (req->eim_cfg_data) {
 		IPA_LOGP_ES10X("eUICCMemoryReset", LINFO,
 			       "IoT eUICC emulation active, also clearing memory with eIM configuration...\n");
 		IPA_FREE(ctx->nvstate.iot_euicc_emu.eim_cfg_ber);
 		ctx->nvstate.iot_euicc_emu.eim_cfg_ber = NULL;
 	}
-	if (req->auto_enable_cfg) {
+	if (req->immediate_enable_cfg) {
 		IPA_LOGP_ES10X("eUICCMemoryReset", LINFO,
 			       "IoT eUICC emulation active, also clearing auto enable configuration...\n");
 		IPA_FREE(ctx->nvstate.iot_euicc_emu.auto_enable.smdp_oid);

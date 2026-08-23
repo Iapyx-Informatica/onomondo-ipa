@@ -617,7 +617,6 @@ AddInitialEimResponse ::= [87] CHOICE { -- Tag 'BF57'
 -- deleteProvisioningProfiles(4); resetEimConfigData moved to (5); new
 -- resetImmediateEnableConfig(6).  Added ecallActive(104) to resetResult.
 -- Renamed resetAutoEnableConfigResult -> resetImmediateEnableConfigResult.
--- TODO v1.1: es10b_euicc_mem_rst.c + context.h need updated type names + tag.
 -- NOTE: we KEEP the SGP32- prefix on these types because RSPDefinitions (SGP.22)
 -- defines bare EuiccMemoryResetRequest/Response with a DIFFERENT tag [52].
 -- Spec v1.2 uses bare names; unifying would require dropping the RSP import.

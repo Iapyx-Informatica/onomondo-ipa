@@ -219,8 +219,32 @@ struct ipa_context *ipa_new_ctx(struct ipa_config *cfg, struct ipa_buf *nvstate)
 int ipa_init(struct ipa_context *ctx);
 int eim_init(struct ipa_context *ctx);
 int ipa_add_init_eim_cfg(struct ipa_context *ctx, struct ipa_buf *cfg);
-int ipa_euicc_mem_rst(struct ipa_context *ctx, bool operatnl_profiles, bool test_profiles, bool default_smdp_addr,
-		      bool eim_cfg_data, bool auto_enable_cfg);
+/*! Subsets an eUICC Memory Reset may delete or reset, see GSMA SGP.32, section 5.9.5.
+ *  Any combination MAY be given. The bit positions are the resetOptions named-bit numbers of the SGP.32
+ *  EuiccMemoryResetRequest, so this enum stays readable next to the specification. */
+enum ipa_euicc_mem_rst_opt {
+	/*! Delete all Operational Profiles. */
+	IPA_EUICC_MEM_RST_OPERATIONAL_PROFILES = (1 << 0),
+	/*! Delete Test Profiles that were field loaded. */
+	IPA_EUICC_MEM_RST_FIELD_LOADED_TEST_PROFILES = (1 << 1),
+	/*! Reset the default SM-DP+ address to its initial value. */
+	IPA_EUICC_MEM_RST_DEFAULT_SMDP_ADDR = (1 << 2),
+	/*! Delete Test Profiles that were pre-installed in the factory. Not reloadable in the field. */
+	IPA_EUICC_MEM_RST_PRE_LOADED_TEST_PROFILES = (1 << 3),
+	/*! Delete all Provisioning Profiles. These carry the bootstrap connectivity a device uses to reach
+	 *  its eIM, so on a deployed device this may remove the only way back in. */
+	IPA_EUICC_MEM_RST_PROVISIONING_PROFILES = (1 << 4),
+	/*! Remove the eIM Configuration Data of all Associated eIMs. */
+	IPA_EUICC_MEM_RST_EIM_CFG_DATA = (1 << 5),
+	/*! Deactivate immediate Profile enabling and drop its configuration. */
+	IPA_EUICC_MEM_RST_IMMEDIATE_ENABLE_CFG = (1 << 6),
+};
+
+/*! Perform an eUICC Memory Reset (ES10b), see GSMA SGP.32, section 5.9.5.
+ *  \param[inout] ctx pointer to ipa_context.
+ *  \param[in] options bitmask of enum ipa_euicc_mem_rst_opt; nothing is deleted when it is 0.
+ *  \returns 0 on success, negative on error. */
+int ipa_euicc_mem_rst(struct ipa_context *ctx, uint32_t options);
 int ipa_poll(struct ipa_context *ctx);
 void ipa_close(struct ipa_context *ctx);
 struct ipa_buf *ipa_free_ctx(struct ipa_context *ctx);

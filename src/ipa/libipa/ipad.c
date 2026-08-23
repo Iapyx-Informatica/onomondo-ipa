@@ -352,21 +352,18 @@ int ipa_add_init_eim_cfg(struct ipa_context *ctx, struct ipa_buf *cfg)
 	return 0;
 }
 
-/*! reset memory of the eUICC (eUICCMemoryReset).
- *  \param[inout] ctx pointer to ipa_context.
- *  \param[inout] operatnl_profiles apply reset option "deleteOperationalProfiles".
- *  \param[inout] test_profiles apply reset option "deleteFieldLoadedTestProfiles".
- *  \param[inout] default_smdp_addr apply reset option "resetDefaultSmdpAddress".
- *  \returns 0 on success, negative on error. */
-int ipa_euicc_mem_rst(struct ipa_context *ctx, bool operatnl_profiles, bool test_profiles, bool default_smdp_addr,
-		      bool eim_cfg_data, bool auto_enable_cfg)
+/*! reset memory of the eUICC (eUICCMemoryReset). See ipa_euicc_mem_rst() in ipad.h. */
+int ipa_euicc_mem_rst(struct ipa_context *ctx, uint32_t options)
 {
-	struct ipa_es10b_euicc_mem_rst euicc_mem_rst = { 0 };
-	euicc_mem_rst.operatnl_profiles = operatnl_profiles;
-	euicc_mem_rst.test_profiles = test_profiles;
-	euicc_mem_rst.default_smdp_addr = default_smdp_addr;
-	euicc_mem_rst.eim_cfg_data = eim_cfg_data;
-	euicc_mem_rst.auto_enable_cfg = auto_enable_cfg;
+	struct ipa_es10b_euicc_mem_rst euicc_mem_rst = {
+		.operatnl_profiles = !!(options & IPA_EUICC_MEM_RST_OPERATIONAL_PROFILES),
+		.test_profiles = !!(options & IPA_EUICC_MEM_RST_FIELD_LOADED_TEST_PROFILES),
+		.default_smdp_addr = !!(options & IPA_EUICC_MEM_RST_DEFAULT_SMDP_ADDR),
+		.pre_loaded_test_profiles = !!(options & IPA_EUICC_MEM_RST_PRE_LOADED_TEST_PROFILES),
+		.provisioning_profiles = !!(options & IPA_EUICC_MEM_RST_PROVISIONING_PROFILES),
+		.eim_cfg_data = !!(options & IPA_EUICC_MEM_RST_EIM_CFG_DATA),
+		.immediate_enable_cfg = !!(options & IPA_EUICC_MEM_RST_IMMEDIATE_ENABLE_CFG),
+	};
 	return ipa_es10b_euicc_mem_rst(ctx, &euicc_mem_rst);
 }
 

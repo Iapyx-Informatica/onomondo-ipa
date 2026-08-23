@@ -120,7 +120,10 @@ static void print_help(void)
 	printf(" -r N ................ set reader number (default: %d)\n", DEFAULT_READER_NUMBER);
 	printf(" -c N ................ set logical channel number (default: %d)\n", DEFAULT_CHANNEL_NUMBER);
 	printf(" -f PATH ............. set initial eIM configuration\n");
-	printf(" -m .................. reset eUICC memory\n");
+	printf(" -m .................. reset eUICC memory (everything except Provisioning Profiles)\n");
+	printf(" -p .................. delete the Provisioning Profiles -- these carry the bootstrap\n");
+	printf("                       connectivity used to reach the eIM, so on a deployed device this\n");
+	printf("                       may remove the only way back in. Combines with -m.\n");
 	printf(" -n PATH ............. path to nvstate file (default: %s)\n", DEFAULT_NVSTATE_PATH);
 	printf(" -y NUM .............. number of retries for ESipa requests (default: %u)\n",
 	       DEFAULT_ESIPA_REQ_RETRIES);
@@ -322,7 +325,7 @@ int main(int argc, char **argv)
 	int opt;
 	int rc;
 	char *getopt_initial_eim_cfg_file = NULL;
-	bool getopt_euicc_memory_reset = false;
+	uint32_t getopt_euicc_memory_reset = 0;
 	char *getopt_nvstate_path = DEFAULT_NVSTATE_PATH;
 	struct ipa_buf *nvstate_load = NULL;
 	struct ipa_buf *nvstate_save = NULL;
@@ -350,7 +353,7 @@ int main(int argc, char **argv)
 
 	/* Overwrite configuration values with user defined parameters */
 	while (1) {
-		opt = getopt(argc, argv, "ht:M:e:r:c:f:mn:C:SIEjLl:d:y:a1RiFbXxGD:");
+		opt = getopt(argc, argv, "ht:M:e:r:c:f:mpn:C:SIEjLl:d:y:a1RiFbXxGD:");
 		if (opt == -1)
 			break;
 
@@ -400,7 +403,15 @@ int main(int argc, char **argv)
 			getopt_initial_eim_cfg_file = optarg;
 			break;
 		case 'm':
-			getopt_euicc_memory_reset = true;
+			/* Deliberately without IPA_EUICC_MEM_RST_PROVISIONING_PROFILES: a blanket reset must not
+			 * take the bootstrap connectivity with it. Ask for that separately with -p. */
+			getopt_euicc_memory_reset |= IPA_EUICC_MEM_RST_OPERATIONAL_PROFILES |
+			    IPA_EUICC_MEM_RST_FIELD_LOADED_TEST_PROFILES |
+			    IPA_EUICC_MEM_RST_PRE_LOADED_TEST_PROFILES | IPA_EUICC_MEM_RST_DEFAULT_SMDP_ADDR |
+			    IPA_EUICC_MEM_RST_EIM_CFG_DATA | IPA_EUICC_MEM_RST_IMMEDIATE_ENABLE_CFG;
+			break;
+		case 'p':
+			getopt_euicc_memory_reset |= IPA_EUICC_MEM_RST_PROVISIONING_PROFILES;
 			break;
 		case 'n':
 			getopt_nvstate_path = optarg;
@@ -519,7 +530,7 @@ int main(int argc, char **argv)
 		IPA_FREE(eim_cfg);
 	} else if (getopt_euicc_memory_reset) {
 		/* Perform an eUICC memory reset */
-		ipa_euicc_mem_rst(ctx, true, true, true, true, true);
+		ipa_euicc_mem_rst(ctx, getopt_euicc_memory_reset);
 	} else if (getopt_action != ACTION_NONE) {
 		/* Fire a single ES10b trigger (fallback / emergency / connectivity /
 		 * default-DP / immediate-enable) and exit -- these do not need the eIM. */
