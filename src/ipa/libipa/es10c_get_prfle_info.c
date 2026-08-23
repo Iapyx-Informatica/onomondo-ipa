@@ -39,8 +39,8 @@ static const struct num_str_map error_code_strings_sgp32[] = {
 
 /* Convert the response into SGP32 format.
  * Each ProfileInfo element is re-encoded as DER and decoded as SGP32_ProfileInfo
- * so that the extension fields (fallbackAttribute, emergencyCallAttribute) default
- * to NULL for consumer eUICCs that do not set them. */
+ * so that the SGP.32 extension fields (ecallIndication, fallbackAttribute,
+ * fallbackAllowed) come out absent for consumer eUICCs, which never send them. */
 static struct SGP32_ProfileInfoListResponse *convert_res_to_sgp32(struct ProfileInfoListResponse *res)
 {
 	struct SGP32_ProfileInfoListResponse *sgp32_res;

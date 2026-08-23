@@ -327,9 +327,11 @@ DeleteProfileResult ::= INTEGER {
 -- silently dropped 9F67 and 9F7B, breaking euiccSignEPR verification at
 -- the eIM.  This local definition fixes that by naming the extensions so
 -- the codec stores and re-emits them faithfully.
--- NOTE: if the field name or type for emergencyCallAttribute [123] differs
--- from the spec, update the name/type here and regenerate libasn; the binary
--- encoding (tag 9F7B, primitive, NULL) is authoritative.
+-- The three extension additions below are transcribed from the v1.2 ProfileInfo
+-- in section 4.4; earlier revisions of this file had them wrong (see git log).
+-- Note that 9F26 says a Profile IS the Fallback Profile while 9F67 says the
+-- Profile Owner ALLOWS it to become one. They are two different flags, and only
+-- the second one gates setFallbackAttribute (section 3.4.6 step 4).
 -- ASN1START
 SGP32-ProfileInfo ::= [PRIVATE 3] SEQUENCE { -- Tag 'E3'
   iccid Iccid OPTIONAL,
@@ -347,8 +349,9 @@ SGP32-ProfileInfo ::= [PRIVATE 3] SEQUENCE { -- Tag 'E3'
   profilePolicyRules [25] PprIds OPTIONAL, -- Tag '99'
   serviceSpecificDataStoredInEuicc [34] VendorSpecificExtension OPTIONAL, -- Tag 'BF22'
   ...,
-  emergencyCallAttribute [123] NULL OPTIONAL, -- Tag '9F7B' — NEW in SGP.32 §4.4
-  fallbackAttribute [103] NULL OPTIONAL -- Tag '9F67' — NEW in SGP.32 §4.4
+  ecallIndication [123] BOOLEAN OPTIONAL, -- Tag '9F7B' — NEW in SGP.32 §4.4
+  fallbackAttribute [38] BOOLEAN DEFAULT FALSE, -- Tag '9F26' — NEW in SGP.32 §4.4: this Profile is the Fallback Profile
+  fallbackAllowed [103] BOOLEAN OPTIONAL -- Tag '9F67' — NEW in SGP.32 §4.4: the Profile Owner authorises Fallback
 }
 -- ASN1STOP
 
