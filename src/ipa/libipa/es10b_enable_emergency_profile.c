@@ -26,6 +26,7 @@
 #include "utils.h"
 #include "euicc.h"
 #include "es10x.h"
+#include "esipa_get_eim_pkg.h"
 #include "es10b_enable_emergency_profile.h"
 
 static const struct num_str_map error_code_strings[] = {
@@ -85,6 +86,8 @@ int ipa_es10b_enable_emergency_profile(struct ipa_context *ctx, bool refresh_fla
 	}
 
 	rc = dec_enable_emergency_profile_res(es10b_res);
+	if (rc == EnableEmergencyProfileResponse__enableEmergencyProfileResult_ok)
+		ipa_esipa_note_state_change(ctx, IPA_STATE_CHANGE_EMERGENCY_PROFILE);
 
 error:
 	IPA_FREE(es10b_req);

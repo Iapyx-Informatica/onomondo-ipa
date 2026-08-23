@@ -57,6 +57,8 @@ static void nvstate_reset(struct ipa_nvstate *nvstate)
 	nvstate_free_contents(nvstate);
 	memset(nvstate, 0, sizeof(*nvstate));
 	nvstate->version = IPA_NVSTATE_VERSION;
+	/* Not the zero value: IPA_STATE_CHANGE_OTHER_EIM is 0, and a fresh state has nothing to report. */
+	nvstate->state_change_cause = IPA_STATE_CHANGE_NONE;
 }
 
 static struct ipa_buf *nvstate_serialize_ipa_buf(struct ipa_buf *nvstate_bin, struct ipa_buf *buf)

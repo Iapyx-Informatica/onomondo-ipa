@@ -23,6 +23,7 @@
 #include "utils.h"
 #include "euicc.h"
 #include "es10x.h"
+#include "esipa_get_eim_pkg.h"
 #include "es10c_enable_prfle.h"
 #include "es10c_get_prfle_info.h"
 #include "es10b_execute_fallback.h"
@@ -187,8 +188,15 @@ error:
  *  \returns eUICC result code (0 = ok, positive = eUICC error status), negative on transport error. */
 int ipa_es10b_execute_fallback(struct ipa_context *ctx, bool refresh_flag)
 {
+	int rc;
+
 	if (IPA_EUICC_EMU(ctx))
-		return execute_fallback_emu(ctx, refresh_flag);
+		rc = execute_fallback_emu(ctx, refresh_flag);
 	else
-		return execute_fallback(ctx, refresh_flag);
+		rc = execute_fallback(ctx, refresh_flag);
+
+	if (rc == ExecuteFallbackMechanismResponse__executeFallbackMechanismResult_ok)
+		ipa_esipa_note_state_change(ctx, IPA_STATE_CHANGE_FALLBACK);
+
+	return rc;
 }

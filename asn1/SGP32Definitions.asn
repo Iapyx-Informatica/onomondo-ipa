@@ -1144,7 +1144,7 @@ SGP32-CancelSessionOk ::= SEQUENCE { -- TODO v1.1: rename to CancelSessionOk onc
 -- rPLMN moves to [2].
 -- UPDATE for v1.1: 6.3.2.6 — GetEimPackageResponse.eimPackageError adds
 -- eidNotFound(2), invalidEid(3), missingEid(4).
--- TODO v1.1: esipa_get_eim_pkg.c / proc_eim_pkg_retr.c must populate stateChangeCause.
+-- stateChangeCause is populated by esipa_get_eim_pkg.c from ipa_esipa_note_state_change().
 -- ASN1START
 StateChangeCause ::= INTEGER { -- NEW in v1.1: 6.3.2.6
   otherEim(0),              -- change(s) requested by another registered eIM

@@ -23,6 +23,7 @@
 #include "utils.h"
 #include "euicc.h"
 #include "es10x.h"
+#include "esipa_get_eim_pkg.h"
 #include "es10c_enable_prfle.h"
 #include "es10c_get_prfle_info.h"
 #include "es10b_return_from_fallback.h"
@@ -156,8 +157,17 @@ error:
  *  \returns eUICC result code (0 = ok, positive = eUICC error status), negative on transport error. */
 int ipa_es10b_return_from_fallback(struct ipa_context *ctx, bool refresh_flag)
 {
+	int rc;
+
 	if (IPA_EUICC_EMU(ctx))
-		return return_from_fallback_emu(ctx, refresh_flag);
+		rc = return_from_fallback_emu(ctx, refresh_flag);
 	else
-		return return_from_fallback(ctx, refresh_flag);
+		rc = return_from_fallback(ctx, refresh_flag);
+
+	/* Coming back is as much a Fallback-caused change as going out; the enumeration has one value
+	 * for both, and notifyStateChange has the eIM re-read the states either way. */
+	if (rc == ReturnFromFallbackResponse__returnFromFallbackResult_ok)
+		ipa_esipa_note_state_change(ctx, IPA_STATE_CHANGE_FALLBACK);
+
+	return rc;
 }

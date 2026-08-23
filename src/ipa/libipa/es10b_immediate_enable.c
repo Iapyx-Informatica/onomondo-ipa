@@ -33,6 +33,7 @@
 #include "utils.h"
 #include "euicc.h"
 #include "es10x.h"
+#include "esipa_get_eim_pkg.h"
 #include "es10b_immediate_enable.h"
 #include "es10c_enable_prfle.h"
 
@@ -206,8 +207,15 @@ error:
  *  \returns positive status code on success, negative on error. */
 int ipa_es10b_immediate_enable(struct ipa_context *ctx, bool refresh_flag)
 {
+	int rc;
+
 	if (IPA_EUICC_EMU(ctx))
-		return immediate_enable_emu(ctx);
+		rc = immediate_enable_emu(ctx);
 	else
-		return immediate_enable(ctx, refresh_flag);
+		rc = immediate_enable(ctx, refresh_flag);
+
+	if (rc == ImmediateEnableResponse__immediateEnableResult_ok)
+		ipa_esipa_note_state_change(ctx, IPA_STATE_CHANGE_IMMEDIATE_ENABLE_PROFILE);
+
+	return rc;
 }

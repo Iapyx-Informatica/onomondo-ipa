@@ -22,4 +22,12 @@ struct ipa_esipa_get_eim_pkg_res {
 };
 
 struct ipa_esipa_get_eim_pkg_res *ipa_esipa_get_eim_pkg(struct ipa_context *ctx, const uint8_t *eid);
+
+/*! Record why the eUICC state changed, to be reported on the next ESipa.GetEimPackage
+ *  (SGP.32, sections 5.14.5 and 6.3.2.6).
+ *  The most recent cause wins: notifyStateChange asks the eIM to re-read the eUICC wholesale, so the
+ *  cause describes the latest event rather than a log of everything since the last poll.
+ *  \param[inout] ctx pointer to ipa_context.
+ *  \param[in] cause what happened; IPA_STATE_CHANGE_NONE clears a pending report. */
+void ipa_esipa_note_state_change(struct ipa_context *ctx, enum ipa_state_change_cause cause);
 void ipa_esipa_get_eim_pkg_free(struct ipa_esipa_get_eim_pkg_res *res);

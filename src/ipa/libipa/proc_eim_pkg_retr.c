@@ -13,10 +13,9 @@
  * UPDATE for v1.1: 5.14.5 / 6.3.2.6 — GetEimPackage request/response changed:
  *   - Request adds optional stateChangeCause (tag [1]) and shifts rPLMN to [2].
  *   - Response gains eidNotFound(2), invalidEid(3), missingEid(4) errors.
- *   The IPA should populate stateChangeCause when polling the eIM after a
- *   local state change (Fallback, Emergency swap, immediate-enable, reset,
- *   another eIM modified state).  TODO v1.1: thread a cause value down from
- *   ipad.c into ipa_esipa_get_eim_pkg().
+ *   Done: ipa_esipa_note_state_change() records the cause at each local state
+ *   change and esipa_get_eim_pkg.c reports it on the next poll, so nothing has
+ *   to be threaded through this file.
  * UPDATE for v1.1: 3.5.2 — "More error conditions specified in the procedure".
  *   Review v1.2 §3.5.2 for new failure modes the retrieval loop should handle.
  * UPDATE for v1.1: 3.2.3.1 — Start Conditions changed.  The preconditions

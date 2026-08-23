@@ -18,6 +18,7 @@
 #include <ISDRProprietaryApplicationTemplateIoT.h>
 #include "context.h"
 #include "utils.h"
+#include "esipa_get_eim_pkg.h"
 #include "euicc.h"
 
 #define STORE_DATA_CLA 0x80
@@ -1022,6 +1023,9 @@ int ipa_euicc_reset_es10x(struct ipa_context *ctx)
 		IPA_LOGP(SEUICC, LERROR, "unable to re-initialize the ES10x link after the eUICC reset\n");
 		return rc;
 	}
+
+	/* SGP.32 6.3.2.6 reset(4): a reset can change profile states, so the eIM wants to hear about it. */
+	ipa_esipa_note_state_change(ctx, IPA_STATE_CHANGE_RESET);
 
 	return 0;
 }

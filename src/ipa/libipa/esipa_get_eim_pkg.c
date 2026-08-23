@@ -11,9 +11,12 @@
  * v1.1/v1.2 migration notes for this file:
  * =====================================================================
  * UPDATE for v1.1: 5.14.5 — GetEimPackage now carries optional stateChangeCause.
- *   When the IPA calls this after a local state change (e.g. Fallback,
- *   Emergency swap, immediate-enable, reset) it SHALL populate the cause.
- *   Requires plumbing a StateChangeCause_t through ipa_esipa_get_eim_pkg().
+ *   Table 16 makes notifyStateChange optional and stateChangeCause C(1),
+ *   "mandatory if NotifyStateChange is present" -- so the two go together or
+ *   not at all; there is no SHALL to send them.  Both are populated here from
+ *   ctx->nvstate.state_change_cause, which ipa_esipa_note_state_change() sets
+ *   at each local state change (Fallback, Emergency swap, immediate-enable,
+ *   reset) and this file clears once the eIM has answered.
  * UPDATE for v1.1: 6.3.2.6 — GetEimPackageResponse.eimPackageError gains
  *   eidNotFound(2), invalidEid(3), missingEid(4).  Error table must be
  *   extended after libasn regeneration.
@@ -51,19 +54,20 @@ static struct ipa_buf *enc_get_eim_pkg_req(struct ipa_context *ctx, const void *
 {
 	const uint8_t *eid_value = req;
 	struct EsipaMessageFromIpaToEim msg_to_eim = { 0 };
-	(void)ctx;
+	StateChangeCause_t state_change_cause;
+	NULL_t notify_state_change = 0;
 
 	msg_to_eim.present = EsipaMessageFromIpaToEim_PR_getEimPackageRequest;
 	msg_to_eim.choice.getEimPackageRequest.eidValue.buf = (uint8_t *) eid_value;
 	msg_to_eim.choice.getEimPackageRequest.eidValue.size = IPA_LEN_EID;
 
-	/* TODO v1.1: 5.14.5 — populate optional stateChangeCause when a local
-	 * state change preceded this poll.  Example skeleton (once regenerated
-	 * types are available):
-	 *   StateChangeCause_t cause = StateChangeCause_immediateEnableProfile;
-	 *   msg_to_eim.choice.getEimPackageRequest.stateChangeCause = &cause;
-	 * The cause value should be derived from ctx state (fallback active,
-	 * emergency swap, reset, immediate-enable, etc.). */
+	/* SGP.32 5.14.5 Table 16: notifyStateChange is optional, and stateChangeCause is C(1) --
+	 * mandatory once notifyStateChange is there. They therefore go together or not at all. */
+	if (ctx->nvstate.state_change_cause != IPA_STATE_CHANGE_NONE) {
+		msg_to_eim.choice.getEimPackageRequest.notifyStateChange = &notify_state_change;
+		state_change_cause = ctx->nvstate.state_change_cause;
+		msg_to_eim.choice.getEimPackageRequest.stateChangeCause = &state_change_cause;
+	}
 
 	return ipa_esipa_msg_to_eim_enc(&msg_to_eim, "GetEimPackage");
 }
@@ -113,11 +117,12 @@ static void *dec_get_eim_pkg_req(const struct ipa_buf *msg_to_ipa_encoded, const
 #ifdef IPA_HAVE_ESIPA_JSON		/* ESipa JSON binding, SGP.32 section 6.4 */
 static struct ipa_buf *json_enc_get_eim_pkg_req(struct ipa_context *ctx, const void *req)
 {
-	(void)ctx;
-	/* TODO v1.1: 5.14.5 — plumb stateChangeCause through here too (see the
-	 * ASN.1 encoder's TODO); the JSON binding takes notify_state_change +
-	 * cause, hardcoded to "no state change" for now. */
-	return ipa_esipa_json_enc_get_eim_pkg_req((const uint8_t *)req, false, -1);
+	/* Same coupling as the ASN.1 binding: the encoder emits stateChangeCause only for a
+	 * non-negative value, and notifyStateChange only when told to, so pass both or neither. */
+	bool notify = ctx->nvstate.state_change_cause != IPA_STATE_CHANGE_NONE;
+
+	return ipa_esipa_json_enc_get_eim_pkg_req((const uint8_t *)req, notify,
+						  notify ? ctx->nvstate.state_change_cause : -1);
 }
 
 static void *json_dec_get_eim_pkg_res(const struct ipa_buf *res, const void *req)
@@ -134,11 +139,48 @@ static void *json_dec_get_eim_pkg_res(const struct ipa_buf *res, const void *req
  *  \returns pointer newly allocated struct with function result, NULL on error. */
 struct ipa_esipa_get_eim_pkg_res *ipa_esipa_get_eim_pkg(struct ipa_context *ctx, const uint8_t *eid)
 {
+	struct ipa_esipa_get_eim_pkg_res *res;
+
 	IPA_LOGP_ESIPA("GetEimPackage", LINFO, "Requesting eIM package for eID: %s\n", ipa_hexdump(eid, IPA_LEN_EID));
 
-	return ipa_esipa_call(ctx, "GetEimPackage", eid,
-			      IPA_ESIPA_ASN1_CB(enc_get_eim_pkg_req, dec_get_eim_pkg_req),
-			      IPA_ESIPA_JSON_CB(json_enc_get_eim_pkg_req, json_dec_get_eim_pkg_res));
+	res = ipa_esipa_call(ctx, "GetEimPackage", eid,
+			     IPA_ESIPA_ASN1_CB(enc_get_eim_pkg_req, dec_get_eim_pkg_req),
+			     IPA_ESIPA_JSON_CB(json_enc_get_eim_pkg_req, json_dec_get_eim_pkg_res));
+
+	/* The report has been delivered once the eIM answered at all -- an eimPackageError still means it
+	 * received the notification. A failed transaction leaves the cause pending for the next poll,
+	 * which is the point of keeping it in nvstate. */
+	if (res && ctx->nvstate.state_change_cause != IPA_STATE_CHANGE_NONE)
+		ipa_esipa_note_state_change(ctx, IPA_STATE_CHANGE_NONE);
+
+	return res;
+}
+
+void ipa_esipa_note_state_change(struct ipa_context *ctx, enum ipa_state_change_cause cause)
+{
+	static const struct num_str_map cause_strings[] = {
+		{ IPA_STATE_CHANGE_OTHER_EIM, "otherEim" },
+		{ IPA_STATE_CHANGE_FALLBACK, "fallback" },
+		{ IPA_STATE_CHANGE_EMERGENCY_PROFILE, "emergencyProfile" },
+		{ IPA_STATE_CHANGE_LOCAL, "local" },
+		{ IPA_STATE_CHANGE_RESET, "reset" },
+		{ IPA_STATE_CHANGE_IMMEDIATE_ENABLE_PROFILE, "immediateEnableProfile" },
+		{ IPA_STATE_CHANGE_DEVICE_CHANGE, "deviceChange" },
+		{ IPA_STATE_CHANGE_UNDEFINED, "undefined" },
+		{ 0, NULL }
+	};
+
+	if (ctx->nvstate.state_change_cause == cause)
+		return;
+
+	if (cause == IPA_STATE_CHANGE_NONE)
+		IPA_LOGP_ESIPA("GetEimPackage", LDEBUG, "state change reported to the eIM, nothing pending now\n");
+	else
+		IPA_LOGP_ESIPA("GetEimPackage", LINFO,
+			       "eUICC state changed (%s), will notify the eIM on the next poll\n",
+			       ipa_str_from_num(cause_strings, cause, "(unknown)"));
+
+	ctx->nvstate.state_change_cause = cause;
 }
 
 /*! Free results of function (ESipa): GetEimPackage.
