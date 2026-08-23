@@ -99,6 +99,17 @@ struct ipa_context {
 	 *  (used from proc_euicc_pkg_dwnld_exec.c, proc_eim_pkg_retr.c and ipad.c) */
 	struct ipa_proc_eucc_pkg_dwnld_exec_res *proc_eucc_pkg_dwnld_exec_res;
 
+	/*! cached EUICCInfo2.iotSpecificInfo (SGP.32, section 5.9.2), filled by the first
+	 *  ipa_get_euicc_caps() call. The eUICC cannot change what it reports here while it is powered,
+	 *  so one ES10b round trip is enough for the life of the context. */
+	struct {
+		bool valid;
+		bool ecall_supported;
+		bool fallback_supported;
+		struct ipa_version *iot_version;
+		size_t iot_version_count;
+	} euicc_caps;
+
 	/*! Non volatile storage: Everything stored in this struct is loaded by the API user from a non volatile memory
 	 *  location on startup (ipa_new_ctx) and stored to a non volatile location on exit (ipa_free_ctx). */
 	struct ipa_nvstate nvstate;

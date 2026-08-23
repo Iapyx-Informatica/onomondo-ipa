@@ -297,6 +297,44 @@ struct ipa_buf *ipa_free_ctx(struct ipa_context *ctx);
  * on a transport / encode / decode failure.
  */
 
+/*! A version as EUICCInfo2 carries it (VersionType: major/minor/revision, one byte each). */
+struct ipa_version {
+	uint8_t major;
+	uint8_t minor;
+	uint8_t revision;
+};
+
+/*! What the eUICC reports about itself in EUICCInfo2.iotSpecificInfo, see GSMA SGP.32, section 5.9.2.
+ *  Fill it with ipa_get_euicc_caps() and use it to decide whether the ES10b triggers below apply to
+ *  this eUICC at all. */
+struct ipa_euicc_caps {
+	/*! The eUICC supports the Emergency Profile mechanism, so ipa_enable_emergency_profile() and
+	 *  ipa_disable_emergency_profile() are meaningful on it (iotSpecificInfo.ecallSupported). */
+	bool ecall_supported;
+
+	/*! The eUICC supports the Fallback mechanism, so ipa_execute_fallback() and
+	 *  ipa_return_from_fallback() are meaningful on it (iotSpecificInfo.fallbackSupported). */
+	bool fallback_supported;
+
+	/*! The SGP.32 version(s) the eUICC supports (iotSpecificInfo.iotVersion); at least one is always
+	 *  present. The array belongs to the library and stays valid until ipa_free_ctx(); do not free it. */
+	const struct ipa_version *iot_version;
+
+	/*! Number of entries in iot_version. */
+	size_t iot_version_count;
+};
+
+/*! Read the eUICC's IoT capabilities, see GSMA SGP.32, section 5.9.2.
+ *  The first call fetches EUICCInfo2 from the eUICC; iotSpecificInfo does not change for the life of
+ *  the eUICC, so the result is cached in the context and later calls cost nothing. Call it any time
+ *  after a successful ipa_init().
+ *  In IoT eUICC emulation mode the underlying consumer eUICC supports neither mechanism, so both flags
+ *  come back false and iot_version reports the SGP.32 version this IPA implements.
+ *  \param[inout] ctx pointer to ipa_context.
+ *  \param[out] caps filled in on success, untouched otherwise.
+ *  \returns 0 on success, negative on error. */
+int ipa_get_euicc_caps(struct ipa_context *ctx, struct ipa_euicc_caps *caps);
+
 /*! ES10b ImmediateEnable — enable the (immediate-enable-configured) profile now. */
 int ipa_immediate_enable(struct ipa_context *ctx, bool refresh_flag);
 

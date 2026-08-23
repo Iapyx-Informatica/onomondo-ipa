@@ -23,6 +23,7 @@
 #include "proc_eim_pkg_retr.h"
 #include "es10b_get_eim_cfg_data.h"
 #include "es10b_add_init_eim.h"
+#include "es10b_get_euicc_info.h"
 #include "es10b_euicc_mem_rst.h"
 #include "es10b_load_euicc_pkg.h"
 #include "es10b_immediate_enable.h"
@@ -373,6 +374,12 @@ int ipa_euicc_mem_rst(struct ipa_context *ctx, uint32_t options)
  * the host decides when to invoke them.
  * --------------------------------------------------------------------------- */
 
+/*! Report what the eUICC supports.  See ipa_get_euicc_caps() in ipad.h. */
+int ipa_get_euicc_caps(struct ipa_context *ctx, struct ipa_euicc_caps *caps)
+{
+	return ipa_es10b_get_euicc_caps(ctx, caps);
+}
+
 /*! ES10b ImmediateEnable.  See ipa_immediate_enable() in ipad.h. */
 int ipa_immediate_enable(struct ipa_context *ctx, bool refresh_flag)
 {
@@ -557,6 +564,7 @@ struct ipa_buf *ipa_free_ctx(struct ipa_context *ctx)
 	IPA_FREE(ctx->eim_id);
 	IPA_FREE(ctx->eim_fqdn);
 	ipa_proc_eucc_pkg_dwnld_exec_res_free(ctx->proc_eucc_pkg_dwnld_exec_res);
+	IPA_FREE(ctx->euicc_caps.iot_version);
 
 	if (ctx->scard_ctx)
 		ipa_euicc_close_es10x(ctx);

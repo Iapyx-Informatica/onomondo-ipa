@@ -21,14 +21,15 @@
  *   must be updated to propagate them when present.
  * UPDATE for v1.1: 5.9.2 — IoTSpecificInfo gains ecallSupported and
  *   fallbackSupported.  These flags tell the eIM whether the eUICC supports
- *   the Emergency-Profile / Fallback mechanisms; IPA should ideally surface
- *   them to the API consumer and include them in IpaEuiccData responses.
- * TODO v1.1: extend ipa_es10b_euicc_info to carry the new IoTSpecificInfo
- *   flags; update convert_euicc_info_2() to copy the new fields; verify
- *   downstream consumers (proc_euicc_data_req.c) pass them through.
- * NOTE: once SGP32Definitions.asn is regenerated, SGP32_EUICCInfo2 gains
- *   the new fields automatically; convert_euicc_info_2() currently stops
- *   at certificationDataObject and therefore *drops* the new fields.
+ *   the Emergency-Profile / Fallback mechanisms.
+ *
+ * All of the above is done.  convert_euicc_info_2() handles the four new
+ * fields explicitly: the three that v1.2 does not use are left absent when
+ * emulating, and iotSpecificInfo is synthesised because SGP.32 requires it.
+ * proc_euicc_data_req.c passes the whole SGP32_EUICCInfo2 through to
+ * IpaEuiccData, so the new fields reach the eIM unchanged.
+ * ipa_es10b_get_euicc_caps() below surfaces the two flags (and iotVersion) to
+ * the API consumer through ipa_get_euicc_caps().
  * =====================================================================
  */
 
@@ -132,16 +133,20 @@ static void convert_euicc_info_2(struct SGP32_EUICCInfo2 *euicc_info_out, const 
 	 * SGP.32 version that this IPA implements (v1.2.0).  ecallSupported and
 	 * fallbackSupported are left absent (OPTIONAL) because a consumer eUICC
 	 * does not support Emergency Profile / Fallback mechanisms. */
-	{
-		static IoTSpecificInfo_t iot_specific_info;
-		static VersionType_t iot_version_buf;
-		static uint8_t iot_version_bytes[3] = { 0x01, 0x02, 0x00 }; /* SGP.32 v1.2.0 */
-		memset(&iot_specific_info, 0, sizeof(iot_specific_info));
-		iot_version_buf.buf = iot_version_bytes;
-		iot_version_buf.size = sizeof(iot_version_bytes);
-		ASN_SEQUENCE_ADD(&iot_specific_info.iotVersion.list, &iot_version_buf);
-		euicc_info_out->iotSpecificInfo = &iot_specific_info;
-	}
+	/* The synthesised value is the same on every call, so it is built once at load time rather than
+	 * rebuilt here.  The previous version memset() the static and then ASN_SEQUENCE_ADD()ed to it,
+	 * which dropped the list array asn_set_add() had malloc'd on the call before -- a small leak on
+	 * every GetEUICCInfo2 in emulation mode, and a static that one conversion could clear while
+	 * another still pointed at it.  Nothing frees these: they are static storage, and the shallow
+	 * IPA_FREE() in ipa_es10b_get_euicc_info_free() does not descend into them. */
+	static uint8_t iot_version_bytes[3] = { 0x01, 0x02, 0x00 }; /* SGP.32 v1.2.0 */
+	static VersionType_t iot_version = { .buf = iot_version_bytes, .size = sizeof(iot_version_bytes) };
+	static VersionType_t *iot_version_array[1] = { &iot_version };
+	static IoTSpecificInfo_t iot_specific_info = {
+		.iotVersion = { .list = { .array = iot_version_array, .count = 1, .size = 1 } }
+	};
+
+	euicc_info_out->iotSpecificInfo = &iot_specific_info;
 }
 
 static int dec_get_euicc_info2(struct ipa_es10b_euicc_info *euicc_info, const struct ipa_buf *es10b_res)
@@ -219,6 +224,91 @@ error:
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] full set to true to request EUICCInfo2 instead of EUICCInfo1.
  *  \returns struct with parsed eUICC info on success, NULL on failure. */
+/* Copy iotSpecificInfo.iotVersion into a plain array the API consumer can read without knowing
+ * anything about asn1c.  VersionType is OCTET STRING (SIZE(3)), major/minor/revision; a shorter one
+ * would be non-conformant, so the missing bytes are read as zero rather than rejected. */
+static int copy_iot_versions(struct ipa_context *ctx, const IoTSpecificInfo_t *iot)
+{
+	int count = iot->iotVersion.list.count;
+	int i;
+
+	/* SGP.32 5.9.2 requires at least one version. An eUICC that sends none is broken, but the two
+	 * support flags are still worth reporting, so this is not treated as a failure. */
+	if (count <= 0) {
+		IPA_LOGP_ES10X("GetEuiccInfo2Request", LERROR, "iotSpecificInfo carries no iotVersion!\n");
+		ctx->euicc_caps.iot_version = NULL;
+		ctx->euicc_caps.iot_version_count = 0;
+		return 0;
+	}
+
+	ctx->euicc_caps.iot_version = IPA_CALLOC(count, sizeof(struct ipa_version));
+	if (!ctx->euicc_caps.iot_version)
+		return -ENOMEM;
+	ctx->euicc_caps.iot_version_count = count;
+
+	for (i = 0; i < count; i++) {
+		const VersionType_t *v = iot->iotVersion.list.array[i];
+
+		if (!v || !v->buf)
+			continue;
+		if (v->size > 0)
+			ctx->euicc_caps.iot_version[i].major = v->buf[0];
+		if (v->size > 1)
+			ctx->euicc_caps.iot_version[i].minor = v->buf[1];
+		if (v->size > 2)
+			ctx->euicc_caps.iot_version[i].revision = v->buf[2];
+	}
+
+	return 0;
+}
+
+/* See ipa_get_euicc_caps() in onomondo/ipa/ipad.h. */
+int ipa_es10b_get_euicc_caps(struct ipa_context *ctx, struct ipa_euicc_caps *caps)
+{
+	struct ipa_es10b_euicc_info *euicc_info = NULL;
+	const IoTSpecificInfo_t *iot;
+	int rc = -EINVAL;
+
+	if (ctx->euicc_caps.valid)
+		goto done;
+
+	euicc_info = ipa_es10b_get_euicc_info(ctx, true);
+	if (!euicc_info || !euicc_info->sgp32_euicc_info_2) {
+		IPA_LOGP_ES10X("GetEuiccInfo2Request", LERROR, "unable to read EUICCInfo2 from the eUICC\n");
+		goto leave;
+	}
+
+	iot = euicc_info->sgp32_euicc_info_2->iotSpecificInfo;
+	if (!iot) {
+		/* SGP.32 5.9.2: iotSpecificInfo is mandatory within SGP.32, and the emulation path
+		 * synthesises one, so only a non-conformant IoT eUICC reaches this. */
+		IPA_LOGP_ES10X("GetEuiccInfo2Request", LERROR,
+			       "EUICCInfo2 carries no iotSpecificInfo, cannot report eUICC capabilities!\n");
+		goto leave;
+	}
+
+	/* Both flags are ASN.1 NULL, so it is their presence that carries the meaning. */
+	ctx->euicc_caps.ecall_supported = iot->ecallSupported != NULL;
+	ctx->euicc_caps.fallback_supported = iot->fallbackSupported != NULL;
+
+	rc = copy_iot_versions(ctx, iot);
+	if (rc < 0)
+		goto leave;
+
+	ctx->euicc_caps.valid = true;
+
+done:
+	caps->ecall_supported = ctx->euicc_caps.ecall_supported;
+	caps->fallback_supported = ctx->euicc_caps.fallback_supported;
+	caps->iot_version = ctx->euicc_caps.iot_version;
+	caps->iot_version_count = ctx->euicc_caps.iot_version_count;
+	rc = 0;
+
+leave:
+	ipa_es10b_get_euicc_info_free(euicc_info);
+	return rc;
+}
+
 struct ipa_es10b_euicc_info *ipa_es10b_get_euicc_info(struct ipa_context *ctx, bool full)
 {
 	if (full)

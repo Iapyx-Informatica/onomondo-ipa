@@ -26,3 +26,7 @@ struct ipa_es10b_euicc_info {
 
 struct ipa_es10b_euicc_info *ipa_es10b_get_euicc_info(struct ipa_context *ctx, bool full);
 void ipa_es10b_get_euicc_info_free(struct ipa_es10b_euicc_info *res);
+
+/* Backs ipa_get_euicc_caps(); reads EUICCInfo2.iotSpecificInfo once and caches it in ctx. */
+struct ipa_euicc_caps;
+int ipa_es10b_get_euicc_caps(struct ipa_context *ctx, struct ipa_euicc_caps *caps);

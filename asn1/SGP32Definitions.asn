@@ -533,8 +533,7 @@ IpaCapabilities ::= SEQUENCE {
 --  - rfu2/rfu3/rfu4 renamed to euiccCiPKIdListForSigningV3 [17],
 --    additionalEuiccInfo [18], highestSvn [19].
 -- NEW in v1.1: 5.9.2 — IoTSpecificInfo.ecallSupported, .fallbackSupported.
--- TODO v1.1: es10b_get_euicc_info.c consumers must tolerate the new fields and
--- ideally surface ecallSupported / fallbackSupported up through the API.
+-- Both are surfaced to the API consumer by ipa_get_euicc_caps() (ipad.h).
 -- NOTE: v1.2 spec drops the SGP32- prefix; we keep it here because the SGP.22
 -- EUICCInfo2 is also imported (see libipa consumer-eUICC emulation path).
 -- ASN1START
