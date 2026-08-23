@@ -29,6 +29,7 @@ add_library(libipa STATIC
   es10b_immediate_enable.c
   es10b_execute_fallback.c
   ipae_activation.c
+  es10b_cfg_immediate_enable.c
   es10b_return_from_fallback.c
   es10b_enable_emergency_profile.c
   es10b_disable_emergency_profile.c

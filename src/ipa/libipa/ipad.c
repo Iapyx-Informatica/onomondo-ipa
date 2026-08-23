@@ -25,6 +25,7 @@
 #include "es10b_add_init_eim.h"
 #include "es10b_get_euicc_info.h"
 #include "ipae_activation.h"
+#include "es10b_cfg_immediate_enable.h"
 #include "es10b_euicc_mem_rst.h"
 #include "es10b_load_euicc_pkg.h"
 #include "es10b_immediate_enable.h"
@@ -388,6 +389,13 @@ int ipa_get_euicc_caps(struct ipa_context *ctx, struct ipa_euicc_caps *caps)
 int ipa_activate_ipae(struct ipa_context *ctx)
 {
 	return ipa_ipae_activation(ctx);
+}
+
+/*! ES10b ConfigureImmediateProfileEnabling.  See ipa_cfg_immediate_enable() in ipad.h. */
+int ipa_cfg_immediate_enable(struct ipa_context *ctx, bool immediate_enable, const char *smdp_oid,
+			     const char *smdp_address)
+{
+	return ipa_es10b_cfg_immediate_enable(ctx, immediate_enable, smdp_oid, smdp_address);
 }
 
 /*! ES10b ImmediateEnable.  See ipa_immediate_enable() in ipad.h. */

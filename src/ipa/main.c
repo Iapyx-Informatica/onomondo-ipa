@@ -162,6 +162,10 @@ static void print_help(void)
 	printf(" -x .................. DisableEmergencyProfile\n");
 	printf(" -G .................. GetConnectivityParameters (print httpParams)\n");
 	printf(" -D FQDN ............. SetDefaultDpAddress to the given SM-DP+ FQDN\n");
+	printf(" -P OID .............. ConfigureImmediateProfileEnabling: activate immediate Profile\n");
+	printf("                       enabling with the given default SM-DP+ OID (dotted decimal).\n");
+	printf("                       Combine with -D to set the default SM-DP+ FQDN in the same call.\n");
+	printf("                       The eUICC refuses this once it has eIM configuration data.\n");
 	printf("\n");
 	printf(" -A .................. activate the eUICC's own IPAe (SGP.32 3.8.4). This hands the eUICC\n");
 	printf("                       over: IPAe and IPAd are mutually exclusive, so afterwards this\n");
@@ -267,12 +271,14 @@ enum getopt_action {
 	ACTION_GET_CONN_PARAMS,
 	ACTION_SET_DEFAULT_DP,
 	ACTION_ACTIVATE_IPAE,
+	ACTION_CFG_IMMEDIATE_ENABLE,
 };
 
 /* Run a single ES10b trigger action against the eUICC and report the outcome.
  * Returns the negative transport error, or 0 once the command was delivered
  * (the eUICC's own status code, ok or not, is logged). */
-static int run_es10b_trigger(struct ipa_context *ctx, enum getopt_action action, const char *default_dp, bool refresh)
+static int run_es10b_trigger(struct ipa_context *ctx, enum getopt_action action, const char *default_dp,
+			     const char *cfg_ie_oid, bool refresh)
 {
 	int rc = 0;
 
@@ -282,6 +288,9 @@ static int run_es10b_trigger(struct ipa_context *ctx, enum getopt_action action,
 		break;
 	case ACTION_ACTIVATE_IPAE:
 		rc = ipa_activate_ipae(ctx);
+		break;
+	case ACTION_CFG_IMMEDIATE_ENABLE:
+		rc = ipa_cfg_immediate_enable(ctx, true, cfg_ie_oid, default_dp);
 		break;
 	case ACTION_EXECUTE_FALLBACK:
 		rc = ipa_execute_fallback(ctx, refresh);
@@ -341,6 +350,7 @@ int main(int argc, char **argv)
 	bool getopt_one_euicc_pkg_only = false;
 	enum getopt_action getopt_action = ACTION_NONE;
 	char *getopt_default_dp = NULL;
+	char *getopt_cfg_ie_oid = NULL;
 	uint8_t getopt_imei[IPA_LEN_IMEI];
 
 	signal(SIGUSR1, sig_usr1);
@@ -362,7 +372,7 @@ int main(int argc, char **argv)
 
 	/* Overwrite configuration values with user defined parameters */
 	while (1) {
-		opt = getopt(argc, argv, "ht:M:e:r:c:f:mpn:C:SIEjLl:d:y:a1RiFbXxGD:A");
+		opt = getopt(argc, argv, "ht:M:e:r:c:f:mpn:C:SIEjLl:d:y:a1RiFbXxGD:AP:");
 		if (opt == -1)
 			break;
 
@@ -454,6 +464,10 @@ int main(int argc, char **argv)
 		case 'R':
 			cfg.refresh_flag = true;
 			break;
+		case 'P':
+			getopt_cfg_ie_oid = optarg;
+			getopt_action = ACTION_CFG_IMMEDIATE_ENABLE;
+			break;
 		case 'A':
 			getopt_action = ACTION_ACTIVATE_IPAE;
 			break;
@@ -476,8 +490,11 @@ int main(int argc, char **argv)
 			getopt_action = ACTION_GET_CONN_PARAMS;
 			break;
 		case 'D':
-			getopt_action = ACTION_SET_DEFAULT_DP;
 			getopt_default_dp = optarg;
+			/* -D carries the FQDN for -P as well as being a trigger of its own. Let -P keep the
+			 * action so that the two work together whichever order they are given in. */
+			if (getopt_action != ACTION_CFG_IMMEDIATE_ENABLE)
+				getopt_action = ACTION_SET_DEFAULT_DP;
 			break;
 		default:
 			printf("unhandled option: %c!\n", opt);
@@ -546,7 +563,7 @@ int main(int argc, char **argv)
 	} else if (getopt_action != ACTION_NONE) {
 		/* Fire a single ES10b trigger (fallback / emergency / connectivity /
 		 * default-DP / immediate-enable) and exit -- these do not need the eIM. */
-		rc = run_es10b_trigger(ctx, getopt_action, getopt_default_dp, cfg.refresh_flag);
+		rc = run_es10b_trigger(ctx, getopt_action, getopt_default_dp, getopt_cfg_ie_oid, cfg.refresh_flag);
 		if (rc < 0)
 			rc = -EINVAL;
 	} else {

@@ -379,6 +379,25 @@ int ipa_get_euicc_caps(struct ipa_context *ctx, struct ipa_euicc_caps *caps);
  *           negative on a transport failure or when the eUICC has no IPAe to activate. */
 int ipa_activate_ipae(struct ipa_context *ctx);
 
+/*! ES10b ConfigureImmediateProfileEnabling — set up immediate Profile enabling, see GSMA SGP.32,
+ *  section 5.9.17. The same configuration the eIM can push through the configureImmediateEnable PSMO,
+ *  but driven by the device.
+ *
+ *  Section 5.9.17 has the eUICC refuse this with associatedEimAlreadyExists(2) once it holds any eIM
+ *  Configuration Data, so it belongs to the pre-association phase: the device configures immediate
+ *  enabling for itself while it is still unmanaged. After that, the configuration is the eIM's to set.
+ *
+ *  \param[inout] ctx pointer to ipa_context.
+ *  \param[in] immediate_enable activate immediate Profile enabling; false deactivates it. The wire
+ *             field is OPTIONAL and it is its presence that activates, so there is no "leave as is".
+ *  \param[in] smdp_oid default SM-DP+ OID in dotted-decimal notation, or NULL to leave it unchanged.
+ *  \param[in] smdp_address default SM-DP+ FQDN, or NULL to leave it unchanged.
+ *  \returns 0 when the eUICC reports ok, positive on an eUICC error status (insufficientMemory = 1,
+ *           associatedEimAlreadyExists = 2, undefinedError = 127), negative on a transport failure or
+ *           an unusable smdp_oid. */
+int ipa_cfg_immediate_enable(struct ipa_context *ctx, bool immediate_enable, const char *smdp_oid,
+			     const char *smdp_address);
+
 /*! ES10b ImmediateEnable — enable the (immediate-enable-configured) profile now. */
 int ipa_immediate_enable(struct ipa_context *ctx, bool refresh_flag);
 
