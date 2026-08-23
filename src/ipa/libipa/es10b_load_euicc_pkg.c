@@ -44,6 +44,7 @@
 #include "es10c_disable_prfle.h"
 #include "es10c_delete_prfle.h"
 #include "es10c_get_prfle_info.h"
+#include "es10b_set_default_dp_addr.h"
 #include "es10b_get_eim_cfg_data.h"
 #include "es10b_add_init_eim.h"
 #include "es10b_get_rat.h"
@@ -407,6 +408,37 @@ leave:
 	return euicc_result_data;
 }
 
+/* SGP.32 section 2.11.1.1.3: the eIM asks the eUICC to store a default SM-DP+ address. A real IoT
+ * eUICC does this itself while executing the package; here it is the same ES10 function the host can
+ * also drive directly, which knows how to speak to a consumer eUICC. */
+struct EuiccResultData *iot_emo_do_setDefaultDpAddress_psmo(struct ipa_context *ctx,
+							    const struct SGP32_SetDefaultDpAddressRequest
+							    *setDefaultDpAddress_psmo)
+{
+	struct EuiccResultData *euicc_result_data = IPA_ALLOC_ZERO(struct EuiccResultData);
+	char *default_dp_fqdn;
+	int rc;
+
+	euicc_result_data->present = EuiccResultData_PR_setDefaultDpAddressResult;
+
+	/* ipa_es10b_set_default_dp_addr() takes a NUL-terminated string; the PSMO carries a UTF8String
+	 * that is not NUL-terminated. */
+	default_dp_fqdn = IPA_STR_FROM_ASN(&setDefaultDpAddress_psmo->defaultDpAddress);
+	rc = ipa_es10b_set_default_dp_addr(ctx, default_dp_fqdn);
+	IPA_FREE(default_dp_fqdn);
+
+	/* The two result sets are identical, ok(0) and undefinedError(127), so a non-zero eUICC status
+	 * passes straight through; a negative transport error becomes undefinedError. */
+	if (rc == SGP32_SetDefaultDpAddressResponse__setDefaultDpAddressResult_ok)
+		euicc_result_data->choice.setDefaultDpAddressResult.setDefaultDpAddressResult =
+		    SGP32_SetDefaultDpAddressResponse__setDefaultDpAddressResult_ok;
+	else
+		euicc_result_data->choice.setDefaultDpAddressResult.setDefaultDpAddressResult =
+		    SGP32_SetDefaultDpAddressResponse__setDefaultDpAddressResult_undefinedError;
+
+	return euicc_result_data;
+}
+
 struct EuiccResultData *iot_emo_do_addEim_eco(struct ipa_context *ctx, const struct EimConfigurationData *addEim_eco)
 {
 	struct EuiccResultData *euicc_result_data = IPA_ALLOC_ZERO(struct EuiccResultData);
@@ -760,6 +792,10 @@ struct ipa_es10b_load_euicc_pkg_res *load_euicc_pkg_iot_emu(struct ipa_context *
 				break;
 			case Psmo_PR_unsetFallbackAttribute:
 				psmo_result = iot_emo_do_unsetFallbackAttribute_psmo(ctx);
+				break;
+			case Psmo_PR_setDefaultDpAddress:
+				psmo_result =
+				    iot_emo_do_setDefaultDpAddress_psmo(ctx, &psmo->choice.setDefaultDpAddress);
 				break;
 			default:
 				IPA_LOGP_ES10X("LoadEuiccPackage", LERROR, "ignoring invalid or unsupported PSMO!\n");
