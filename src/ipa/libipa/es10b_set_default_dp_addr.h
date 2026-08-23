@@ -17,8 +17,9 @@
  *   setDefaultDpAddressResult INTEGER { ok(0), undefinedError(127) }
  * }
  *
- * TODO v1.1: implement es10b_set_default_dp_addr.c only if the host needs
- * direct control; otherwise rely on Psmo-driven application.
+ * Implemented in es10b_set_default_dp_addr.c and exposed as ipa_set_default_dp_addr();
+ * a host that would rather let the eIM set it can simply not call that and rely on
+ * the Psmo-driven path instead.
  * =====================================================================
  */
 

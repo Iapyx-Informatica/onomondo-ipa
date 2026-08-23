@@ -20,8 +20,10 @@
  * Lets an eUICC expose connectivity parameters (HTTP and/or CoAP) that the
  * IPA must use when reaching back to the eIM / RSP server.
  *
- * TODO v1.1: implement es10b_get_connectivity_params.c and thread the
- * resulting parameters into http.c / esipa.c configuration when present.
+ * Implemented in es10b_get_connectivity_params.c and exposed as
+ * ipa_get_connectivity_params().  The parameters are handed to the host rather than
+ * applied to http.c / esipa.c here: which of them to honour is a device decision, and
+ * onomondo/ipa/ipad.h says so at the declaration.
  * =====================================================================
  */
 

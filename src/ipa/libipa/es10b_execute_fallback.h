@@ -20,9 +20,9 @@
  * enabled profile lost connectivity.  The Fallback Profile must first have
  * been tagged via Psmo.setFallbackAttribute; see proc_euicc_pkg_dwnld_exec.c.
  *
- * TODO v1.1: implement es10b_execute_fallback.c once the Fallback flow is
- * exercised by an eIM.  For IPAd usage, this is triggered by host logic
- * when the radio stack fails to register with the enabled profile.
+ * Implemented in es10b_execute_fallback.c, including the IoT eUICC emulation.  For
+ * IPAd usage this is triggered by host logic when the radio stack fails to register
+ * with the enabled profile; the library never calls it on its own.
  * =====================================================================
  */
 

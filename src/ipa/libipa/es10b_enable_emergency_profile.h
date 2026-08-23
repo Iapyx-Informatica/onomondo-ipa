@@ -22,8 +22,9 @@
  * EuiccPackageRequest / EuiccMemoryResetRequest / ExecuteFallbackMechanism
  * with error code ecallActive(104) (see §2.11.2.1 of v1.2).
  *
- * TODO v1.1: implement es10b_enable_emergency_profile.c only if the device
- * supports eCall use cases (iotSpecificInfo.ecallSupported SHALL be set).
+ * Implemented in es10b_enable_emergency_profile.c.  It is only meaningful on a device
+ * whose eUICC reports iotSpecificInfo.ecallSupported, which the host can check with
+ * ipa_get_euicc_caps(); the library does not gate the call on it.
  * =====================================================================
  */
 

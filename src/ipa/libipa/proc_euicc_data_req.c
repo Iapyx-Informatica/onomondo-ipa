@@ -37,22 +37,19 @@
  *   and fallbackSupported.  Downstream consumers do not need to access these
  *   but should tolerate their presence (asn1c handles EXTENSIBILITY IMPLIED).
  *
- * TODO v1.1: rewrite this function to:
- *   1. [DONE] Use ipa_euicc_data_request->euiccCiPKIdentifierToBeUsed (the new
- *      OCTET STRING) where it previously read ->euiccCiPKId.  The old field
- *      is SubjectKeyIdentifier (OCTET STRING alias) so the value is
- *      compatible at the C level, only the name changes.
- *   2. [DONE] Split the searchCriteria branch: notifications tag 0xBF2B uses
- *      searchCriteriaNotification; euiccPackageResult seq lookups use
+ * The v1.1 rewrite is done.  Four changes were needed, and the sites that carry them are
+ * marked "v1.1 change N" below:
+ *   1. Read euiccCiPKIdentifierToBeUsed (OCTET STRING) where the code previously read
+ *      euiccCiPKId.  The old field is a SubjectKeyIdentifier, itself an OCTET STRING alias,
+ *      so only the name changed at the C level.
+ *   2. Split the searchCriteria branch: notifications (tag 0xBF2B) use
+ *      searchCriteriaNotification, eUICC package result lookups use the separate
  *      searchCriteriaEuiccPackageResult.
- *   3. [DONE] Build the response using the new IpaEuiccData layout; populate
- *      eimTransactionId when the eIM supplied one.
- *   4. [DONE] On error, emit IpaEuiccDataResponseError rather than the old
- *      inline INTEGER.
+ *   3. Build the response in the new IpaEuiccData layout and echo eimTransactionId when
+ *      the eIM supplied one.
+ *   4. On error emit IpaEuiccDataResponseError rather than the old inline INTEGER.
  * =====================================================================
  */
-
-// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 #include <stdio.h>
 #include <assert.h>
@@ -153,7 +150,7 @@ int ipa_proc_euicc_data_req(struct ipa_context *ctx, const struct ipa_proc_euicc
 	struct ipa_es10b_get_certs_res *get_certs_res = NULL;
 	struct ipa_es10b_retr_notif_from_lst_req retr_notif_from_lst_req = { 0 };
 	struct ipa_es10b_retr_notif_from_lst_res *retr_notif_from_lst_res = NULL;
-	/* FIX TODO 2: separate result holder for the euicc package result list lookup. */
+	/* v1.1 change 2: separate result holder for the euicc package result list lookup. */
 	struct ipa_es10b_retr_notif_from_lst_res *retr_epr_from_lst_res = NULL;
 	struct ipa_esipa_prvde_eim_pkg_rslt_req prvde_eim_pkg_rslt_req = { 0 };
 	struct ipa_esipa_prvde_eim_pkg_rslt_res *prvde_eim_pkg_rslt_res = NULL;
@@ -209,12 +206,12 @@ int ipa_proc_euicc_data_req(struct ipa_context *ctx, const struct ipa_proc_euicc
 
 	if (ipa_tag_in_taglist(0xA5, tag_list)) {
 		IPA_LOGP(SIPA, LINFO, "eIM asks for EUM certificate\n");
-		/* FIX TODO 1 (SGP.32 §2.11.1.2): source field renamed from euiccCiPKId to
+		/* v1.1 change 1 (SGP.32 §2.11.1.2): source field renamed from euiccCiPKId to
 		 * euiccCiPKIdentifierToBeUsed (OCTET STRING; was SubjectKeyIdentifier).
 		 * Destination GetCertsRequest.euiccCiPKId (SGP.22) is unchanged. */
 		get_certs_req.req.euiccCiPKId = pars->ipa_euicc_data_request->euiccCiPKIdentifierToBeUsed;
 		get_certs_res = ipa_es10b_get_certs(ctx, &get_certs_req);
-		/* FIX TODO 4: on failure emit IpaEuiccDataResponseError (SGP.32 §2.11.2.2). */
+		/* v1.1 change 4: on failure emit IpaEuiccDataResponseError (SGP.32 §2.11.2.2). */
 		if (!get_certs_res || !get_certs_res->eum_certificate || !get_certs_res->euicc_certificate)
 			goto send_cert_error;
 		ipa_euicc_data_response.choice.ipaEuiccData.eumCertificate = get_certs_res->eum_certificate;
@@ -227,10 +224,10 @@ int ipa_proc_euicc_data_req(struct ipa_context *ctx, const struct ipa_proc_euicc
 			ipa_euicc_data_response.choice.ipaEuiccData.euiccCertificate = get_certs_res->euicc_certificate;
 		} else {
 			IPA_LOGP(SIPA, LINFO, "eIM asks for eUICC certificate\n");
-			/* FIX TODO 1 (SGP.32 §2.11.1.2): see rename note in 0xA5 block above. */
+			/* v1.1 change 1 (SGP.32 §2.11.1.2): see rename note in 0xA5 block above. */
 			get_certs_req.req.euiccCiPKId = pars->ipa_euicc_data_request->euiccCiPKIdentifierToBeUsed;
 			get_certs_res = ipa_es10b_get_certs(ctx, &get_certs_req);
-			/* FIX TODO 4: on failure emit IpaEuiccDataResponseError (SGP.32 §2.11.2.2). */
+			/* v1.1 change 4: on failure emit IpaEuiccDataResponseError (SGP.32 §2.11.2.2). */
 			if (!get_certs_res || !get_certs_res->eum_certificate || !get_certs_res->euicc_certificate)
 				goto send_cert_error;
 			ipa_euicc_data_response.choice.ipaEuiccData.euiccCertificate = get_certs_res->euicc_certificate;
@@ -254,7 +251,7 @@ int ipa_proc_euicc_data_req(struct ipa_context *ctx, const struct ipa_proc_euicc
 	if (ipa_tag_in_taglist(0xBF2B, tag_list)) {
 		IPA_LOGP(SIPA, LINFO, "eIM asks for List of Notifications and/or eUICC Package Results\n");
 
-		/* FIX TODO 2 (SGP.32 §2.11.1.2): notifications use searchCriteriaNotification. */
+		/* v1.1 change 2 (SGP.32 §2.11.1.2): notifications use searchCriteriaNotification. */
 		retr_notif_from_lst_req.dr_search_criteria =
 		    pars->ipa_euicc_data_request->searchCriteriaNotification;
 		retr_notif_from_lst_res = ipa_es10b_retr_notif_from_lst(ctx, &retr_notif_from_lst_req);
@@ -267,7 +264,7 @@ int ipa_proc_euicc_data_req(struct ipa_context *ctx, const struct ipa_proc_euicc
 			    &retr_notif_from_lst_res->sgp32_res->choice.notificationList;
 		}
 
-		/* FIX TODO 2 (SGP.32 §2.11.1.2): eUICC package results use the SEPARATE
+		/* v1.1 change 2 (SGP.32 §2.11.1.2): eUICC package results use the SEPARATE
 		 * searchCriteriaEuiccPackageResult field; result goes into euiccPackageResultList. */
 		if (pars->ipa_euicc_data_request->searchCriteriaEuiccPackageResult) {
 			struct ipa_es10b_retr_notif_from_lst_req epr_req = { 0 };
@@ -296,7 +293,7 @@ int ipa_proc_euicc_data_req(struct ipa_context *ctx, const struct ipa_proc_euicc
 		}
 	}
 
-	/* FIX TODO 3 (SGP.32 §2.11.2.2): echo eimTransactionId from the request into
+	/* v1.1 change 3 (SGP.32 §2.11.2.2): echo eimTransactionId from the request into
 	 * IpaEuiccData field [7].  The eIM uses this to correlate the response with its
 	 * original request and to verify signature coverage of the transaction.
 	 * Both sides are TransactionId_t * (OCTET STRING alias); NULL pointer is fine —
@@ -306,7 +303,7 @@ int ipa_proc_euicc_data_req(struct ipa_context *ctx, const struct ipa_proc_euicc
 	ipa_euicc_data_response.present = IpaEuiccDataResponse_PR_ipaEuiccData;
 	goto send_response;
 
-	/* FIX TODO 4 (SGP.32 §2.11.2.2): certificate retrieval failed — build an
+	/* v1.1 change 4 (SGP.32 §2.11.2.2): certificate retrieval failed — build an
 	 * IpaEuiccDataResponseError and fall through to send_response.
 	 * GetCertsResponse__getCertsError_invalidCiPKId maps to
 	 * IpaEuiccDataErrorCode_euiccCiPKIdNotFound(5); everything else maps to

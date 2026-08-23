@@ -18,7 +18,7 @@
  * Inverse of ExecuteFallbackMechanism: returns the eUICC to the previously
  * enabled operational profile.
  *
- * TODO v1.1: implement es10b_return_from_fallback.c.
+ * Implemented in es10b_return_from_fallback.c, including the IoT eUICC emulation.
  * =====================================================================
  */
 

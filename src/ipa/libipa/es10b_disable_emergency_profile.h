@@ -17,7 +17,7 @@
  * UPDATE for v1.2: CR111007R00 — rollback authorization MUST also be reset
  * when refreshFlag == true.
  *
- * TODO v1.1: implement es10b_disable_emergency_profile.c.
+ * Implemented in es10b_disable_emergency_profile.c.
  * =====================================================================
  */
 

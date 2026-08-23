@@ -69,9 +69,9 @@
 #include <EsipaMessageFromIpaToEim.h>
 #include <ProvideEimPackageResult.h>
 #include <SGP32-PendingNotificationList.h>
-/* TODO v1.1: 6.3.2.7 — after libasn regeneration, replace the include below
- * with <PendingNotificationList.h> (the new alias).  The old
- * SGP32-RetrieveNotificationsListResponse is no longer used on this path. */
+/* 6.3.2.7: the notification list itself is the SGP32-PendingNotificationList alias, encoded
+ * below through asn_DEF_SGP32_PendingNotificationList.  This include stays because
+ * SGP32-RetrieveNotificationsListResponse is still the CHOICE that carries it. */
 #include <SGP32-RetrieveNotificationsListResponse.h>
 #include "utils.h"
 #include "length.h"
