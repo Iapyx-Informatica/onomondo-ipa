@@ -148,7 +148,7 @@ Psmo ::= CHOICE {
 -- and TYPE CHANGED (SubjectKeyIdentifier -> OCTET STRING, possibly truncated);
 -- searchCriteria renamed to searchCriteriaNotification and euiccPackageResults
 -- branch removed; new searchCriteriaEuiccPackageResult [2] and eimTransactionId [3].
--- TODO v1.1: proc_euicc_data_req.c must update field names + type.
+-- Handled in proc_euicc_data_req.c.
 -- ASN1START
 IpaEuiccDataRequest ::= [82] SEQUENCE { -- Tag BF52
   tagList [APPLICATION 28] OCTET STRING, -- Tag '5C'
@@ -438,7 +438,7 @@ EimIdInfo ::= SEQUENCE {
 -- - IpaEuiccData completely restructured: new tag assignments, field reorder,
 --   notificationsList moved to [0], defaultSmdpAddress [1], euiccPackageResultList [2]
 --   added, euiccInfo2 now uses bare EUICCInfo2 (no SGP32- prefix), new eimTransactionId [7].
--- TODO v1.1: proc_euicc_data_req.c must be rewritten to build/consume the new structure.
+-- proc_euicc_data_req.c builds and consumes the new structure.
 -- ASN1START
 IpaEuiccDataErrorCode ::= INTEGER { -- NEW in v1.1: 2.11.2.2 — extracted named type
   incorrectTagList(1),
@@ -491,8 +491,8 @@ ProfileDownloadTriggerResult ::= [84] SEQUENCE { -- tag 'BF54'
 -- ASN1STOP
 
 -- NEW in v1.1: 3.8.4 — ISD-R Selection and IPAe Activation
--- TODO v1.1: not used by IPAd flows; kept here so regeneration emits the types.
--- Relevant only if this project ever supports IPAe mode.
+-- ISDRProprietaryApplicationTemplateIoT is read from the ISD-R SELECT FCI in
+-- libipa/euicc.c; IpaeActivationRequest/Response are used by libipa/ipae_activation.c.
 -- ASN1START
 ISDRProprietaryApplicationTemplateIoT ::= [PRIVATE 1] SEQUENCE { -- Tag 'E1'
   euiccConfiguration BIT STRING {
@@ -660,7 +660,7 @@ GetCertsResponse ::= [86] CHOICE { -- Tag 'BF56'
 -- UPDATE for v1.1: 5.9.11 — restructured.  Removed notificationAndEprList branch;
 -- other branches now use SGP32-PendingNotificationList / EuiccPackageResultList aliases.
 -- Renamed SGP32-RetrieveNotificationsListRequest/Response -> plain names.
--- TODO v1.1: es10b_retr_notif_from_lst.c must drop notificationAndEprList branch.
+-- es10b_retr_notif_from_lst.c no longer references the removed branch.
 -- NOTE: kept SGP32- prefix; RSPDefinitions has a bare RetrieveNotificationsListRequest.
 SGP32-RetrieveNotificationsListRequest ::= [43] SEQUENCE { -- Tag 'BF2B'
   searchCriteria CHOICE {
@@ -686,8 +686,9 @@ SGP32-RetrieveNotificationsListResponse ::= [43] CHOICE { -- Tag 'BF2B' — UPDA
 -- Now carries mandatory refreshFlag BOOLEAN.
 -- UPDATE for v1.2: CR111007R00 — on ImmediateEnable, rollback authorization MUST
 -- also be reset when refreshFlag == true (behavioral; see proc_euicc_pkg_dwnld_exec.c).
--- TODO v1.1: rename es10b_enable_using_dd.c -> es10b_immediate_enable.c;
--- update libipa call sites and context.h state.
+-- Implemented in libipa/es10b_immediate_enable.{c,h}, which replaced the v1.0
+-- es10b_enable_using_dd.c.  (The context.h state is still named auto_enable;
+-- that rename is tracked by the TODO there.)
 -- ASN1START
 ImmediateEnableRequest ::= [90] SEQUENCE { -- Tag 'BF5A' — UPDATE for v1.1: 5.9.15 — renamed from EnableUsingDDRequest
   refreshFlag BOOLEAN -- NEW in v1.1: 5.9.15 — indicating whether REFRESH is required
@@ -729,8 +730,8 @@ ProfileRollbackResponse ::= [88] SEQUENCE { -- Tag 'BF58'
 -- ConfigureImmediateProfileEnabling; sub-fields renamed (see 2.11.1.1.3).
 -- Response error set changed: removed unsignedAutoEnableConfigDisallowed,
 -- added associatedEimAlreadyExists.
--- TODO v1.1: no libipa file directly uses this; the generated libasn types
--- are referenced indirectly via Psmo.  Re-check after regeneration.
+-- Used by libipa/es10b_cfg_immediate_enable.c for the IPA-driven call; the same
+-- configuration also arrives eIM-driven through Psmo.configureImmediateEnable.
 -- ASN1START
 ConfigureImmediateProfileEnablingRequest ::= [89] SEQUENCE { -- Tag 'BF59' — UPDATE for v1.1: 5.9.17 — renamed
   immediateEnableFlag [0] NULL OPTIONAL,      -- UPDATE for v1.1: 5.9.17 — renamed from autoEnableFlag
@@ -1006,7 +1007,8 @@ EsipaMessageFromEimToIpa ::= CHOICE {
 -- invalidEimTransactionId(52) and undefinedError(127).
 -- UPDATE for v1.1: 6.3.2.1 — InitiateAuthenticationOkEsipa.euiccCiPKIdToBeUsed
 -- renamed to euiccCiPKIdentifierToBeUsed.
--- TODO v1.1: esipa_init_auth.c must populate/consume the new fields.
+-- esipa_init_auth.c populates eimTransactionId and reads the renamed field;
+-- both are covered by tests/esipa_bindings.
 -- ASN1START
 InitiateAuthenticationRequestEsipa ::= [57] SEQUENCE { -- Tag 'BF39'
   euiccChallenge [1] Octet16, -- random eUICC challenge

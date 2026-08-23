@@ -88,7 +88,7 @@ static int set_smdp_oid(OBJECT_IDENTIFIER_t *oid, const char *smdp_oid)
 }
 
 /* Apply the same configuration to the emulation state that a native IoT eUICC would store, so that
- * es10b_immediate_enable.c and es10b_enable_using_dd.c see it the way they see the PSMO-driven one.
+ * es10b_immediate_enable.c sees it the way it sees the PSMO-driven one.
  * A consumer eUICC has no eIM Configuration Data of its own, so the associatedEimAlreadyExists check
  * of section 5.9.17 is applied against what the emulation keeps for it. */
 static int cfg_immediate_enable_emu(struct ipa_context *ctx, bool immediate_enable, const char *smdp_oid,
