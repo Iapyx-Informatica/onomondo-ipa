@@ -66,7 +66,7 @@ static int dec_enable_using_dd_res(const struct ipa_buf *es10b_res)
 	rc = asn->immediateEnableResult;
 
 	if (rc == ImmediateEnableResponse__immediateEnableResult_ok) {
-		IPA_LOGP_ES10X("EnableUsingDD", LERROR, "function succeeded with status code %d=%s!\n",
+		IPA_LOGP_ES10X("EnableUsingDD", LINFO, "function succeeded with status code %d=%s!\n",
 			       rc, ipa_str_from_num(error_code_strings, rc, "(unknown)"));
 	} else {
 		IPA_LOGP_ES10X("EnableUsingDD", LERROR, "function failed with error code %d=%s!\n",
@@ -186,7 +186,7 @@ int enable_using_dd_emu(struct ipa_context *ctx)
 
 error:
 	if (rc == ImmediateEnableResponse__immediateEnableResult_ok) {
-		IPA_LOGP_ES10X("EnableUsingDD", LERROR,
+		IPA_LOGP_ES10X("EnableUsingDD", LINFO,
 			       "IoT eUICC emulation active, function succeeded with status code %d=%s!\n", rc,
 			       ipa_str_from_num(error_code_strings, rc, "(unknown)"));
 	} else {

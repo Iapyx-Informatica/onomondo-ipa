@@ -46,7 +46,7 @@ static int dec_prfle_rollback_res(struct ipa_es10b_prfle_rollback_res *res, cons
 		IPA_LOGP_ES10X("ProfileRollback", LERROR, "function failed with error code %ld=%s!\n",
 			       asn->cmdResult, ipa_str_from_num(error_code_strings, asn->cmdResult, "(unknown)"));
 	} else {
-		IPA_LOGP_ES10X("ProfileRollback", LERROR, "function succeeded with status code %ld=%s!\n",
+		IPA_LOGP_ES10X("ProfileRollback", LINFO, "function succeeded with status code %ld=%s!\n",
 			       asn->cmdResult, ipa_str_from_num(error_code_strings, asn->cmdResult, "(unknown)"));
 	}
 

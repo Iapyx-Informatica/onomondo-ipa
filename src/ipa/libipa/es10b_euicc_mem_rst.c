@@ -80,8 +80,8 @@ static const struct num_str_map sgp32_error_code_strings_resetImmediateEnableCon
  * code counts as success differs per field, so the caller decides and passes the verdict in. */
 static int eval_rst_result(const char *field, long value, bool success, const struct num_str_map *strings)
 {
-	IPA_LOGP_ES10X("eUICCMemoryReset", LERROR, "%s: function %s with status code %ld=%s!\n", field,
-		       success ? "succeeded" : "failed", value, ipa_str_from_num(strings, value, "(unknown)"));
+	IPA_LOGP_ES10X("eUICCMemoryReset", success ? LINFO : LERROR, "%s: function %s with status code %ld=%s!\n",
+		       field, success ? "succeeded" : "failed", value, ipa_str_from_num(strings, value, "(unknown)"));
 	return success ? 0 : -EINVAL;
 }
 
@@ -135,7 +135,7 @@ static int dec_euicc_mem_rst_res(const struct ipa_buf *es10b_res)
 								  "(unknown)"));
 		rc = -EINVAL;
 	} else {
-		IPA_LOGP_ES10X("eUICCMemoryReset", LERROR, "function succeeded with status code %ld=%s!\n",
+		IPA_LOGP_ES10X("eUICCMemoryReset", LINFO, "function succeeded with status code %ld=%s!\n",
 			       asn->resetResult, ipa_str_from_num(error_code_strings_resetResult, asn->resetResult,
 								  "(unknown)"));
 	}

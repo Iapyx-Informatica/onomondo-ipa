@@ -98,7 +98,7 @@ int ipa_ipae_activation(struct ipa_context *ctx)
 		 * takes an eUICC reset followed by a TERMINAL CAPABILITY that declares IPAd support --
 		 * which is exactly what ipa_euicc_reset_es10x() does. */
 		ipa_euicc_set_ipa_mode(ctx, IPA_MODE_IPAE);
-		IPA_LOGP_ES10X("IpaeActivation", LERROR,
+		IPA_LOGP_ES10X("IpaeActivation", LINFO,
 			       "the eUICC now runs its own IPAe; this IPAd is no longer the active IPA\n");
 	}
 

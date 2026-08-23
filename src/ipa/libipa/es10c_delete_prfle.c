@@ -43,7 +43,7 @@ static int dec_delete_prfle_res(struct ipa_es10c_delete_prfle_res *res, const st
 		IPA_LOGP_ES10X("DeleteProfile", LERROR, "function failed with error code %ld=%s!\n",
 			       asn->deleteResult, ipa_str_from_num(error_code_strings, asn->deleteResult, "(unknown)"));
 	} else {
-		IPA_LOGP_ES10X("DeleteProfile", LERROR, "function succeeded with status code %ld=%s!\n",
+		IPA_LOGP_ES10X("DeleteProfile", LINFO, "function succeeded with status code %ld=%s!\n",
 			       asn->deleteResult, ipa_str_from_num(error_code_strings, asn->deleteResult, "(unknown)"));
 	}
 
