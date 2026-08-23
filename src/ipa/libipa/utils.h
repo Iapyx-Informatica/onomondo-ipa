@@ -13,6 +13,7 @@
 #include <stdbool.h>
 
 struct asn_TYPE_descriptor_s;
+struct BIT_STRING_s;
 
 /* \! asn1c predates const-correctness: der_encode(), ber_decode() and free_struct() take non-const pointers even
  *    though they modify neither the type descriptor nor (when encoding) the source structure. Our own functions do
@@ -35,6 +36,9 @@ void ipa_asn1c_dump(const struct asn_TYPE_descriptor_s *td, const void *struct_p
 int ipa_cmp_case_insensitive(const char *str1, const char *str2, size_t len);
 bool ipa_tag_in_taglist(uint16_t tag, const struct ipa_buf *tag_list);
 size_t ipa_parse_btlv_hdr(size_t *len, uint16_t *tag, struct ipa_buf *buf);
+long ipa_parse_btlv_hdr_at(size_t *len, uint16_t *tag, const uint8_t *data, size_t data_len);
+unsigned int ipa_bit_string_num_bits(const struct BIT_STRING_s *bs);
+bool ipa_bit_string_get_named_bit(const struct BIT_STRING_s *bs, unsigned int bit);
 int ipa_strip_tlv_envelope(uint8_t *data, size_t data_len, uint16_t envelope_tag);
 void *ipa_asn1c_dup(const struct asn_TYPE_descriptor_s *td, const void *struct_ptr);
 

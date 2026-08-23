@@ -304,7 +304,20 @@ struct ipa_version {
 	uint8_t revision;
 };
 
-/*! What the eUICC reports about itself in EUICCInfo2.iotSpecificInfo, see GSMA SGP.32, section 5.9.2.
+/*! Which IPA is currently active, see GSMA SGP.32, section 3.8.4. IPAe and IPAd are mutually
+ *  exclusive, and which one is in charge is not something the eUICC is asked -- it follows from what
+ *  the device has told the eUICC, so the library tracks it as the link is brought up. */
+enum ipa_mode {
+	/*! Not settled yet: the eUICC has not been told which IPA the device supports. */
+	IPA_MODE_UNKNOWN = -1,
+	/*! IPAd is active -- this library is the IPA. Reached once TERMINAL CAPABILITY has declared
+	 *  IPAd support, which is what makes the eUICC leave its own IPAe deactivated. */
+	IPA_MODE_IPAD = 0,
+	/*! IPAe is active -- the IPA runs inside the eUICC and this library is not in charge. */
+	IPA_MODE_IPAE = 1,
+};
+
+/*! What the eUICC reports about itself in EUICCInfo2, see GSMA SGP.32, section 5.9.2.
  *  Fill it with ipa_get_euicc_caps() and use it to decide whether the ES10b triggers below apply to
  *  this eUICC at all. */
 struct ipa_euicc_caps {
@@ -322,6 +335,18 @@ struct ipa_euicc_caps {
 
 	/*! Number of entries in iot_version. */
 	size_t iot_version_count;
+
+	/*! The eUICC has an IPAe of its own (ISDRProprietaryApplicationTemplateIoT.ipaeSupported from the
+	 *  ISD-R SELECT FCI, section 3.8.4). This says an IPAe exists, not that it is running -- see
+	 *  ipa_mode for that. False also when the eUICC returned no such template at all, which is what
+	 *  an SGP.22 eUICC does. */
+	bool ipae_supported;
+
+	/*! Which IPA is active. Once the link is up this is IPA_MODE_IPAD: bringing it up declares IPAd
+	 *  support in TERMINAL CAPABILITY, and section 3.8.4 has the eUICC deactivate its IPAe in
+	 *  response. Unlike the other fields here this one is a state, not a property of the eUICC, and
+	 *  it changes if the IPAe is ever activated. */
+	enum ipa_mode ipa_mode;
 };
 
 /*! Read the eUICC's IoT capabilities, see GSMA SGP.32, section 5.9.2.
@@ -329,7 +354,8 @@ struct ipa_euicc_caps {
  *  the eUICC, so the result is cached in the context and later calls cost nothing. Call it any time
  *  after a successful ipa_init().
  *  In IoT eUICC emulation mode the underlying consumer eUICC supports neither mechanism, so both flags
- *  come back false and iot_version reports the SGP.32 version this IPA implements.
+ *  come back false, iot_version reports the SGP.32 version this IPA implements, and ipae_supported is
+ *  false -- a consumer eUICC has no IPAe.
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[out] caps filled in on success, untouched otherwise.
  *  \returns 0 on success, negative on error. */

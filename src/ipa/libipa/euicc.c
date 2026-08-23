@@ -15,7 +15,9 @@
 #include <onomondo/ipa/scard.h>
 #include <onomondo/ipa/log.h>
 #include <onomondo/ipa/ipad.h>
+#include <ISDRProprietaryApplicationTemplateIoT.h>
 #include "context.h"
+#include "utils.h"
 #include "euicc.h"
 
 #define STORE_DATA_CLA 0x80
@@ -635,6 +637,150 @@ struct ipa_buf *ipa_euicc_transceive_es10x(struct ipa_context *ctx, const struct
 	return es10x_res;
 }
 
+/* Tags of the ISD-R SELECT response, see ISO/IEC 7816-4 and GlobalPlatform. */
+#define FCI_TEMPLATE_TAG 0x6F
+#define FCI_PROPRIETARY_TAG 0xA5
+/* SGP.32, section 3.8.4: ISDRProprietaryApplicationTemplateIoT ::= [PRIVATE 1] SEQUENCE, tag 'E1'. */
+#define FCI_ISDR_PROPRIETARY_IOT_TAG 0xE1
+
+/*! Track which IPA is active, see SGP.32, section 3.8.4.  This is a property of the conversation, not
+ *  something the eUICC can be asked: it is our own TERMINAL CAPABILITY that settles it. */
+static void set_ipa_mode(struct ipa_context *ctx, enum ipa_mode mode)
+{
+	static const struct num_str_map mode_strings[] = {
+		{ IPA_MODE_IPAD, "IPAd" }, { IPA_MODE_IPAE, "IPAe" }, { 0, NULL }
+	};
+
+	if (ctx->ipa_mode == mode)
+		return;
+
+	ctx->ipa_mode = mode;
+	IPA_LOGP(SEUICC, LINFO, "active IPA is now %s\n", ipa_str_from_num(mode_strings, mode, "unknown"));
+}
+
+/* Find one TLV by tag among the TLVs packed into data[0..data_len).
+ * Returns a pointer to the whole TLV (tag included) and, through the out parameters, where its value
+ * starts and how long the whole thing is -- ber_decode() wants the former, a nested walk the latter. */
+static const uint8_t *find_tlv(uint16_t wanted, const uint8_t *data, size_t data_len, size_t *hdr_len,
+			       size_t *val_len)
+{
+	size_t offs = 0;
+
+	while (offs < data_len) {
+		uint16_t tag = 0;
+		size_t len = 0;
+		long hdr = ipa_parse_btlv_hdr_at(&len, &tag, data + offs, data_len - offs);
+
+		if (hdr < 0 || (size_t)hdr > data_len - offs || len > data_len - offs - (size_t)hdr)
+			return NULL;
+		if (tag == wanted) {
+			*hdr_len = (size_t)hdr;
+			*val_len = len;
+			return data + offs;
+		}
+		offs += (size_t)hdr + len;
+	}
+
+	return NULL;
+}
+
+/* Pull ISDRProprietaryApplicationTemplateIoT out of the SELECT response FCI.
+ *
+ * SGP.32 section 3.8.4 has the eUICC return it "within the FCI template after the objects defined in
+ * GlobalPlatform Card Specification", so it sits directly under '6F'.  Cards that group their
+ * proprietary objects under 'A5' are also accommodated, since that placement is common enough in the
+ * field that failing on it would cost us the template for no good reason. */
+static void parse_isdr_fci(struct ipa_context *ctx, const uint8_t *fci, size_t fci_len)
+{
+	ISDRProprietaryApplicationTemplateIoT_t *tmpl = NULL;
+	const uint8_t *body, *tlv;
+	size_t body_hdr, body_len, tlv_hdr, tlv_len;
+	asn_dec_rval_t rval;
+
+	body = find_tlv(FCI_TEMPLATE_TAG, fci, fci_len, &body_hdr, &body_len);
+	if (!body) {
+		IPA_LOGP(SEUICC, LDEBUG, "ISD-R SELECT response carries no FCI template\n");
+		return;
+	}
+	body += body_hdr;
+
+	tlv = find_tlv(FCI_ISDR_PROPRIETARY_IOT_TAG, body, body_len, &tlv_hdr, &tlv_len);
+	if (!tlv) {
+		const uint8_t *prop;
+		size_t prop_hdr, prop_len;
+
+		prop = find_tlv(FCI_PROPRIETARY_TAG, body, body_len, &prop_hdr, &prop_len);
+		if (prop)
+			tlv = find_tlv(FCI_ISDR_PROPRIETARY_IOT_TAG, prop + prop_hdr, prop_len, &tlv_hdr, &tlv_len);
+	}
+	if (!tlv) {
+		/* An SGP.22 eUICC carries the [PRIVATE 0] 'E0' template instead, and some cards return no
+		 * proprietary template at all.  Neither is our failure: section 3.8.4 puts the SHALL on
+		 * the eUICC, and nothing this IPA does depends on the answer. */
+		IPA_LOGP(SEUICC, LDEBUG, "ISD-R FCI carries no ISDRProprietaryApplicationTemplateIoT\n");
+		return;
+	}
+
+	rval = ber_decode(NULL, &asn_DEF_ISDRProprietaryApplicationTemplateIoT, (void **)&tmpl, tlv,
+			  tlv_hdr + tlv_len);
+	if (rval.code != RC_OK) {
+		IPA_LOGP(SEUICC, LERROR, "unable to decode ISDRProprietaryApplicationTemplateIoT from ISD-R FCI\n");
+		ASN_STRUCT_FREE(asn_DEF_ISDRProprietaryApplicationTemplateIoT, tmpl);
+		return;
+	}
+
+	ctx->isdr_fci.valid = true;
+	ctx->isdr_fci.ipae_supported =
+	    ipa_bit_string_get_named_bit(&tmpl->euiccConfiguration,
+					 ISDRProprietaryApplicationTemplateIoT__euiccConfiguration_ipaeSupported);
+
+	IPA_LOGP(SEUICC, LINFO, "eUICC reports IPAe %s, enabled profile: %s\n",
+		 ctx->isdr_fci.ipae_supported ? "supported" : "not supported",
+		 ipa_bit_string_get_named_bit(&tmpl->euiccConfiguration,
+					      ISDRProprietaryApplicationTemplateIoT__euiccConfiguration_enabledProfile)
+		 ? "yes" : "no");
+
+	/* Section 3.8.4: an eUICC with an IPAe runs it unless the device has claimed IPAd.  If the mode
+	 * is still unsettled when we learn this, the IPAe is what is in charge.  send_termcap() runs
+	 * before this today, so this does not fire -- it is the rule, not a guess about the order. */
+	if (ctx->ipa_mode == IPA_MODE_UNKNOWN && ctx->isdr_fci.ipae_supported)
+		set_ipa_mode(ctx, IPA_MODE_IPAE);
+
+	ASN_STRUCT_FREE(asn_DEF_ISDRProprietaryApplicationTemplateIoT, tmpl);
+}
+
+/* Fetch the FCI the ISD-R SELECT left waiting behind SW=61xx and hand it to parse_isdr_fci(). */
+static void get_isdr_fci(struct ipa_context *ctx, uint8_t fci_len)
+{
+	struct req_apdu req_apdu = { 0 };
+	struct res_apdu res_apdu = { 0 };
+	struct ipa_buf *buf_req = NULL;
+	struct ipa_buf *buf_res = NULL;
+
+	buf_res = ipa_buf_alloc(MAX_BLOCKSIZE_RX + 2);
+	assert(buf_res);
+
+	req_apdu.cla = GET_RESPONSE_CLA | ctx->cfg->euicc_channel;
+	req_apdu.ins = GET_RESPONSE_INS;
+	req_apdu.le = fci_len ? fci_len : 256;
+	buf_req = format_req_apdu(&req_apdu);
+
+	if (ipa_scard_transceive(ctx->scard_ctx, buf_res, buf_req) < 0) {
+		IPA_LOGP(SEUICC, LERROR, "unable to read the ISD-R FCI due to communication error\n");
+		ctx->check_scard = true;
+		goto exit;
+	}
+	if (parse_res_apdu(&res_apdu, buf_res) < 0 || (res_apdu.sw & 0xFF00) != 0x9000) {
+		IPA_LOGP(SEUICC, LERROR, "unable to read the ISD-R FCI, sw=%04x\n", res_apdu.sw);
+		goto exit;
+	}
+
+	parse_isdr_fci(ctx, res_apdu.data, res_apdu.le);
+exit:
+	IPA_FREE(buf_req);
+	IPA_FREE(buf_res);
+}
+
 /* Send terminal capablilities, see also 3gpp TS 102.221 V16.2.0, section 11.1.19.2.4 */
 static int send_termcap(struct ipa_context *ctx)
 {
@@ -680,6 +826,9 @@ static int send_termcap(struct ipa_context *ctx)
 	}
 
 	IPA_LOGP(SEUICC, LINFO, "TERMINAL CAPABILITIES sent\n");
+	/* SGP.32 3.8.4: having declared IPAd support (tag '84', b1 = 1) and sending no
+	 * IpaeActivationRequest, the eUICC SHALL NOT activate the IPAe -- so from here on we are it. */
+	set_ipa_mode(ctx, IPA_MODE_IPAD);
 exit:
 	IPA_FREE(buf_req);
 	IPA_FREE(buf_res);
@@ -736,6 +885,10 @@ static int select_isd_r(struct ipa_context *ctx)
 	}
 
 	IPA_LOGP(SEUICC, LINFO, "ISD-R selected\n");
+
+	/* SW=61xx says how many FCI bytes are waiting. Reading them is best effort: SGP.32 3.8.4 puts
+	 * the SHALL on the eUICC, and nothing this IPA does depends on what the template says. */
+	get_isdr_fci(ctx, res_apdu.sw & 0x00FF);
 exit:
 	IPA_FREE(buf_req);
 	IPA_FREE(buf_res);

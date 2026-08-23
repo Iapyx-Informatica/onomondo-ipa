@@ -99,7 +99,7 @@ struct ipa_context {
 	 *  (used from proc_euicc_pkg_dwnld_exec.c, proc_eim_pkg_retr.c and ipad.c) */
 	struct ipa_proc_eucc_pkg_dwnld_exec_res *proc_eucc_pkg_dwnld_exec_res;
 
-	/*! cached EUICCInfo2.iotSpecificInfo (SGP.32, section 5.9.2), filled by the first
+	/*! cached EUICCInfo2 capabilities (SGP.32, section 5.9.2), filled by the first
 	 *  ipa_get_euicc_caps() call. The eUICC cannot change what it reports here while it is powered,
 	 *  so one ES10b round trip is enough for the life of the context. */
 	struct {
@@ -109,6 +109,24 @@ struct ipa_context {
 		struct ipa_version *iot_version;
 		size_t iot_version_count;
 	} euicc_caps;
+
+	/*! Which IPA is active right now, see SGP.32, section 3.8.4. Unlike euicc_caps this is not read
+	 *  from the eUICC: it is tracked as the link is brought up, because the answer depends on what
+	 *  this IPA itself has told the eUICC. Declaring IPAd support in TERMINAL CAPABILITY is what
+	 *  makes the eUICC leave IPAe deactivated, so the mode only settles once that has been sent. */
+	enum ipa_mode ipa_mode;
+
+	/*! ISDRProprietaryApplicationTemplateIoT from the ISD-R SELECT FCI (SGP.32, section 3.8.4).
+	 *  valid stays false when the eUICC did not return the template -- an SGP.22 card, or one that
+	 *  answered the SELECT without an FCI. ipae_supported is a static property of the eUICC and does
+	 *  not change with ipa_mode: it says an IPAe exists, not that it is running.
+	 *  The template's other bit, enabledProfile, is deliberately not kept here. It is true only at
+	 *  the instant of the SELECT and any later enable/disable makes it a lie; ES10c GetProfilesInfo
+	 *  is the source for that question. */
+	struct {
+		bool valid;
+		bool ipae_supported;
+	} isdr_fci;
 
 	/*! Non volatile storage: Everything stored in this struct is loaded by the API user from a non volatile memory
 	 *  location on startup (ipa_new_ctx) and stored to a non volatile location on exit (ipa_free_ctx). */

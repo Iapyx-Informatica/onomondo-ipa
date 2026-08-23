@@ -234,6 +234,9 @@ struct ipa_context *ipa_new_ctx(struct ipa_config *cfg, struct ipa_buf *nvstate)
 	assert(ctx);
 
 	ctx->cfg = cfg;
+	/* Not the zero value: IPA_MODE_IPAD is 0, and nothing has been established yet. The mode only
+	 * settles once TERMINAL CAPABILITY has told the eUICC which IPA the device supports. */
+	ctx->ipa_mode = IPA_MODE_UNKNOWN;
 	nvstate_deserialize(&ctx->nvstate, nvstate);
 
 	return ctx;

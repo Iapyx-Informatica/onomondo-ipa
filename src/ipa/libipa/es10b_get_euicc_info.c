@@ -147,6 +147,7 @@ static void convert_euicc_info_2(struct SGP32_EUICCInfo2 *euicc_info_out, const 
 	};
 
 	euicc_info_out->iotSpecificInfo = &iot_specific_info;
+
 }
 
 static int dec_get_euicc_info2(struct ipa_es10b_euicc_info *euicc_info, const struct ipa_buf *es10b_res)
@@ -302,6 +303,10 @@ done:
 	caps->fallback_supported = ctx->euicc_caps.fallback_supported;
 	caps->iot_version = ctx->euicc_caps.iot_version;
 	caps->iot_version_count = ctx->euicc_caps.iot_version_count;
+	/* Not cached alongside the rest: these come from the ISD-R SELECT, so they are already known by
+	 * the time any ES10b command can be sent, and ipa_mode is a state that may still change. */
+	caps->ipae_supported = ctx->isdr_fci.ipae_supported;
+	caps->ipa_mode = ctx->ipa_mode;
 	rc = 0;
 
 leave:

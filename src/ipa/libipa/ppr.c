@@ -36,37 +36,6 @@
 #include "es10c_get_prfle_info.h"
 #include "ppr.h"
 
-/* Read named bit N of a DER BIT STRING. Bits beyond the encoded length are absent and count as zero
- * (SGP.22, section 5.7.22: "bits that are not present SHALL be considered zero"). */
-static bool bit_string_get_named_bit(const BIT_STRING_t *bs, unsigned int bit)
-{
-	unsigned int num_bits;
-
-	if (!bs || !bs->buf || bs->size <= 0)
-		return false;
-
-	num_bits = (unsigned int)bs->size * 8;
-	if (bs->bits_unused > 0 && (unsigned int)bs->bits_unused < num_bits)
-		num_bits -= (unsigned int)bs->bits_unused;
-	if (bit >= num_bits)
-		return false;
-
-	return (bs->buf[bit / 8] & (0x80 >> (bit % 8))) != 0;
-}
-
-static unsigned int bit_string_num_bits(const BIT_STRING_t *bs)
-{
-	unsigned int num_bits;
-
-	if (!bs || !bs->buf || bs->size <= 0)
-		return 0;
-
-	num_bits = (unsigned int)bs->size * 8;
-	if (bs->bits_unused > 0 && (unsigned int)bs->bits_unused < num_bits)
-		num_bits -= (unsigned int)bs->bits_unused;
-
-	return num_bits;
-}
 
 /* Is any Profile Policy Rule at all set? pprUpdateControl (bit 0) does not count: it has no meaning in
  * ES8+.StoreMetadata (SGP.22, section 4.4.2) and the LPA ignores it in the RAT as well (section 5.7.22). */
@@ -74,8 +43,8 @@ static bool ppr_any_set(const PprIds_t *pprs)
 {
 	unsigned int bit;
 
-	for (bit = PprIds_ppr1; bit < bit_string_num_bits(pprs); bit++) {
-		if (bit_string_get_named_bit(pprs, bit))
+	for (bit = PprIds_ppr1; bit < ipa_bit_string_num_bits(pprs); bit++) {
+		if (ipa_bit_string_get_named_bit(pprs, bit))
 			return true;
 	}
 
@@ -88,8 +57,8 @@ static bool ppr_any_unknown_set(const PprIds_t *pprs)
 {
 	unsigned int bit;
 
-	for (bit = PprIds_ppr2 + 1; bit < bit_string_num_bits(pprs); bit++) {
-		if (bit_string_get_named_bit(pprs, bit))
+	for (bit = PprIds_ppr2 + 1; bit < ipa_bit_string_num_bits(pprs); bit++) {
+		if (ipa_bit_string_get_named_bit(pprs, bit))
 			return true;
 	}
 
@@ -160,7 +129,7 @@ static int check_ppr(unsigned int ppr, const OperatorId_t *profile_owner, const 
 	for (i = 0; i < rat->list.count; i++) {
 		const ProfilePolicyAuthorisationRule_t *ppar = rat->list.array[i];
 
-		if (!ppar || !bit_string_get_named_bit(&ppar->pprIds, ppr))
+		if (!ppar || !ipa_bit_string_get_named_bit(&ppar->pprIds, ppr))
 			continue;
 
 		for (j = 0; j < ppar->allowedOperators.list.count; j++) {
@@ -168,7 +137,7 @@ static int check_ppr(unsigned int ppr, const OperatorId_t *profile_owner, const 
 				continue;
 
 			*consent_required =
-			    bit_string_get_named_bit(&ppar->pprFlags,
+			    ipa_bit_string_get_named_bit(&ppar->pprFlags,
 						     ProfilePolicyAuthorisationRule__pprFlags_consentRequired);
 			return 0;
 		}
@@ -215,7 +184,7 @@ int ipa_ppr_check_against_rat(const PprIds_t *profile_pprs, const OperatorId_t *
 	for (ppr = PprIds_ppr1; ppr <= PprIds_ppr2; ppr++) {
 		bool ppr_consent = false;
 
-		if (!bit_string_get_named_bit(profile_pprs, ppr))
+		if (!ipa_bit_string_get_named_bit(profile_pprs, ppr))
 			continue;
 
 		if (check_ppr(ppr, profile_owner, rat, &ppr_consent) < 0) {
@@ -352,7 +321,7 @@ int ipa_ppr_verify_metadata(struct ipa_context *ctx, const StoreMetadataRequest_
 	/* PPR1 says "disabling of this profile is not allowed". Installing it next to an operational profile would
 	 * leave the eUICC with a profile that can never be switched away from, so it is forbidden regardless of what
 	 * the RAT says (SGP.22, section 3.1.3, step 7). */
-	if (!bit_string_get_named_bit(metadata->profilePolicyRules, PprIds_ppr1))
+	if (!ipa_bit_string_get_named_bit(metadata->profilePolicyRules, PprIds_ppr1))
 		return 0;
 
 	rc = operational_profile_installed(ctx, &operational_installed);

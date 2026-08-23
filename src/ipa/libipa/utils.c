@@ -17,6 +17,7 @@
 #include <asn_application.h>
 #include "utils.h"
 #include "length.h"
+#include <BIT_STRING.h>
 
 /* \! Lookup a numeric value in a num to string map and return the corresponding string.
  *  \param[in] map pointer num to str map.
@@ -328,7 +329,7 @@ bool ipa_tag_in_taglist(uint16_t tag, const struct ipa_buf *tag_list)
 /* Returns the header length (offset to the value part) on success, or a
  * negative error code.  The return type is signed so callers can reliably
  * distinguish an error from a valid length (see ipa_strip_tlv_envelope). */
-static long parse_btlv_hdr(size_t *len, uint16_t *tag, uint8_t *data, size_t data_len)
+static long parse_btlv_hdr(size_t *len, uint16_t *tag, const uint8_t *data, size_t data_len)
 {
 	uint8_t tag_len = 1;
 	uint16_t value_len = 0;
@@ -387,6 +388,37 @@ static long parse_btlv_hdr(size_t *len, uint16_t *tag, uint8_t *data, size_t dat
 	return skip_len;
 }
 
+/* Number of named bits actually encoded in a DER BIT STRING (its length minus the unused-bit count). */
+unsigned int ipa_bit_string_num_bits(const BIT_STRING_t *bs)
+{
+	unsigned int num_bits;
+
+	if (!bs || !bs->buf || bs->size <= 0)
+		return 0;
+
+	num_bits = (unsigned int)bs->size * 8;
+	if (bs->bits_unused > 0 && (unsigned int)bs->bits_unused < num_bits)
+		num_bits -= (unsigned int)bs->bits_unused;
+
+	return num_bits;
+}
+
+/* Read named bit N of a DER BIT STRING. Bits beyond the encoded length are absent and count as zero
+ * (SGP.22, section 5.7.22: "bits that are not present SHALL be considered zero"). */
+bool ipa_bit_string_get_named_bit(const BIT_STRING_t *bs, unsigned int bit)
+{
+	unsigned int num_bits;
+
+	if (!bs || !bs->buf || bs->size <= 0)
+		return false;
+
+	num_bits = ipa_bit_string_num_bits(bs);
+	if (bit >= num_bits)
+		return false;
+
+	return (bs->buf[bit / 8] & (0x80 >> (bit % 8))) != 0;
+}
+
 /*! Parse a BER TLV tag from an ipa_buf.
  *  \param[out] len length as specified in the TLV header (caller may pass NULL if not interested).
  *  \param[out] tag tag value from the TLV header (caller may pass NULL if not interested).
@@ -394,6 +426,21 @@ static long parse_btlv_hdr(size_t *len, uint16_t *tag, uint8_t *data, size_t dat
 size_t ipa_parse_btlv_hdr(size_t *len, uint16_t *tag, struct ipa_buf *buf)
 {
 	return parse_btlv_hdr(len, tag, buf->data, buf->len);
+}
+
+/*! Parse a BER TLV header from a plain buffer, so a caller can walk a sequence of TLVs by advancing an
+ *  offset. Same contract as ipa_parse_btlv_hdr(), except that errors come back negative rather than as
+ *  a size_t the caller has to second-guess.
+ *  \param[out] len length as specified in the TLV header (caller may pass NULL if not interested).
+ *  \param[out] tag tag value from the TLV header (caller may pass NULL if not interested).
+ *  \param[in] data buffer holding the TLV.
+ *  \param[in] data_len number of bytes readable at data.
+ *  \returns length of the TLV header (offset to the value part), negative on error. */
+long ipa_parse_btlv_hdr_at(size_t *len, uint16_t *tag, const uint8_t *data, size_t data_len)
+{
+	if (!data || data_len < 2)
+		return -EINVAL;
+	return parse_btlv_hdr(len, tag, data, data_len);
 }
 
 /*! Strip a TLV envelope (if it is present) from a buffer.
