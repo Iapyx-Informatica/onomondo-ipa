@@ -291,6 +291,157 @@ struct EuiccResultData *iot_emo_do_configureImmediateEnable_psmo(struct ipa_cont
 	return euicc_result_data;
 }
 
+/* Is any Profile currently flagged as the Fallback Profile?  The emulation keeps that flag in nvstate
+ * rather than in the Profile Metadata, so "no Fallback Profile" is an all-zero ICCID. */
+static bool fallback_profile_set(const struct ipa_context *ctx)
+{
+	static const uint8_t none[IPA_LEN_ICCID] = { 0 };
+
+	return memcmp(ctx->nvstate.iot_euicc_emu.fallback_iccid, none, IPA_LEN_ICCID) != 0;
+}
+
+/* Look one Profile up by ICCID in a GetProfilesInfo result.  Returns NULL when the eUICC does not
+ * have it, which is what iccidOrAidNotFound reports. */
+static const struct SGP32_ProfileInfo *find_profile_by_iccid(const struct ipa_es10c_get_prfle_info_res *res,
+							     const uint8_t *iccid)
+{
+	int i;
+
+	if (!res || !res->sgp32_res ||
+	    res->sgp32_res->present != SGP32_ProfileInfoListResponse_PR_profileInfoListOk)
+		return NULL;
+
+	for (i = 0; i < res->sgp32_res->choice.profileInfoListOk.list.count; i++) {
+		const struct SGP32_ProfileInfo *p = res->sgp32_res->choice.profileInfoListOk.list.array[i];
+
+		if (p->iccid && p->iccid->size == IPA_LEN_ICCID && !memcmp(p->iccid->buf, iccid, IPA_LEN_ICCID))
+			return p;
+	}
+
+	return NULL;
+}
+
+static bool profile_is_enabled(const struct SGP32_ProfileInfo *p)
+{
+	return p && p->profileState && *p->profileState == ProfileState_enabled;
+}
+
+/* SGP.32 section 3.4.6: set the Fallback Attribute on the target Profile.
+ *
+ * The steps below follow the procedure literally, with one deliberate departure.  Step 4 has the
+ * ISD-R refuse unless the Profile carries fallbackAllowed (tag '9F67'), a flag the Profile Owner puts
+ * in the Metadata at generation time.  A consumer eUICC has no such Metadata and never reports it, so
+ * enforcing it here would make the Fallback Mechanism permanently unreachable under emulation -- the
+ * opposite of what the emulation is for.  Absence is therefore treated as permission, and said so in
+ * the log; an explicit FALSE is still refused.  The same reasoning covers the Emergency Profile check
+ * in step 4: ecallIndication never appears on a consumer eUICC either.
+ */
+struct EuiccResultData *iot_emo_do_setFallbackAttribute_psmo(struct ipa_context *ctx,
+							     const struct Psmo__setFallbackAttribute
+							     *setFallbackAttribute_psmo)
+{
+	struct EuiccResultData *euicc_result_data = IPA_ALLOC_ZERO(struct EuiccResultData);
+	struct ipa_es10c_get_prfle_info_res *get_prfle_info_res = NULL;
+	const struct SGP32_ProfileInfo *target;
+	long result = SetFallbackAttributeResult_undefinedError;
+
+	euicc_result_data->present = EuiccResultData_PR_setFallbackAttributeResult;
+
+	if (setFallbackAttribute_psmo->iccid.size != IPA_LEN_ICCID) {
+		IPA_LOGP_ES10X("LoadEuiccPackage", LERROR, "setFallbackAttribute: malformed ICCID\n");
+		result = SetFallbackAttributeResult_iccidOrAidNotFound;
+		goto leave;
+	}
+
+	get_prfle_info_res = ipa_es10c_get_prfle_info(ctx, NULL);
+
+	/* Step 2: find the target Profile. */
+	target = find_profile_by_iccid(get_prfle_info_res, setFallbackAttribute_psmo->iccid.buf);
+	if (!target) {
+		IPA_LOGP_ES10X("LoadEuiccPackage", LERROR, "setFallbackAttribute: no profile with ICCID %s\n",
+			       ipa_hexdump(setFallbackAttribute_psmo->iccid.buf, IPA_LEN_ICCID));
+		result = SetFallbackAttributeResult_iccidOrAidNotFound;
+		goto leave;
+	}
+
+	/* Step 3: already the Fallback Profile -- nothing to do, and that is a success. */
+	if (!memcmp(ctx->nvstate.iot_euicc_emu.fallback_iccid, setFallbackAttribute_psmo->iccid.buf,
+		    IPA_LEN_ICCID)) {
+		result = SetFallbackAttributeResult_ok;
+		goto leave;
+	}
+
+	/* Step 4: fallbackAllowed must not be present-and-false. */
+	if (target->fallbackAllowed && !*target->fallbackAllowed) {
+		IPA_LOGP_ES10X("LoadEuiccPackage", LERROR,
+			       "setFallbackAttribute: the profile owner does not allow fallback\n");
+		result = SetFallbackAttributeResult_fallbackNotAllowed;
+		goto leave;
+	}
+	if (!target->fallbackAllowed)
+		IPA_LOGP_ES10X("LoadEuiccPackage", LINFO,
+			       "setFallbackAttribute: profile carries no fallbackAllowed flag, "
+			       "IoT eUICC emulation active, treating it as allowed\n");
+
+	/* Step 5: an existing Fallback Profile must be disabled before it gives up the attribute. */
+	if (fallback_profile_set(ctx)) {
+		const struct SGP32_ProfileInfo *current =
+		    find_profile_by_iccid(get_prfle_info_res, ctx->nvstate.iot_euicc_emu.fallback_iccid);
+
+		if (profile_is_enabled(current)) {
+			IPA_LOGP_ES10X("LoadEuiccPackage", LERROR,
+				       "setFallbackAttribute: the current fallback profile is enabled\n");
+			result = SetFallbackAttributeResult_fallbackProfileEnabled;
+			goto leave;
+		}
+	}
+
+	memcpy(ctx->nvstate.iot_euicc_emu.fallback_iccid, setFallbackAttribute_psmo->iccid.buf, IPA_LEN_ICCID);
+	IPA_LOGP_ES10X("LoadEuiccPackage", LINFO, "setFallbackAttribute: fallback profile is now ICCID %s\n",
+		       ipa_hexdump(ctx->nvstate.iot_euicc_emu.fallback_iccid, IPA_LEN_ICCID));
+	result = SetFallbackAttributeResult_ok;
+
+leave:
+	ipa_es10c_get_prfle_info_res_free(get_prfle_info_res);
+	euicc_result_data->choice.setFallbackAttributeResult = result;
+	return euicc_result_data;
+}
+
+/* SGP.32 section 3.4.7: unset the Fallback Attribute, leaving no Fallback Profile on the eUICC. */
+struct EuiccResultData *iot_emo_do_unsetFallbackAttribute_psmo(struct ipa_context *ctx)
+{
+	struct EuiccResultData *euicc_result_data = IPA_ALLOC_ZERO(struct EuiccResultData);
+	struct ipa_es10c_get_prfle_info_res *get_prfle_info_res = NULL;
+	long result;
+
+	euicc_result_data->present = EuiccResultData_PR_unsetFallbackAttributeResult;
+
+	/* Step 1a: nothing carries the attribute. */
+	if (!fallback_profile_set(ctx)) {
+		IPA_LOGP_ES10X("LoadEuiccPackage", LERROR, "unsetFallbackAttribute: no fallback profile is set\n");
+		result = UnsetFallbackAttributeResult_noFallbackAttribute;
+		goto leave;
+	}
+
+	/* Step 1b: only a disabled Fallback Profile may give up the attribute. */
+	get_prfle_info_res = ipa_es10c_get_prfle_info(ctx, NULL);
+	if (profile_is_enabled(find_profile_by_iccid(get_prfle_info_res, ctx->nvstate.iot_euicc_emu.fallback_iccid))) {
+		IPA_LOGP_ES10X("LoadEuiccPackage", LERROR,
+			       "unsetFallbackAttribute: the fallback profile is enabled\n");
+		result = UnsetFallbackAttributeResult_fallbackProfileEnabled;
+		goto leave;
+	}
+
+	memset(ctx->nvstate.iot_euicc_emu.fallback_iccid, 0, IPA_LEN_ICCID);
+	IPA_LOGP_ES10X("LoadEuiccPackage", LINFO, "unsetFallbackAttribute: no fallback profile any more\n");
+	result = UnsetFallbackAttributeResult_ok;
+
+leave:
+	ipa_es10c_get_prfle_info_res_free(get_prfle_info_res);
+	euicc_result_data->choice.unsetFallbackAttributeResult = result;
+	return euicc_result_data;
+}
+
 struct EuiccResultData *iot_emo_do_addEim_eco(struct ipa_context *ctx, const struct EimConfigurationData *addEim_eco)
 {
 	struct EuiccResultData *euicc_result_data = IPA_ALLOC_ZERO(struct EuiccResultData);
@@ -637,6 +788,13 @@ struct ipa_es10b_load_euicc_pkg_res *load_euicc_pkg_iot_emu(struct ipa_context *
 			case Psmo_PR_configureImmediateEnable:
 				psmo_result =
 				    iot_emo_do_configureImmediateEnable_psmo(ctx, &psmo->choice.configureImmediateEnable);
+				break;
+			case Psmo_PR_setFallbackAttribute:
+				psmo_result =
+				    iot_emo_do_setFallbackAttribute_psmo(ctx, &psmo->choice.setFallbackAttribute);
+				break;
+			case Psmo_PR_unsetFallbackAttribute:
+				psmo_result = iot_emo_do_unsetFallbackAttribute_psmo(ctx);
 				break;
 			default:
 				IPA_LOGP_ES10X("LoadEuiccPackage", LERROR, "ignoring invalid or unsupported PSMO!\n");

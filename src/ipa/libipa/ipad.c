@@ -122,6 +122,17 @@ static void nvstate_deserialize(struct ipa_nvstate *nvstate, struct ipa_buf *nvs
 		return;
 	}
 
+	/* A stored image written by an older build can be shorter than the current struct -- growing a
+	 * statically allocated member is enough. Check the length before the copy, because the version
+	 * field that would reject it lives inside the bytes we are about to read. */
+	if (nvstate_bin->len < sizeof(*nvstate)) {
+		IPA_LOGP(SIPA, LERROR,
+			 "cannot deserialize non volatile state, it is %zu bytes but at least %zu are needed\n",
+			 nvstate_bin->len, sizeof(*nvstate));
+		nvstate_reset(nvstate);
+		return;
+	}
+
 	/* deserialize statically allocated struct members and check version */
 	memcpy((uint8_t *) nvstate, nvstate_bin->data, sizeof(*nvstate));
 	nvstate_data = nvstate_bin->data + sizeof(*nvstate);

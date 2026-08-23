@@ -10,7 +10,7 @@
 #include <onomondo/ipa/ipad.h>
 #include <onomondo/ipa/utils.h>
 
-#define IPA_NVSTATE_VERSION 3
+#define IPA_NVSTATE_VERSION 4
 
 /*! Whether the IoT eUICC emulation may run, see ipa_config.iot_euicc_emu_enabled.
  *
@@ -52,6 +52,13 @@ struct ipa_nvstate {
 			struct ipa_buf *smdp_oid;     /* UPDATE for v1.1: 2.11.1.1.3 — corresponds to defaultSmdpOid */
 			struct ipa_buf *smdp_address; /* UPDATE for v1.1: 2.11.1.1.3 — corresponds to defaultSmdpAddress */
 		} auto_enable;
+
+		/*! ICCID of the Profile carrying the Fallback Attribute, all-zero when there is none.
+		 * SGP.32 section 4.4 keeps this flag in the Profile Metadata (ProfileInfo.fallbackAttribute,
+		 * tag '9F26'), which a consumer eUICC has no room for, so the emulation holds it here.
+		 * Fixed size on purpose: it rides along in the wholesale serialization of this struct and
+		 * needs no entry in nvstate_serialize()/_deserialize()/_free_contents(). */
+		uint8_t fallback_iccid[IPA_LEN_ICCID];
 	} iot_euicc_emu;
 
 } __attribute__((packed));
