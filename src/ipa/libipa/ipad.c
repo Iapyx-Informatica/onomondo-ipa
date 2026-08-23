@@ -149,7 +149,9 @@ int eim_init(struct ipa_context *ctx)
 	struct EimConfigurationData *eim_cfg_data_item = NULL;
 	long i;
 
-	eim_cfg_data = ipa_es10b_get_eim_cfg_data(ctx);
+	/* Only the preferred eIM is wanted; when none is configured this asks for the whole list and the
+	 * filter below picks the first entry. */
+	eim_cfg_data = ipa_es10b_get_eim_cfg_data(ctx, ctx->cfg->preferred_eim_id);
 	if (!eim_cfg_data) {
 		IPA_LOGP(SIPA, LERROR, "cannot read EimConfigurationData from eUICC\n");
 		goto error;

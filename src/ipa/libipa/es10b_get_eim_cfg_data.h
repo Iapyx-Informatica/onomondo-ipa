@@ -40,7 +40,14 @@ struct ipa_es10b_eim_cfg_data {
 	long eim_cfg_data_list_count;
 };
 
-struct ipa_es10b_eim_cfg_data *ipa_es10b_get_eim_cfg_data(struct ipa_context *ctx);
+/*! Read eIM Configuration Data from the eUICC, see GSMA SGP.32, section 5.9.18.
+ *  \param[inout] ctx pointer to ipa_context.
+ *  \param[in] eim_id when set, sent as searchCriteria.eimId so the eUICC returns only that entry;
+ *             NULL or empty asks for the whole list. Callers that want one specific eIM should pass it
+ *             here and still run ipa_es10b_get_eim_cfg_data_filter() on the result -- the filter costs
+ *             nothing and does not assume the eUICC honoured the criteria.
+ *  \returns newly allocated response, NULL on error. */
+struct ipa_es10b_eim_cfg_data *ipa_es10b_get_eim_cfg_data(struct ipa_context *ctx, const char *eim_id);
 void ipa_es10b_get_eim_cfg_data_free(struct ipa_es10b_eim_cfg_data *res);
 
 struct EimConfigurationData *ipa_es10b_get_eim_cfg_data_filter(struct ipa_es10b_eim_cfg_data *res, char *eim_id);

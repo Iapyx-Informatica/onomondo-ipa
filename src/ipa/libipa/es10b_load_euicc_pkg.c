@@ -305,7 +305,8 @@ struct EuiccResultData *iot_emo_do_addEim_eco(struct ipa_context *ctx, const str
 	euicc_result_data->choice.addEimResult.choice.addEimResultCode = AddEimResult__addEimResultCode_undefinedError;
 
 	/* Decode existing eIM configuration */
-	eim_cfg_data = ipa_es10b_get_eim_cfg_data(ctx);
+	/* NULL: these rebuild or enumerate the whole eIM list, so no searchCriteria. */
+	eim_cfg_data = ipa_es10b_get_eim_cfg_data(ctx, NULL);
 	if (!eim_cfg_data || !eim_cfg_data->res) {
 		IPA_LOGP_ES10X("LoadEuiccPackage", LERROR,
 			       "IoT eUICC emulation active, addEim eCO failed, unable to retrieve eimConfigurationData!\n");
@@ -381,7 +382,8 @@ struct EuiccResultData *iot_emo_do_deleteEim_eco(struct ipa_context *ctx, const 
 	euicc_result_data->choice.deleteEimResult = DeleteEimResult_undefinedError;
 
 	/* Decode existing eIM configuration */
-	eim_cfg_data = ipa_es10b_get_eim_cfg_data(ctx);
+	/* NULL: these rebuild or enumerate the whole eIM list, so no searchCriteria. */
+	eim_cfg_data = ipa_es10b_get_eim_cfg_data(ctx, NULL);
 	if (!eim_cfg_data || !eim_cfg_data->res) {
 		IPA_LOGP_ES10X("LoadEuiccPackage", LERROR,
 			       "IoT eUICC emulation active, deleteEim eCO failed, unable to retrieve eimConfigurationData!\n");
@@ -442,7 +444,8 @@ struct EuiccResultData *iot_emo_do_updateEim_eco(struct ipa_context *ctx,
 	euicc_result_data->choice.deleteEimResult = UpdateEimResult_undefinedError;
 
 	/* Decode existing eIM configuration */
-	eim_cfg_data = ipa_es10b_get_eim_cfg_data(ctx);
+	/* NULL: these rebuild or enumerate the whole eIM list, so no searchCriteria. */
+	eim_cfg_data = ipa_es10b_get_eim_cfg_data(ctx, NULL);
 	if (!eim_cfg_data || !eim_cfg_data->res) {
 		IPA_LOGP_ES10X("LoadEuiccPackage", LERROR,
 			       "IoT eUICC emulation active, updateEim eCO failed, unable to retrieve eimConfigurationData!\n");
@@ -529,7 +532,8 @@ struct EuiccResultData *iot_emo_do_listEim_eco(struct ipa_context *ctx, const st
 	/* This eCO Has no parameters, so listEim_eco is just an empty struct that has to be present */
 	assert(listEim_eco);
 
-	eim_cfg_data = ipa_es10b_get_eim_cfg_data(ctx);
+	/* NULL: these rebuild or enumerate the whole eIM list, so no searchCriteria. */
+	eim_cfg_data = ipa_es10b_get_eim_cfg_data(ctx, NULL);
 	if (!eim_cfg_data) {
 		euicc_result_data->choice.listEimResult.present = ListEimResult_PR_listEimError;
 		/* UPDATE for v1.1: 2.11.2 - ListEimResult.listEimError dropped commandError(7);

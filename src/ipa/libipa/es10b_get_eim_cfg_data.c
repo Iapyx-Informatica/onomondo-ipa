@@ -161,13 +161,23 @@ static int dec_get_eim_cfg_data(struct ipa_es10b_eim_cfg_data *eim_cfg_data, con
 	return 0;
 }
 
-static struct ipa_es10b_eim_cfg_data *get_eim_cfg_data(struct ipa_context *ctx)
+/* SGP.32 5.9.18: searchCriteria.eimId has the eUICC return only the entry with that identifier,
+ * instead of the whole list for the IPA to sift through. */
+static struct ipa_es10b_eim_cfg_data *get_eim_cfg_data(struct ipa_context *ctx, const char *eim_id)
 {
 	struct ipa_buf *es10a_req = NULL;
 	struct ipa_buf *es10a_res = NULL;
 	struct ipa_es10b_eim_cfg_data *eim_cfg_data = IPA_ALLOC_ZERO(struct ipa_es10b_eim_cfg_data);
 	struct GetEimConfigurationDataRequest get_eim_cfg_data_req = { 0 };
+	struct GetEimConfigurationDataRequest__searchCriteria search_criteria = { 0 };
 	int rc;
+
+	if (eim_id && eim_id[0] != '\0') {
+		search_criteria.present = GetEimConfigurationDataRequest__searchCriteria_PR_eimId;
+		search_criteria.choice.eimId.buf = (uint8_t *)eim_id;
+		search_criteria.choice.eimId.size = strlen(eim_id);
+		get_eim_cfg_data_req.searchCriteria = &search_criteria;
+	}
 
 	es10a_req =
 	    ipa_es10x_req_enc(&asn_DEF_GetEimConfigurationDataRequest, &get_eim_cfg_data_req,
@@ -199,7 +209,24 @@ error:
 	return NULL;
 }
 
-static struct ipa_es10b_eim_cfg_data *get_eim_cfg_data_iot_emu(struct ipa_context *ctx)
+/* Apply searchCriteria.eimId to a decoded list, so that the emulated eUICC answers the same shape a
+ * real one would rather than quietly leaving the filtering to the caller. */
+static void apply_search_criteria(struct ipa_es10b_eim_cfg_data *eim_cfg_data, const char *eim_id)
+{
+	long i;
+
+	if (!eim_id || eim_id[0] == '\0' || !eim_cfg_data->res)
+		return;
+
+	/* Backwards: asn_set_del() fills the freed slot with the last element. */
+	for (i = eim_cfg_data->res->eimConfigurationDataList.list.count - 1; i >= 0; i--) {
+		if (!IPA_ASN_STR_CMP_BUF(&eim_cfg_data->res->eimConfigurationDataList.list.array[i]->eimId, eim_id,
+					 strlen(eim_id)))
+			asn_set_del(&eim_cfg_data->res->eimConfigurationDataList.list, i, 1);
+	}
+}
+
+static struct ipa_es10b_eim_cfg_data *get_eim_cfg_data_iot_emu(struct ipa_context *ctx, const char *eim_id)
 {
 	struct ipa_buf *es10a_req = NULL;
 	struct ipa_buf *es10a_res = NULL;
@@ -219,6 +246,8 @@ static struct ipa_es10b_eim_cfg_data *get_eim_cfg_data_iot_emu(struct ipa_contex
 	if (rc < 0)
 		goto error;
 
+	/* The stored BER is always the whole list; a real eUICC would have filtered it for us. */
+	apply_search_criteria(eim_cfg_data, eim_id);
 	convert_get_eim_cfg_data(eim_cfg_data);
 
 	IPA_FREE(es10a_req);
@@ -234,12 +263,12 @@ error:
 /*! Function (ES10b): GetEimConfigurationData.
  *  \param[inout] ctx pointer to ipa_context.
  *  \returns pointer newly allocated struct with function result, NULL on error. */
-struct ipa_es10b_eim_cfg_data *ipa_es10b_get_eim_cfg_data(struct ipa_context *ctx)
+struct ipa_es10b_eim_cfg_data *ipa_es10b_get_eim_cfg_data(struct ipa_context *ctx, const char *eim_id)
 {
 	if (IPA_EUICC_EMU(ctx))
-		return get_eim_cfg_data_iot_emu(ctx);
+		return get_eim_cfg_data_iot_emu(ctx, eim_id);
 	else
-		return get_eim_cfg_data(ctx);
+		return get_eim_cfg_data(ctx, eim_id);
 }
 
 static void get_eim_cfg_data_free_list(struct ipa_eim_cfg_data **eim_cfg_data_list, long eim_cfg_data_list_count)

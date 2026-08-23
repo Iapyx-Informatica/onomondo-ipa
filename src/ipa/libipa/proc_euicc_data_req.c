@@ -199,7 +199,7 @@ int ipa_proc_euicc_data_req(struct ipa_context *ctx, const struct ipa_proc_euicc
 	if (ipa_tag_in_taglist(0x84, tag_list)) {
 		struct EimConfigurationData *eim_cfg_data_item;
 		IPA_LOGP(SIPA, LINFO, "eIM asks for Association token\n");
-		eim_cfg_data = ipa_es10b_get_eim_cfg_data(ctx);
+		eim_cfg_data = ipa_es10b_get_eim_cfg_data(ctx, ctx->eim_id);
 		if (eim_cfg_data && eim_cfg_data->res) {
 			eim_cfg_data_item = ipa_es10b_get_eim_cfg_data_filter(eim_cfg_data, ctx->eim_id);
 			if (eim_cfg_data_item)

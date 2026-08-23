@@ -56,7 +56,7 @@ static int get_euicc_ci_pkid(struct ipa_context *ctx, struct ipa_buf **pkid)
 
 	*pkid = NULL;
 
-	eim_cfg_data = ipa_es10b_get_eim_cfg_data(ctx);
+	eim_cfg_data = ipa_es10b_get_eim_cfg_data(ctx, ctx->eim_id);
 	if (!eim_cfg_data) {
 		IPA_LOGP(SIPA, LERROR, "cannot read EimConfigurationData from eUICC\n");
 		goto error;
