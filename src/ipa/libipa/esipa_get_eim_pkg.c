@@ -21,12 +21,15 @@
  *   eidNotFound(2), invalidEid(3), missingEid(4).  Error table must be
  *   extended after libasn regeneration.
  * UPDATE for v1.1: 6.3.2.6 — rPLMN moved from tag [1] to tag [2] because the
- *   new stateChangeCause takes tag [1].  Purely a wire-format change handled
- *   by asn1c regeneration; no action needed here beyond regenerating.
+ *   new stateChangeCause takes tag [1].  The tag move itself was handled by
+ *   regeneration; the field is now also populated, from ctx->rplmn, which the
+ *   host sets through ipa_set_rplmn().
  * =====================================================================
  */
 
 #include <stdint.h>
+#include <string.h>
+#include <errno.h>
 #include <onomondo/ipa/http.h>
 #include <onomondo/ipa/log.h>
 #include <onomondo/ipa/ipad.h>
@@ -56,6 +59,7 @@ static struct ipa_buf *enc_get_eim_pkg_req(struct ipa_context *ctx, const void *
 	struct EsipaMessageFromIpaToEim msg_to_eim = { 0 };
 	StateChangeCause_t state_change_cause;
 	NULL_t notify_state_change = 0;
+	OCTET_STRING_t rplmn = { 0 };
 
 	msg_to_eim.present = EsipaMessageFromIpaToEim_PR_getEimPackageRequest;
 	msg_to_eim.choice.getEimPackageRequest.eidValue.buf = (uint8_t *) eid_value;
@@ -67,6 +71,14 @@ static struct ipa_buf *enc_get_eim_pkg_req(struct ipa_context *ctx, const void *
 		msg_to_eim.choice.getEimPackageRequest.notifyStateChange = &notify_state_change;
 		state_change_cause = ctx->nvstate.state_change_cause;
 		msg_to_eim.choice.getEimPackageRequest.stateChangeCause = &state_change_cause;
+	}
+
+	/* Independent of the state change above: rPLMN is a standing fact about where the device is
+	 * registered, so it goes out on every poll until the host says otherwise. */
+	if (ctx->rplmn_valid) {
+		rplmn.buf = (uint8_t *)ctx->rplmn;
+		rplmn.size = IPA_LEN_PLMN;
+		msg_to_eim.choice.getEimPackageRequest.rPLMN = &rplmn;
 	}
 
 	return ipa_esipa_msg_to_eim_enc(&msg_to_eim, "GetEimPackage");
@@ -122,7 +134,8 @@ static struct ipa_buf *json_enc_get_eim_pkg_req(struct ipa_context *ctx, const v
 	bool notify = ctx->nvstate.state_change_cause != IPA_STATE_CHANGE_NONE;
 
 	return ipa_esipa_json_enc_get_eim_pkg_req((const uint8_t *)req, notify,
-						  notify ? ctx->nvstate.state_change_cause : -1);
+						  notify ? ctx->nvstate.state_change_cause : -1,
+						  ctx->rplmn_valid ? ctx->rplmn : NULL);
 }
 
 static void *json_dec_get_eim_pkg_res(const struct ipa_buf *res, const void *req)
@@ -154,6 +167,50 @@ struct ipa_esipa_get_eim_pkg_res *ipa_esipa_get_eim_pkg(struct ipa_context *ctx,
 		ipa_esipa_note_state_change(ctx, IPA_STATE_CHANGE_NONE);
 
 	return res;
+}
+
+/* Pack MCC/MNC the way 3GPP TS 24.008 does: nibble-swapped BCD, with the third MNC digit sitting in
+ * the high nibble of the middle octet and filled with 'F' when the MNC has only two digits. Getting
+ * this wrong is easy and silent, which is why the API takes digits rather than bytes. */
+int ipa_esipa_set_rplmn(struct ipa_context *ctx, const char *mcc, const char *mnc)
+{
+	size_t mnc_len;
+	unsigned int i;
+
+	if (!mcc) {
+		ctx->rplmn_valid = false;
+		IPA_LOGP_ESIPA("GetEimPackage", LDEBUG, "no longer reporting a registered PLMN\n");
+		return 0;
+	}
+
+	if (!mnc)
+		return -EINVAL;
+	mnc_len = strlen(mnc);
+	if (strlen(mcc) != 3 || (mnc_len != 2 && mnc_len != 3)) {
+		IPA_LOGP_ESIPA("GetEimPackage", LERROR,
+			       "rPLMN needs a 3-digit MCC and a 2- or 3-digit MNC (got \"%s\"/\"%s\")\n", mcc, mnc);
+		return -EINVAL;
+	}
+	for (i = 0; i < 3; i++)
+		if (mcc[i] < '0' || mcc[i] > '9')
+			goto not_digits;
+	for (i = 0; i < mnc_len; i++)
+		if (mnc[i] < '0' || mnc[i] > '9')
+			goto not_digits;
+
+	ctx->rplmn[0] = ((mcc[1] - '0') << 4) | (mcc[0] - '0');
+	ctx->rplmn[1] = ((mnc_len == 3 ? mnc[2] - '0' : 0x0f) << 4) | (mcc[2] - '0');
+	ctx->rplmn[2] = ((mnc[1] - '0') << 4) | (mnc[0] - '0');
+	ctx->rplmn_valid = true;
+
+	IPA_LOGP_ESIPA("GetEimPackage", LINFO, "registered PLMN is now MCC %s MNC %s (%s)\n", mcc, mnc,
+		       ipa_hexdump(ctx->rplmn, IPA_LEN_PLMN));
+	return 0;
+
+not_digits:
+	IPA_LOGP_ESIPA("GetEimPackage", LERROR, "rPLMN MCC/MNC must be decimal digits (got \"%s\"/\"%s\")\n",
+		       mcc, mnc);
+	return -EINVAL;
 }
 
 void ipa_esipa_note_state_change(struct ipa_context *ctx, enum ipa_state_change_cause cause)

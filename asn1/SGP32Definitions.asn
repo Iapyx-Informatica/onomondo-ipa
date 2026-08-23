@@ -1160,7 +1160,7 @@ GetEimPackageRequest ::= [79] SEQUENCE { -- Tag 'BF4F'
   eidValue [APPLICATION 26] Octet16, -- Tag '5A'
   notifyStateChange [0] NULL OPTIONAL, -- Notification to the eIM that it should update its information
   stateChangeCause [1] StateChangeCause OPTIONAL, -- NEW in v1.1: 5.14.5 — cause of notified state change(s)
-  rPLMN [2] OCTET STRING (SIZE(3)) OPTIONAL -- UPDATE for v1.1: 6.3.2.6 — tag changed from [1] to [2]
+  rPLMN [2] OCTET STRING (SIZE(3)) OPTIONAL -- UPDATE for v1.1: 6.3.2.6 — tag changed from [1] to [2]; supplied by the host via ipa_set_rplmn()
 }
 GetEimPackageResponse ::= [79] CHOICE { -- Tag 'BF4F'
   euiccPackageRequest [81] EuiccPackageRequest, -- Tag 'BF51'

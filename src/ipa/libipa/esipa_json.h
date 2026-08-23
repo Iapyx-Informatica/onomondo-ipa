@@ -54,7 +54,8 @@ struct ipa_buf *ipa_esipa_json_enc_init_auth_req(const struct ipa_esipa_init_aut
 struct ipa_buf *ipa_esipa_json_enc_auth_clnt_req(const struct ipa_esipa_auth_clnt_req *req);
 struct ipa_buf *ipa_esipa_json_enc_get_bnd_prfle_pkg_req(const struct ipa_esipa_get_bnd_prfle_pkg_req *req);
 struct ipa_buf *ipa_esipa_json_enc_get_eim_pkg_req(const uint8_t *eid, bool notify_state_change,
-						   int state_change_cause /* -1 = absent */);
+						   int state_change_cause /* -1 = absent */,
+						   const uint8_t *rplmn /* NULL = absent */);
 struct ipa_buf *ipa_esipa_json_enc_prvde_eim_pkg_rslt_req(const struct ipa_context *ctx,
 							  const struct ipa_esipa_prvde_eim_pkg_rslt_req *req);
 struct ipa_buf *ipa_esipa_json_enc_handle_notif_req(const struct ipa_esipa_handle_notif_req *req);

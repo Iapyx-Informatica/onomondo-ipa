@@ -379,6 +379,21 @@ int ipa_get_euicc_caps(struct ipa_context *ctx, struct ipa_euicc_caps *caps);
  *           negative on a transport failure or when the eUICC has no IPAe to activate. */
 int ipa_activate_ipae(struct ipa_context *ctx);
 
+/*! Tell the library which PLMN the device last registered to, see GSMA SGP.32, section 5.14.5.
+ *
+ *  The IPA cannot observe this -- it belongs to the modem -- so the host supplies it, and the library
+ *  then includes it in every ESipa.GetEimPackage, which is how the eIM detects that the device is
+ *  roaming. Call it again whenever the registration changes.
+ *
+ *  Not persisted across restarts: the PLMN the device was registered to before a restart says nothing
+ *  about where it is now, and a stale answer here is worse than none.
+ *
+ *  \param[inout] ctx pointer to ipa_context.
+ *  \param[in] mcc Mobile Country Code, exactly 3 decimal digits; NULL stops reporting a PLMN at all.
+ *  \param[in] mnc Mobile Network Code, 2 or 3 decimal digits. Ignored when mcc is NULL.
+ *  \returns 0 on success, negative when mcc or mnc is not a decimal string of the accepted length. */
+int ipa_set_rplmn(struct ipa_context *ctx, const char *mcc, const char *mnc);
+
 /*! ES10b ConfigureImmediateProfileEnabling — set up immediate Profile enabling, see GSMA SGP.32,
  *  section 5.9.17. The same configuration the eIM can push through the configureImmediateEnable PSMO,
  *  but driven by the device.

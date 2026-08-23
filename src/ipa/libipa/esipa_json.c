@@ -584,7 +584,7 @@ struct ipa_esipa_get_bnd_prfle_pkg_res *ipa_esipa_json_dec_get_bnd_prfle_pkg_res
 /* ---------------------------------------------------------------------- */
 
 struct ipa_buf *ipa_esipa_json_enc_get_eim_pkg_req(const uint8_t *eid, bool notify_state_change,
-						   int state_change_cause)
+						   int state_change_cause, const uint8_t *rplmn)
 {
 	json_t *obj = json_object();
 	if (!obj) return NULL;
@@ -601,6 +601,16 @@ struct ipa_buf *ipa_esipa_json_enc_get_eim_pkg_req(const uint8_t *eid, bool noti
 		json_object_set_new(obj, "notifyStateChange", json_true());
 	if (state_change_cause >= 0)
 		json_object_set_new(obj, "stateChangeCause", json_integer(state_change_cause));
+	/* Section 6.4.1.5 spells this one "rPlmn", not "rPLMN" as the ASN.1 does, and carries the three
+	 * TS 24.008 bytes as plain base64 rather than the base64+DER most other fields here use. */
+	if (rplmn) {
+		char *rplmn_b64 = b64_encode(rplmn, IPA_LEN_PLMN);
+
+		if (rplmn_b64) {
+			json_object_set_new(obj, "rPlmn", json_string(rplmn_b64));
+			IPA_FREE(rplmn_b64);
+		}
+	}
 	struct ipa_buf *buf = json_dump_to_buf(obj);
 	json_decref(obj);
 	return buf;
@@ -880,7 +890,8 @@ bool ipa_esipa_json_available(void) { return false; }
 struct ipa_buf *ipa_esipa_json_enc_init_auth_req(const struct ipa_esipa_init_auth_req *req) { (void)req; return NULL; }
 struct ipa_buf *ipa_esipa_json_enc_auth_clnt_req(const struct ipa_esipa_auth_clnt_req *req) { (void)req; return NULL; }
 struct ipa_buf *ipa_esipa_json_enc_get_bnd_prfle_pkg_req(const struct ipa_esipa_get_bnd_prfle_pkg_req *req) { (void)req; return NULL; }
-struct ipa_buf *ipa_esipa_json_enc_get_eim_pkg_req(const uint8_t *eid, bool n, int s) { (void)eid; (void)n; (void)s; return NULL; }
+struct ipa_buf *ipa_esipa_json_enc_get_eim_pkg_req(const uint8_t *eid, bool n, int s, const uint8_t *r)
+{ (void)eid; (void)n; (void)s; (void)r; return NULL; }
 struct ipa_buf *ipa_esipa_json_enc_prvde_eim_pkg_rslt_req(const struct ipa_context *ctx,
 							  const struct ipa_esipa_prvde_eim_pkg_rslt_req *req) { (void)ctx; (void)req; return NULL; }
 struct ipa_buf *ipa_esipa_json_enc_handle_notif_req(const struct ipa_esipa_handle_notif_req *req) { (void)req; return NULL; }

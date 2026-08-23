@@ -25,6 +25,7 @@
 #include "es10b_add_init_eim.h"
 #include "es10b_get_euicc_info.h"
 #include "ipae_activation.h"
+#include "esipa_get_eim_pkg.h"
 #include "es10b_cfg_immediate_enable.h"
 #include "es10b_euicc_mem_rst.h"
 #include "es10b_load_euicc_pkg.h"
@@ -404,6 +405,12 @@ int ipa_get_euicc_caps(struct ipa_context *ctx, struct ipa_euicc_caps *caps)
 int ipa_activate_ipae(struct ipa_context *ctx)
 {
 	return ipa_ipae_activation(ctx);
+}
+
+/*! Record the last registered PLMN.  See ipa_set_rplmn() in ipad.h. */
+int ipa_set_rplmn(struct ipa_context *ctx, const char *mcc, const char *mnc)
+{
+	return ipa_esipa_set_rplmn(ctx, mcc, mnc);
 }
 
 /*! ES10b ConfigureImmediateProfileEnabling.  See ipa_cfg_immediate_enable() in ipad.h. */

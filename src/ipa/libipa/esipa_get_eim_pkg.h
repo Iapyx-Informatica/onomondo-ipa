@@ -30,4 +30,8 @@ struct ipa_esipa_get_eim_pkg_res *ipa_esipa_get_eim_pkg(struct ipa_context *ctx,
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] cause what happened; IPA_STATE_CHANGE_NONE clears a pending report. */
 void ipa_esipa_note_state_change(struct ipa_context *ctx, enum ipa_state_change_cause cause);
+
+/*! Record the last registered PLMN, reported on every ESipa.GetEimPackage. See ipa_set_rplmn() in
+ *  onomondo/ipa/ipad.h. */
+int ipa_esipa_set_rplmn(struct ipa_context *ctx, const char *mcc, const char *mnc);
 void ipa_esipa_get_eim_pkg_free(struct ipa_esipa_get_eim_pkg_res *res);

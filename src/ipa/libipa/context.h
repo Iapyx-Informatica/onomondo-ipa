@@ -95,6 +95,14 @@ struct ipa_context {
 	/*! cached eID (read from eUICC when ipa_init is called) */
 	uint8_t eid[IPA_LEN_EID];
 
+	/*! Last PLMN the device registered to, as coded in 3GPP TS 24.008, reported on every
+	 * ESipa.GetEimPackage so the eIM can spot roaming (SGP.32, section 5.14.5). Supplied by the host
+	 * through ipa_set_rplmn(), because the modem owns it and the IPA cannot see it. Deliberately not
+	 * in nvstate: where the device was registered before a restart says nothing about where it is
+	 * now, and a stale PLMN is worse than none. */
+	uint8_t rplmn[IPA_LEN_PLMN];
+	bool rplmn_valid;
+
 	/*! volatile internal storage for IoT eUICC emulation. */
 	struct {
 		/*! cached ICCID of the currently active profile. This ICCID value will be used when a profile rollback is

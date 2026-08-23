@@ -10,6 +10,7 @@
 #define IPA_LEN_SERV_CHLG 16	/* bytes */
 #define IPA_LEN_EID 16		/* bytes */
 #define IPA_LEN_ICCID 10	/* bytes, Iccid ::= OCTET STRING (SIZE(10)) */
+#define IPA_LEN_PLMN 3		/* bytes, MCC/MNC as coded in 3GPP TS 24.008 */
 
 /* This is the initial buffer size. The ASN.1 encoder will automatically re-alloc more memory if needed. */
 #define IPA_LEN_ASN1_ENCODER_BUF 5120	/* bytes */

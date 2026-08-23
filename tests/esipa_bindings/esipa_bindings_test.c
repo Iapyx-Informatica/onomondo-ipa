@@ -8,6 +8,10 @@
  *    derived from the PrepareDownloadResponse in both bindings;
  *  - InitiateAuthentication.eimTransactionId, which the IPA echoes from the ProfileDownloadTriggerRequest
  *    that started the download (sections 5.14.1 and 6.4.1.1).
+ *
+ * and the three optional members of GetEimPackage (sections 5.14.5 and 6.4.1.5): notifyStateChange,
+ * stateChangeCause and rPLMN.  Those are driven through the public API and checked in the bytes the
+ * library hands to the HTTP layer, so the whole path is covered rather than the encoder alone.
  */
 
 #define _GNU_SOURCE		/* memmem() */
@@ -19,8 +23,12 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <onomondo/ipa/utils.h>
+#include <onomondo/ipa/ipad.h>
+#include "src/ipa/libipa/context.h"
+#include "src/ipa/libipa/length.h"
 #include "src/ipa/libipa/esipa_get_bnd_prfle_pkg.h"
 #include "src/ipa/libipa/esipa_init_auth.h"
+#include "src/ipa/libipa/esipa_get_eim_pkg.h"
 #include "src/ipa/libipa/esipa_json.h"
 
 static uint8_t transaction_id_bytes[] = { 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef };
@@ -200,11 +208,181 @@ static void json_init_auth_transaction_id_test(void)
 
 #endif /* IPA_HAVE_ESIPA_JSON */
 
+/* The eIM never answers in this test; what is under examination is the request the library builds, which
+ * the ipa_http_req_with_ct() stub at the bottom of this file captures here. */
+static struct ipa_buf *captured_req;
+
+/* An EID is 32 decimal digits packed BCD, so every nibble is 0..9 -- the JSON binding renders it with
+ * "^[0-9]{32}$" and would emit junk for anything else. */
+static uint8_t eid_bytes[IPA_LEN_EID] = {
+	0x89, 0x04, 0x40, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00, 0x11, 0x22, 0x33
+};
+#define EID_DIGITS "89044011223344556677889900112233"
+
+/* Poll the eIM and return what went out. The call itself fails (no eIM), which is fine: the request has
+ * already been encoded and handed to the transport by then. */
+static const struct ipa_buf *poll_eim(struct ipa_context *ctx)
+{
+	ipa_buf_free(captured_req);
+	captured_req = NULL;
+	ipa_esipa_get_eim_pkg_free(ipa_esipa_get_eim_pkg(ctx, eid_bytes));
+	assert(captured_req);
+	return captured_req;
+}
+
+static bool req_contains(const struct ipa_buf *req, const void *needle, size_t len)
+{
+	return memmem(req->data, req->len, needle, len) != NULL;
+}
+
+static struct ipa_context *test_ctx(struct ipa_config *cfg, int binding)
+{
+	struct ipa_context *ctx;
+
+	memset(cfg, 0, sizeof(*cfg));
+	cfg->esipa_binding = binding;
+	cfg->esipa_req_retries = 0;	/* fail on the first try, so the test does not sleep */
+	ctx = ipa_new_ctx(cfg, NULL);
+	assert(ctx);
+	/* ipa_new_ctx() must not leave this at the zero value, which would be IPA_STATE_CHANGE_OTHER_EIM
+	 * and would have every first poll blame another eIM for a change that never happened. */
+	assert(ctx->nvstate.state_change_cause == IPA_STATE_CHANGE_NONE);
+	ctx->eim_fqdn = strdup("eim.example.com");
+	assert(ctx->eim_fqdn);
+	return ctx;
+}
+
+/* SGP.32 section 5.14.5: the MCC/MNC pair the host reports is packed per 3GPP TS 24.008 -- nibble-swapped
+ * BCD, third MNC digit in the high nibble of the middle octet, 'F' there for a two-digit MNC. */
+static void rplmn_encoding_test(void)
+{
+	static const struct {
+		const char *mcc, *mnc;
+		uint8_t encoded[IPA_LEN_PLMN];
+	} cases[] = {
+		{ "262", "01", { 0x62, 0xf2, 0x10 } },	/* two-digit MNC, 'F' filler */
+		{ "310", "260", { 0x13, 0x00, 0x62 } },	/* three-digit MNC */
+		{ "724", "05", { 0x27, 0xf4, 0x50 } },
+		{ "001", "01", { 0x00, 0xf1, 0x10 } },
+	};
+	struct ipa_config cfg;
+	struct ipa_context *ctx = test_ctx(&cfg, IPA_ESIPA_BINDING_ASN1);
+	unsigned int i;
+
+	printf("== rplmn_encoding_test ==\n");
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		assert(ipa_set_rplmn(ctx, cases[i].mcc, cases[i].mnc) == 0);
+		assert(memcmp(ctx->rplmn, cases[i].encoded, IPA_LEN_PLMN) == 0);
+		assert(ctx->rplmn_valid);
+		printf("   MCC %s MNC %-3s -> %s\n", cases[i].mcc, cases[i].mnc,
+		       ipa_hexdump(ctx->rplmn, IPA_LEN_PLMN));
+	}
+
+	/* Malformed input is refused, and -- important -- leaves the last good value alone: a bad call must
+	 * not silently stop the eIM hearing about roaming. */
+	assert(ipa_set_rplmn(ctx, "26", "01") < 0);
+	assert(ipa_set_rplmn(ctx, "2620", "01") < 0);
+	assert(ipa_set_rplmn(ctx, "262", "1") < 0);
+	assert(ipa_set_rplmn(ctx, "262", "0123") < 0);
+	assert(ipa_set_rplmn(ctx, "26A", "01") < 0);
+	assert(ipa_set_rplmn(ctx, "262", "0X") < 0);
+	assert(ipa_set_rplmn(ctx, "262", NULL) < 0);
+	assert(ctx->rplmn_valid && memcmp(ctx->rplmn, cases[3].encoded, IPA_LEN_PLMN) == 0);
+
+	/* A NULL MCC is the documented way to stop reporting one. */
+	assert(ipa_set_rplmn(ctx, NULL, NULL) == 0);
+	assert(!ctx->rplmn_valid);
+
+	ipa_buf_free(ipa_free_ctx(ctx));
+}
+
+#ifdef IPA_HAVE_ESIPA_ASN1
+/* rPLMN [2] and the notifyStateChange [0] / stateChangeCause [1] pair are independent OPTIONAL members:
+ * each appears only when it has something to say. */
+static void asn1_get_eim_pkg_test(void)
+{
+	static const uint8_t encoded_rplmn[] = { 0x82, 0x03, 0x62, 0xf2, 0x10 };
+	static const uint8_t encoded_cause[] = { 0x80, 0x00, 0x81, 0x01, 0x01 };
+	struct ipa_config cfg;
+	struct ipa_context *ctx = test_ctx(&cfg, IPA_ESIPA_BINDING_ASN1);
+	const struct ipa_buf *req;
+
+	printf("== asn1_get_eim_pkg_test ==\n");
+
+	/* Nothing to report: the EID alone. */
+	req = poll_eim(ctx);
+	assert(!req_contains(req, encoded_rplmn, sizeof(encoded_rplmn)));
+	assert(!req_contains(req, encoded_cause, sizeof(encoded_cause)));
+	printf("   bare:        %s\n", ipa_hexdump(req->data, req->len));
+
+	/* Registered somewhere: rPLMN rides along on every poll from now on. */
+	assert(ipa_set_rplmn(ctx, "262", "01") == 0);
+	req = poll_eim(ctx);
+	assert(req_contains(req, encoded_rplmn, sizeof(encoded_rplmn)));
+	assert(!req_contains(req, encoded_cause, sizeof(encoded_cause)));
+	printf("   rplmn:       %s\n", ipa_hexdump(req->data, req->len));
+
+	/* A local state change adds the other two; SGP.32 Table 16 makes stateChangeCause C(1) on
+	 * notifyStateChange, so they are never seen apart. */
+	ipa_esipa_note_state_change(ctx, IPA_STATE_CHANGE_FALLBACK);
+	req = poll_eim(ctx);
+	assert(req_contains(req, encoded_rplmn, sizeof(encoded_rplmn)));
+	assert(req_contains(req, encoded_cause, sizeof(encoded_cause)));
+	printf("   both:        %s\n", ipa_hexdump(req->data, req->len));
+
+	/* The poll failed, so the cause is still pending and must go out again. Losing it here would
+	 * leave the eIM permanently unaware of the change. */
+	assert(ctx->nvstate.state_change_cause == IPA_STATE_CHANGE_FALLBACK);
+	req = poll_eim(ctx);
+	assert(req_contains(req, encoded_cause, sizeof(encoded_cause)));
+
+	/* rPLMN, unlike the cause, is standing state and is not cleared by a poll either. */
+	assert(ctx->rplmn_valid);
+	assert(ipa_set_rplmn(ctx, NULL, NULL) == 0);
+	req = poll_eim(ctx);
+	assert(!req_contains(req, encoded_rplmn, sizeof(encoded_rplmn)));
+	printf("   cleared:     %s\n", ipa_hexdump(req->data, req->len));
+
+	ipa_buf_free(ipa_free_ctx(ctx));
+}
+#endif /* IPA_HAVE_ESIPA_ASN1 */
+
+#ifdef IPA_HAVE_ESIPA_JSON
+/* Section 6.4.1.5 spells the member "rPlmn" and carries the three TS 24.008 bytes as plain base64. */
+static void json_get_eim_pkg_test(void)
+{
+	struct ipa_config cfg;
+	struct ipa_context *ctx = test_ctx(&cfg, IPA_ESIPA_BINDING_JSON);
+	const struct ipa_buf *req;
+
+	printf("== json_get_eim_pkg_test ==\n");
+
+	req = poll_eim(ctx);
+	assert(req_contains(req, "\"eidValue\":\"" EID_DIGITS "\"", 12 + 32 + 1));
+	assert(!req_contains(req, "rPlmn", 5));
+	assert(!req_contains(req, "stateChangeCause", 16));
+	printf("   bare:  %.*s\n", (int)req->len, (const char *)req->data);
+
+	assert(ipa_set_rplmn(ctx, "262", "01") == 0);
+	ipa_esipa_note_state_change(ctx, IPA_STATE_CHANGE_FALLBACK);
+	req = poll_eim(ctx);
+	assert(req_contains(req, "\"rPlmn\": \"YvIQ\"", 15) || req_contains(req, "\"rPlmn\":\"YvIQ\"", 14));
+	assert(req_contains(req, "\"notifyStateChange\"", 19));
+	assert(req_contains(req, "\"stateChangeCause\"", 18));
+	printf("   full:  %.*s\n", (int)req->len, (const char *)req->data);
+
+	ipa_buf_free(ipa_free_ctx(ctx));
+}
+#endif /* IPA_HAVE_ESIPA_JSON */
+
 int main(int argc, char **argv)
 {
 	transaction_id_lookup_test();
+	rplmn_encoding_test();
 #ifdef IPA_HAVE_ESIPA_ASN1
 	asn1_init_auth_transaction_id_test();
+	asn1_get_eim_pkg_test();
 #else
 	printf("== ASN.1 binding not built, its encoder cases skipped ==\n");
 #endif
@@ -212,6 +390,7 @@ int main(int argc, char **argv)
 	json_request_test();
 	json_refuses_without_transaction_id_test();
 	json_init_auth_transaction_id_test();
+	json_get_eim_pkg_test();
 #else
 	printf("== JSON binding not built, its encoder cases skipped ==\n");
 #endif
@@ -233,6 +412,10 @@ struct ipa_buf *ipa_http_req(void *http_ctx, const struct ipa_buf *req, const ch
 struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req, const char *url,
 				     const char *content_type)
 {
+	/* Keep what the library wanted to send, then fail the request: the tests above examine the
+	 * captured bytes, and no eIM response is needed to do that. */
+	ipa_buf_free(captured_req);
+	captured_req = ipa_buf_dup((struct ipa_buf *)req);
 	return NULL;
 }
 
