@@ -24,6 +24,7 @@
 #include "es10b_get_eim_cfg_data.h"
 #include "es10b_add_init_eim.h"
 #include "es10b_get_euicc_info.h"
+#include "ipae_activation.h"
 #include "es10b_euicc_mem_rst.h"
 #include "es10b_load_euicc_pkg.h"
 #include "es10b_immediate_enable.h"
@@ -381,6 +382,12 @@ int ipa_euicc_mem_rst(struct ipa_context *ctx, uint32_t options)
 int ipa_get_euicc_caps(struct ipa_context *ctx, struct ipa_euicc_caps *caps)
 {
 	return ipa_es10b_get_euicc_caps(ctx, caps);
+}
+
+/*! Activate the eUICC's own IPAe.  See ipa_activate_ipae() in ipad.h. */
+int ipa_activate_ipae(struct ipa_context *ctx)
+{
+	return ipa_ipae_activation(ctx);
 }
 
 /*! ES10b ImmediateEnable.  See ipa_immediate_enable() in ipad.h. */

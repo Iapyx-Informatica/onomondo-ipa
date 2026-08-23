@@ -618,8 +618,22 @@ static int euicc_transceive_es10x(struct ipa_context *ctx, struct ipa_buf **es10
  *  \returns IPA_BUF with ES10x response on success, NULL on failure. */
 struct ipa_buf *ipa_euicc_transceive_es10x(struct ipa_context *ctx, const struct ipa_buf *es10x_req)
 {
-	struct ipa_buf *es10x_res = ipa_buf_alloc(IPA_LEN_EUICC_BUF);
+	struct ipa_buf *es10x_res;
 	int rc;
+
+	/* SGP.32 3.8.4: once the eUICC's own IPAe is running we are not the IPA any more, and SGP.32
+	 * 3.8.2 has the eUICC enable the ES10 functions only for the IPA the device declared. Sending
+	 * anyway would at best be rejected by the card and at worst be acted on behind the IPAe's back,
+	 * so refuse here rather than at each of the several dozen call sites. Recovering is an eUICC
+	 * reset followed by a TERMINAL CAPABILITY that declares IPAd again, i.e. ipa_euicc_reset_es10x(),
+	 * which puts the mode back before anything reaches this function. */
+	if (ctx->ipa_mode == IPA_MODE_IPAE) {
+		IPA_LOGP(SEUICC, LERROR,
+			 "refusing to send ES10x: the eUICC runs its own IPAe, this IPAd is not the active IPA\n");
+		return NULL;
+	}
+
+	es10x_res = ipa_buf_alloc(IPA_LEN_EUICC_BUF);
 
 	IPA_LOGP(SEUICC, LDEBUG, "sending %zu bytes to eUICC (buffer size: %zu bytes)\n", es10x_req->len,
 		 es10x_req->data_len);
@@ -643,9 +657,10 @@ struct ipa_buf *ipa_euicc_transceive_es10x(struct ipa_context *ctx, const struct
 /* SGP.32, section 3.8.4: ISDRProprietaryApplicationTemplateIoT ::= [PRIVATE 1] SEQUENCE, tag 'E1'. */
 #define FCI_ISDR_PROPRIETARY_IOT_TAG 0xE1
 
-/*! Track which IPA is active, see SGP.32, section 3.8.4.  This is a property of the conversation, not
- *  something the eUICC can be asked: it is our own TERMINAL CAPABILITY that settles it. */
-static void set_ipa_mode(struct ipa_context *ctx, enum ipa_mode mode)
+/*! Track which IPA is active, see SGP.32, section 3.8.4 and euicc.h.  This is a property of the
+ *  conversation, not something the eUICC can be asked: it is our own TERMINAL CAPABILITY that settles
+ *  it, and an IpaeActivationRequest that hands it back. */
+void ipa_euicc_set_ipa_mode(struct ipa_context *ctx, enum ipa_mode mode)
 {
 	static const struct num_str_map mode_strings[] = {
 		{ IPA_MODE_IPAD, "IPAd" }, { IPA_MODE_IPAE, "IPAe" }, { 0, NULL }
@@ -744,7 +759,7 @@ static void parse_isdr_fci(struct ipa_context *ctx, const uint8_t *fci, size_t f
 	 * is still unsettled when we learn this, the IPAe is what is in charge.  send_termcap() runs
 	 * before this today, so this does not fire -- it is the rule, not a guess about the order. */
 	if (ctx->ipa_mode == IPA_MODE_UNKNOWN && ctx->isdr_fci.ipae_supported)
-		set_ipa_mode(ctx, IPA_MODE_IPAE);
+		ipa_euicc_set_ipa_mode(ctx, IPA_MODE_IPAE);
 
 	ASN_STRUCT_FREE(asn_DEF_ISDRProprietaryApplicationTemplateIoT, tmpl);
 }
@@ -828,7 +843,7 @@ static int send_termcap(struct ipa_context *ctx)
 	IPA_LOGP(SEUICC, LINFO, "TERMINAL CAPABILITIES sent\n");
 	/* SGP.32 3.8.4: having declared IPAd support (tag '84', b1 = 1) and sending no
 	 * IpaeActivationRequest, the eUICC SHALL NOT activate the IPAe -- so from here on we are it. */
-	set_ipa_mode(ctx, IPA_MODE_IPAD);
+	ipa_euicc_set_ipa_mode(ctx, IPA_MODE_IPAD);
 exit:
 	IPA_FREE(buf_req);
 	IPA_FREE(buf_res);

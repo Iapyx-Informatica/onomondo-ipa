@@ -162,6 +162,11 @@ static void print_help(void)
 	printf(" -x .................. DisableEmergencyProfile\n");
 	printf(" -G .................. GetConnectivityParameters (print httpParams)\n");
 	printf(" -D FQDN ............. SetDefaultDpAddress to the given SM-DP+ FQDN\n");
+	printf("\n");
+	printf(" -A .................. activate the eUICC's own IPAe (SGP.32 3.8.4). This hands the eUICC\n");
+	printf("                       over: IPAe and IPAd are mutually exclusive, so afterwards this\n");
+	printf("                       program is no longer the active IPA. Getting back needs an eUICC\n");
+	printf("                       reset and a new TERMINAL CAPABILITY, i.e. another run.\n");
 }
 
 struct ipa_buf *load_ber_from_file(char *dir, char *file)
@@ -261,6 +266,7 @@ enum getopt_action {
 	ACTION_DISABLE_EMERGENCY,
 	ACTION_GET_CONN_PARAMS,
 	ACTION_SET_DEFAULT_DP,
+	ACTION_ACTIVATE_IPAE,
 };
 
 /* Run a single ES10b trigger action against the eUICC and report the outcome.
@@ -273,6 +279,9 @@ static int run_es10b_trigger(struct ipa_context *ctx, enum getopt_action action,
 	switch (action) {
 	case ACTION_IMMEDIATE_ENABLE:
 		rc = ipa_immediate_enable(ctx, refresh);
+		break;
+	case ACTION_ACTIVATE_IPAE:
+		rc = ipa_activate_ipae(ctx);
 		break;
 	case ACTION_EXECUTE_FALLBACK:
 		rc = ipa_execute_fallback(ctx, refresh);
@@ -353,7 +362,7 @@ int main(int argc, char **argv)
 
 	/* Overwrite configuration values with user defined parameters */
 	while (1) {
-		opt = getopt(argc, argv, "ht:M:e:r:c:f:mpn:C:SIEjLl:d:y:a1RiFbXxGD:");
+		opt = getopt(argc, argv, "ht:M:e:r:c:f:mpn:C:SIEjLl:d:y:a1RiFbXxGD:A");
 		if (opt == -1)
 			break;
 
@@ -444,6 +453,9 @@ int main(int argc, char **argv)
 			break;
 		case 'R':
 			cfg.refresh_flag = true;
+			break;
+		case 'A':
+			getopt_action = ACTION_ACTIVATE_IPAE;
 			break;
 		case 'i':
 			getopt_action = ACTION_IMMEDIATE_ENABLE;

@@ -361,6 +361,24 @@ struct ipa_euicc_caps {
  *  \returns 0 on success, negative on error. */
 int ipa_get_euicc_caps(struct ipa_context *ctx, struct ipa_euicc_caps *caps);
 
+/*! Activate the eUICC's own IPAe, see GSMA SGP.32, section 3.8.4.
+ *
+ *  This hands the eUICC over. IPAe and IPAd are mutually exclusive: on success the IPA runs inside the
+ *  eUICC and this library is no longer the active IPA, so stop calling it. Section 3.8.4 notes that
+ *  getting back means resetting the eUICC and sending a TERMINAL CAPABILITY that declares IPAd support
+ *  again -- ipa_init() on a fresh context does that.
+ *
+ *  Section 3.8.4 makes this a MAY, conditioned on two things the caller must satisfy: the eUICC has to
+ *  have advertised IPAe (ipa_get_euicc_caps().ipae_supported), which this function checks and refuses
+ *  with -ENOTSUP when the eUICC positively said otherwise; and the IoT Device has to meet the IPAe
+ *  requirements of Annex A.2, which the library cannot know and does not check. Deciding that is the
+ *  host's job, exactly like the ES10b triggers below.
+ *
+ *  \param[inout] ctx pointer to ipa_context.
+ *  \returns 0 when the eUICC reports ok, positive on an eUICC error status (notSupported = 1),
+ *           negative on a transport failure or when the eUICC has no IPAe to activate. */
+int ipa_activate_ipae(struct ipa_context *ctx);
+
 /*! ES10b ImmediateEnable — enable the (immediate-enable-configured) profile now. */
 int ipa_immediate_enable(struct ipa_context *ctx, bool refresh_flag);
 
