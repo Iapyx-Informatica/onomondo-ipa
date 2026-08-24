@@ -22,23 +22,33 @@ SubjectKeyIdentifier FROM PKIX1Implicit88 {iso(1) identified-organization(3) dod
 
 -- UPDATE for v1.1: 2.1.3 — slimmer import list per v1.2 Annex C.
 -- Removed (now overridden locally by SGP.32): EUICCInfo2-related pieces,
--- ProfileInfoListResponse, StoreMetadataRequest, PrepareDownloadResponse,
--- AuthenticateServerResponse, AuthenticateResponseOk, CancelSessionResponse,
--- ProfileInstallationResult (SGP.32 keeps ProfileInstallationResultData).
+-- ProfileInfoListResponse, PrepareDownloadResponse, AuthenticateServerResponse,
+-- CancelSessionResponse, RetrieveNotificationsListResponse.  Each of those is
+-- overridden below under an SGP32- prefixed name and the bare one was never
+-- referenced, so importing it only reserved a name this module does not use.
 -- NEW imports for v1.2: VendorSpecificExtension, DpProprietaryData, OperatorId,
 -- NotificationConfigurationInformation, ProfileClass, IconType, ProfileState,
 -- OctetTo16 (used by new ProfileInfo / StoreMetadataRequest overrides).
 -- ProfileInfo is now defined locally below (SGP.32 §4.4 override).
-EuiccSigned1, CancelSessionReason, RetrieveNotificationsListResponse,
+--
+-- Annex C of v1.2 also re-states EuiccSigned1, AuthenticateResponseOk,
+-- ProfileInstallationResult, StoreMetadataRequest and CancelSessionOk inside the
+-- SGP.32 module rather than importing them, because that module is written to
+-- stand alone.  All five are textually identical to their SGP.22 originals, so
+-- they are imported here instead of duplicated.  One caveat: inside the spec's
+-- module EuiccSigned1.euiccInfo2 resolves to the SGP.32 EUICCInfo2, while the
+-- import binds it to the SGP.22 one.  Defining it locally is not possible while
+-- RSPDefinitions is compiled alongside (see the note above SGP32-EUICCInfo2).
+EuiccSigned1, CancelSessionReason,
 ServerSigned1, RspCapability, Iccid, TransactionId, ProfileInfoListRequest,
-ProfileInfoListResponse, RulesAuthorisationTable, EUICCInfo1, DeviceInfo,
+RulesAuthorisationTable, EUICCInfo1, DeviceInfo,
 VersionType, UICCCapability, PprIds,
-CertificationDataObject, Octet1, Octet16, OctetTo16, Octet32, PrepareDownloadResponse,
+CertificationDataObject, Octet1, Octet16, OctetTo16, Octet32,
 PrepareDownloadResponseOk, PrepareDownloadResponseError,
-AuthenticateServerResponse, AuthenticateResponseOk, AuthenticateResponseError,
+AuthenticateResponseOk, AuthenticateResponseError,
 CtxParams1, ProfileInstallationResult, ProfileInstallationResultData,
 OtherSignedNotification, EuiccSignPIR, ErrorResult, NotificationMetadata,
-CancelSessionResponse, CancelSessionResponseOk,
+CancelSessionResponseOk, CancelSessionOk,
 StoreMetadataRequest, SmdpSigned2, BoundProfilePackage, NotificationEvent,
 VendorSpecificExtension, DpProprietaryData, OperatorId,
 NotificationConfigurationInformation, ProfileClass, IconType, ProfileState
@@ -356,10 +366,11 @@ SGP32-ProfileInfo ::= [PRIVATE 3] SEQUENCE { -- Tag 'E3'
 -- ASN1STOP
 
 -- UPDATE for v1.1: 2.11.2 — SGP.32 defines its own ProfileInfoListResponse
--- /Error.  We keep the SGP32- prefix locally to prevent asn1c output-file
--- name collisions with RSPDefinitions (v1.2 spec uses the bare name; the
--- clean fix is to drop ProfileInfoListResponse from the RSP import block
--- below, which requires careful libipa review first).
+-- /Error, over its own ProfileInfo (section 4.4).  The v1.2 spec uses the bare
+-- name; the SGP32- prefix here is permanent, and dropping the RSP import does
+-- not help, because asn1c refuses two definitions of one name across the
+-- modules it compiles together (see the note above SGP32-EUICCInfo2).  The bare
+-- name is no longer imported: nothing in this module refers to the SGP.22 type.
 SGP32-ProfileInfoListResponse ::= [45] CHOICE {
   profileInfoListOk SEQUENCE OF SGP32-ProfileInfo, -- SGP.32 §4.4 local override
   profileInfoListError SGP32-ProfileInfoListError
@@ -478,7 +489,7 @@ IpaEuiccData ::= SEQUENCE {
 ProfileDownloadTriggerResult ::= [84] SEQUENCE { -- tag 'BF54'
   eimTransactionId [2] TransactionId OPTIONAL,
   profileDownloadTriggerResultData CHOICE {
-    profileInstallationResult [55] ProfileInstallationResult, -- UPDATE for v1.1: 2.11.2.3 — was SGP32-ProfileInstallationResult
+    profileInstallationResult [55] ProfileInstallationResult, -- UPDATE for v1.1: 2.11.2.3 — in v1.0 this used a local SGP32- prefixed copy, since removed as an exact duplicate of the import
     profileDownloadError SEQUENCE {
       profileDownloadErrorReason [0] INTEGER { -- NEW in v1.1: 2.11.2.3
         ecallActive(104),
@@ -537,10 +548,24 @@ IpaCapabilities ::= SEQUENCE {
 --    additionalEuiccInfo [18], highestSvn [19].
 -- NEW in v1.1: 5.9.2 — IoTSpecificInfo.ecallSupported, .fallbackSupported.
 -- Both are surfaced to the API consumer by ipa_get_euicc_caps() (ipad.h).
--- NOTE: v1.2 spec drops the SGP32- prefix; we keep it here because the SGP.22
--- EUICCInfo2 is also imported (see libipa consumer-eUICC emulation path).
+-- NOTE: this is the canonical explanation of every SGP32- prefix in this file.
+-- The v1.2 spec uses bare names throughout, because its module stands alone.
+-- Here RSPDefinitions.asn is compiled in the same asn1c pass, because libipa
+-- needs the SGP.22 codecs too (that being the whole point of the consumer-eUICC
+-- emulation), and asn1c puts every module's types into one flat C namespace, one
+-- file per type name.  Two definitions of one name are a hard error:
+--
+--   FATAL: ASN.1 expression "X" at line N of module SGP32Definitions
+--   clashes with expression "X" at line M of module RSPDefinitions
+--
+-- The IMPORTS list has nothing to do with it: the clash is between the two
+-- *definitions*, so pruning the import does not enable the rename.  Wherever the
+-- SGP.32 type genuinely differs from its SGP.22 namesake, the prefix therefore
+-- stays for as long as both modules are compiled together.  Where the two are
+-- textually identical (ProfileInstallationResult, CancelSessionOk) there is no
+-- local copy at all and the imported type is used directly.
 -- ASN1START
-SGP32-EUICCInfo2 ::= [34] SEQUENCE { -- Tag 'BF22' — SGP.32 override; bare name would collide with RSPDefinitions import
+SGP32-EUICCInfo2 ::= [34] SEQUENCE { -- Tag 'BF22' — SGP.32 override; the bare name is defined by RSPDefinitions, see the note above
   profileVersion [1] VersionType, -- Base eUICC Profile package version supported
   svn [2] VersionType, -- GSMA SGP.22 version supported (SVN) referenced by SGP.32
   euiccFirmwareVer [3] VersionType, -- eUICC Firmware version
@@ -671,12 +696,14 @@ SGP32-RetrieveNotificationsListRequest ::= [43] SEQUENCE { -- Tag 'BF2B'
     euiccPackageResults [2] NULL
   } OPTIONAL
 }
--- NOTE: RetrieveNotificationsListResponse is already imported from RSPDefinitions above.
--- The v1.2 SGP.32 version below overrides it.  To avoid import/local clash,
--- consider removing RetrieveNotificationsListResponse from the IMPORTS list and
--- relying on this local definition.  TODO v1.1: resolve name collision with asn1c.
+-- NOTE: the spec names the type below RetrieveNotificationsListResponse.  The
+-- SGP32- prefix is permanent, and removing the RSP import does not help: asn1c
+-- compiles RSPDefinitions and this module in one pass into a single flat C
+-- namespace, and refuses two definitions of one name outright (see the note
+-- above SGP32-EUICCInfo2).  The bare name is no longer imported, since nothing
+-- in this module refers to the SGP.22 type.
 -- ASN1START
-SGP32-RetrieveNotificationsListResponse ::= [43] CHOICE { -- Tag 'BF2B' — UPDATE for v1.1: 5.9.11 — kept SGP32- prefix to avoid collision with RSP import; spec name is RetrieveNotificationsListResponse
+SGP32-RetrieveNotificationsListResponse ::= [43] CHOICE { -- Tag 'BF2B' — UPDATE for v1.1: 5.9.11 — spec name is RetrieveNotificationsListResponse; see the note above
   notificationList SGP32-PendingNotificationList, -- UPDATE for v1.1: 5.9.11 — use alias instead of inline SEQUENCE OF
   notificationsListResultError INTEGER { undefinedError(127)},
   euiccPackageResultList EuiccPackageResultList -- UPDATE for v1.1: 5.9.11 — use alias; notificationAndEprList branch REMOVED
@@ -871,11 +898,11 @@ SGP32-SetDefaultDpAddressResponse ::= [101] SEQUENCE { -- Tag 'BF65'
 -- ASN1STOP
 
 -- Section 5.14.2
--- UPDATE for v1.1: 5.14.2 — SGP32-PrepareDownloadResponse renamed to plain
--- PrepareDownloadResponse (override of SGP.22 type).  Kept SGP32- prefix locally
--- to avoid clash with RSP import; consumers now use the shared name transparently.
+-- UPDATE for v1.1: 5.14.2 — the spec names this type PrepareDownloadResponse.
+-- SGP.32 adds the compact branch, so it is a different type from the SGP.22 one
+-- and the SGP32- prefix is permanent (see the note above SGP32-EUICCInfo2).
 -- ASN1START
-SGP32-PrepareDownloadResponse ::= [33] CHOICE { -- Tag 'BF21' — TODO v1.1: spec name is PrepareDownloadResponse; rename + drop from RSP import when unifying
+SGP32-PrepareDownloadResponse ::= [33] CHOICE { -- Tag 'BF21' — spec name is PrepareDownloadResponse; see the note above
   downloadResponseOk PrepareDownloadResponseOk,
   downloadResponseError PrepareDownloadResponseError,
   compactDownloadResponseOk CompactPrepareDownloadResponseOk
@@ -891,14 +918,25 @@ CompactEuiccSigned2 ::= SEQUENCE {
 -- ASN1STOP
 
 -- Section 5.14.3
--- UPDATE for v1.1: 5.14.3 — SGP.32-specific EuiccSigned1 (overrides SGP.22).
--- Existing code relies on the imported SGP.22 version; once RSP import is cleaned
--- up, SGP.32 should define EuiccSigned1 locally here per v1.2 Annex C.
--- TODO v1.1: add local EuiccSigned1 definition here and drop from IMPORTS.
+-- UPDATE for v1.1: 5.14.3 — v1.2 Annex C re-states EuiccSigned1 inside the
+-- SGP.32 module.  Its text is identical to the SGP.22 one, so the import is kept
+-- rather than duplicating it, which asn1c would refuse anyway.  The one semantic
+-- difference: inside the spec's module EuiccSigned1.euiccInfo2 resolves to the
+-- SGP.32 EUICCInfo2, whereas the import binds it to the SGP.22 EUICCInfo2, which
+-- has no extension marker and stops at additionalEuiccProfilePackageVersions
+-- [15].  A real IoT eUICC sends [16]..[20] as well, iotSpecificInfo [20] being
+-- mandatory in SGP.32.  asn1c accepts that input against the SGP.22 type and
+-- silently discards the trailing fields, so a decode/re-encode round-trip would
+-- shorten euiccSigned1 and invalidate euiccSignature1 at the SM-DP+.
+--
+-- That round-trip does not happen: ipa_es10b_auth_serv() keeps the raw BER of
+-- every successful response and proc_cmn_mtl_auth.c forwards it verbatim, so the
+-- signed bytes reach the SM-DP+ exactly as the eUICC produced them.  The loss is
+-- therefore latent, not active, but it is the reason that raw path must stay.
 -- UPDATE for v1.1: 5.14.3 — AuthenticateClient procedure description changed;
 -- libipa/esipa_auth_clnt.c + proc_cmn_mtl_auth.c need behavioural review.
 -- ASN1START
-SGP32-AuthenticateServerResponse ::= [56] CHOICE { -- Tag 'BF38' — TODO v1.1: spec name is AuthenticateServerResponse (drop SGP32- prefix when import cleanup is done)
+SGP32-AuthenticateServerResponse ::= [56] CHOICE { -- Tag 'BF38' — spec name is AuthenticateServerResponse; SGP.32 adds the compact branch, so the prefix is permanent (see the note above SGP32-EUICCInfo2)
   authenticateResponseOk AuthenticateResponseOk,
   authenticateResponseError AuthenticateResponseError,
   compactAuthenticateResponseOk CompactAuthenticateResponseOk
@@ -919,22 +957,21 @@ CompactEuiccSigned1 ::= SEQUENCE {
 -- ASN1STOP
 
 -- Section 5.14.7
--- UPDATE for v1.1: 5.14.7 — SGP32-PendingNotification renamed to plain
--- PendingNotification; SGP32-ProfileInstallationResult renamed to plain
--- ProfileInstallationResult.  Kept SGP32- prefix here temporarily to avoid
--- collisions with RSPDefinitions; see TODO at imports block.
+-- UPDATE for v1.1: 5.14.7 — the spec names this type PendingNotification.  The
+-- SGP32- prefix is permanent: SGP.32 adds the two compact branches, so this is a
+-- genuinely different type from the SGP.22 PendingNotification, and both are
+-- compiled into one flat C namespace (see the note above SGP32-EUICCInfo2).
+-- The spec's ProfileInstallationResult, by contrast, is textually identical to
+-- the SGP.22 one, so the imported type is used directly and no local override or
+-- prefix is needed.
 -- UPDATE for v1.2: CR12008R01 — CompactOtherSignedNotification gains eidValue
 -- (OPTIONAL) so the eIM can identify the related eUICC.
 -- ASN1START
-SGP32-PendingNotification ::= CHOICE { -- TODO v1.1: rename to PendingNotification once RSP import is pruned
-  profileInstallationResult [55] SGP32-ProfileInstallationResult, -- tag 'BF37'
+SGP32-PendingNotification ::= CHOICE { -- spec name is PendingNotification; see the note above
+  profileInstallationResult [55] ProfileInstallationResult, -- tag 'BF37'
   otherSignedNotification OtherSignedNotification,
   compactProfileInstallationResult [0] CompactProfileInstallationResult,
   compactOtherSignedNotification [1] CompactOtherSignedNotification
-}
-SGP32-ProfileInstallationResult ::= [55] SEQUENCE { -- Tag 'BF37' — TODO v1.1: rename to ProfileInstallationResult
-  profileInstallationResultData [39] ProfileInstallationResultData,
-  euiccSignPIR EuiccSignPIR
 }
 CompactProfileInstallationResult ::= SEQUENCE {
   compactProfileInstallationResultData [0] CompactProfileInstallationResultData,
@@ -961,11 +998,13 @@ CompactOtherSignedNotification ::= SEQUENCE {
 -- ASN1STOP
 
 -- Section 5.14.8
--- UPDATE for v1.1: 5.14.8 — SGP32-CancelSessionResponse / SGP32-CancelSessionOk
--- renamed to plain CancelSessionResponse / CancelSessionOk.  Kept SGP32- prefix
--- locally; see TODO above.
+-- UPDATE for v1.1: 5.14.8 — the spec names this type CancelSessionResponse.  The
+-- SGP32- prefix is permanent: SGP.32 replaces the SGP.22 branches with a compact
+-- form, so the two are different types sharing one C namespace (see the note
+-- above SGP32-EUICCInfo2).  The spec's CancelSessionOk is an empty SEQUENCE just
+-- like the SGP.22 one, so the imported type is used directly.
 -- ASN1START
-SGP32-CancelSessionResponse ::= [65] CHOICE { -- Tag 'BF41' — TODO v1.1: rename to CancelSessionResponse
+SGP32-CancelSessionResponse ::= [65] CHOICE { -- Tag 'BF41' — spec name is CancelSessionResponse; see the note above
   cancelSessionResponseOk CancelSessionResponseOk,
   cancelSessionResponseError INTEGER {invalidTransactionId(5), undefinedError(127)},
   compactCancelSessionResponseOk CompactCancelSessionResponseOk
@@ -1041,9 +1080,10 @@ InitiateAuthenticationOkEsipa ::= SEQUENCE {
 -- ASN1STOP
 
 -- Section 6.3.2.2
--- UPDATE for v1.1: 6.3.2.2 — AuthenticateClientRequestEsipa now uses plain
--- AuthenticateServerResponse (was SGP32-AuthenticateServerResponse).  Local
--- alias still used here to avoid RSP import collision; see TODOs at imports.
+-- UPDATE for v1.1: 6.3.2.2 — the spec writes this field's type as plain
+-- AuthenticateServerResponse, meaning its own local definition; here that is
+-- SGP32-AuthenticateServerResponse, which is the same type under the prefix the
+-- flat C namespace forces (see the note above SGP32-EUICCInfo2).
 -- UPDATE for v1.1: 6.3.2.2 — error label profileMetadataMismatch renamed
 -- to metadataMismatch in GetBoundProfilePackageResponseEsipa (§6.3.2.3).
 -- ASN1START
@@ -1129,14 +1169,12 @@ CancelSessionRequestEsipa ::= [65] SEQUENCE { -- Tag 'BF41'
   cancelSessionResponse SGP32-CancelSessionResponse -- This is the response from ES10b.CancelSession function, possibly in compact format
 }
 CancelSessionResponseEsipa ::= [65] CHOICE { -- Tag 'BF41'
-  cancelSessionOk SGP32-CancelSessionOk,
+  cancelSessionOk CancelSessionOk,
   cancelSessionError INTEGER {
     invalidTransactionId(1),
     euiccSignatureInvalid(2),
     undefinedError(127)
   }
-}
-SGP32-CancelSessionOk ::= SEQUENCE { -- TODO v1.1: rename to CancelSessionOk once RSP import is pruned
 }
 -- ASN1STOP
 

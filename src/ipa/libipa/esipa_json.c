@@ -51,6 +51,7 @@
 
 #include <jansson.h>
 #include <AuthenticateServerResponse.h>
+#include <SGP32-AuthenticateServerResponse.h>
 #include <EsipaMessageFromEimToIpa.h>
 #include <EsipaMessageFromIpaToEim.h>
 #include <EuiccPackageRequest.h>
@@ -444,8 +445,10 @@ struct ipa_buf *ipa_esipa_json_enc_auth_clnt_req(const struct ipa_esipa_auth_cln
 			return NULL;
 		}
 	} else {
+		/* The field is an SGP32-AuthenticateServerResponse, so it needs the SGP.32 descriptor.  The
+		 * SGP.22 one has only two CHOICE members and cannot encode the compact branch at all. */
 		if (json_set_asn1_b64(obj, "authenticateServerResponse",
-				      &asn_DEF_AuthenticateServerResponse,
+				      &asn_DEF_SGP32_AuthenticateServerResponse,
 				      &req->req.authenticateServerResponse) < 0) {
 			json_decref(obj);
 			return NULL;

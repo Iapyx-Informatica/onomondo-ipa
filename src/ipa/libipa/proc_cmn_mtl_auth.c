@@ -274,10 +274,13 @@ struct ipa_esipa_auth_clnt_res *ipa_proc_cmn_mtl_auth(struct ipa_context *ctx,
 		    SGP32_AuthenticateServerResponse_PR_authenticateResponseOk;
 		auth_clnt_req.req.authenticateServerResponse.choice.authenticateResponseOk =
 		    *auth_serv_res->auth_serv_ok;
-		/* Pass raw BER bytes from the eUICC verbatim so that euiccSignature1
-		 * over euiccSigned1 is not broken by a BER→DER re-encoding round-trip.
-		 * NULL on the IoT-emulation path (auth_serv_res->raw_res is not set
-		 * there) — the struct-based encoding is used as fallback. */
+		/* Pass raw BER bytes from the eUICC verbatim so that euiccSignature1 over euiccSigned1 is not
+		 * broken by a BER→DER re-encoding round-trip. ipa_es10b_auth_serv() keeps these for every
+		 * successful transceive, emulation included, so this branch always forwards the original bytes
+		 * and the signed content never round-trips through the decoded struct. That also keeps
+		 * euiccSigned1.euiccInfo2 intact: the schema binds it to the SGP.22 EUICCInfo2, which silently
+		 * drops the SGP.32-only iotSpecificInfo when it is re-encoded (see the note on EuiccSigned1 in
+		 * SGP32Definitions.asn). */
 		auth_clnt_req.raw_authenticate_server_response = auth_serv_res->raw_res;
 	}
 	auth_clnt_res = ipa_esipa_auth_clnt(ctx, &auth_clnt_req);

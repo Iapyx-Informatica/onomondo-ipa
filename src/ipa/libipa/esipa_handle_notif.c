@@ -26,7 +26,7 @@
 static struct ipa_buf *enc_handle_notif_req(const struct ipa_esipa_handle_notif_req *req)
 {
 	struct EsipaMessageFromIpaToEim msg_to_eim = { 0 };
-	struct SGP32_ProfileInstallationResult *prfle_inst_res;
+	struct ProfileInstallationResult *prfle_inst_res;
 
 	msg_to_eim.present = EsipaMessageFromIpaToEim_PR_handleNotificationEsipa;
 	msg_to_eim.choice.handleNotificationEsipa.present = HandleNotificationEsipa_PR_pendingNotification;

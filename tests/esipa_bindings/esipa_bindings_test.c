@@ -29,6 +29,7 @@
 #include "src/ipa/libipa/esipa_get_bnd_prfle_pkg.h"
 #include "src/ipa/libipa/esipa_init_auth.h"
 #include "src/ipa/libipa/esipa_get_eim_pkg.h"
+#include "src/ipa/libipa/esipa_auth_clnt.h"
 #include "src/ipa/libipa/esipa_json.h"
 
 static uint8_t transaction_id_bytes[] = { 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef };
@@ -118,6 +119,52 @@ static void json_request_test(void)
 	assert(buf);
 	assert(memmem(buf->data, buf->len, TRANSACTION_ID_HEX, strlen(TRANSACTION_ID_HEX)));
 	printf("   error: %.*s\n", (int)buf->len, (const char *)buf->data);
+	ipa_buf_free(buf);
+}
+
+/* AuthenticateClient carries an SGP32-AuthenticateServerResponse.  Where no raw eUICC bytes are available the
+ * JSON binding encodes that field from the struct, and it has to reach for the SGP.32 descriptor: the SGP.22
+ * AuthenticateServerResponse is a two-branch CHOICE with no slot for the compact form, so encoding through it
+ * silently works for the two shared branches and then fails outright on the third. */
+static void json_auth_clnt_descriptor_test(void)
+{
+	struct ipa_esipa_auth_clnt_req req = { 0 };
+	static const uint8_t tid[4] = { 0xde, 0xad, 0xbe, 0xef };
+	static const uint8_t sig[4] = { 0x11, 0x22, 0x33, 0x44 };
+	static const uint8_t ecr[4] = { 0x0a, 0x0b, 0x0c, 0x0d };
+	struct SGP32_AuthenticateServerResponse *asr = &req.req.authenticateServerResponse;
+	struct CompactAuthenticateResponseOk *compact;
+	struct ipa_buf *buf;
+
+	printf("== json_auth_clnt_descriptor_test ==\n");
+
+	assert(OCTET_STRING_fromBuf(&req.req.transactionId, (const char *)tid, sizeof(tid)) == 0);
+
+	/* The error branch is the one reached today, since a successful response is forwarded as raw bytes.
+	 * It encodes identically under either descriptor, which is exactly why the wrong one went unnoticed. */
+	asr->present = SGP32_AuthenticateServerResponse_PR_authenticateResponseError;
+	assert(OCTET_STRING_fromBuf(&asr->choice.authenticateResponseError.transactionId,
+				    (const char *)tid, sizeof(tid)) == 0);
+	asr->choice.authenticateResponseError.authenticateErrorCode = 1;
+	buf = ipa_esipa_json_enc_auth_clnt_req(&req);
+	assert(buf);
+	assert(memmem(buf->data, buf->len, "\"authenticateServerResponse\"", 28));
+	printf("   error branch:   encoded\n");
+	ipa_buf_free(buf);
+
+	/* The compact branch exists only in the SGP.32 type.  Under the SGP.22 descriptor der_encode() fails and
+	 * the whole request comes back NULL; under the right one it encodes. */
+	memset(asr, 0, sizeof(*asr));
+	asr->present = SGP32_AuthenticateServerResponse_PR_compactAuthenticateResponseOk;
+	compact = &asr->choice.compactAuthenticateResponseOk;
+	compact->signedData.present = CompactAuthenticateResponseOk__signedData_PR_compactEuiccSigned1;
+	assert(OCTET_STRING_fromBuf(&compact->signedData.choice.compactEuiccSigned1.extCardResource,
+				    (const char *)ecr, sizeof(ecr)) == 0);
+	assert(OCTET_STRING_fromBuf(&compact->euiccSignature1, (const char *)sig, sizeof(sig)) == 0);
+	buf = ipa_esipa_json_enc_auth_clnt_req(&req);
+	assert(buf);
+	assert(memmem(buf->data, buf->len, "\"authenticateServerResponse\"", 28));
+	printf("   compact branch: encoded\n");
 	ipa_buf_free(buf);
 }
 
@@ -388,6 +435,7 @@ int main(int argc, char **argv)
 #endif
 #ifdef IPA_HAVE_ESIPA_JSON
 	json_request_test();
+	json_auth_clnt_descriptor_test();
 	json_refuses_without_transaction_id_test();
 	json_init_auth_transaction_id_test();
 	json_get_eim_pkg_test();
