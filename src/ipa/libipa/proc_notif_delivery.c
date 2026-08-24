@@ -79,7 +79,7 @@ int ipa_notif_delivery(struct ipa_context *ctx)
 	}
 
 	for (i = 0; i < retr_notif_from_lst_res->sgp32_res->choice.notificationList.list.count; i++) {
-		IPA_LOGP(SIPA, LERROR, "Delivery of notification No.%u:\n", i);
+		IPA_LOGP(SIPA, LDEBUG, "Delivery of notification No.%u:\n", i);
 		handle_notif_req.pending_notification =
 		    retr_notif_from_lst_res->sgp32_res->choice.notificationList.list.array[i];
 		rc = ipa_esipa_handle_notif(ctx, &handle_notif_req);
