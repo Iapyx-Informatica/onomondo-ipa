@@ -73,7 +73,7 @@ top-down; most are mechanical.
 | 5.7.4    | `HandleNotification` description expanded                                                  | TODO (review proc_notif_delivery.c) |
 | 5.9.2    | `EUICCInfo2` gains `euiccCiPKIdListForSigningV3`, `additionalEuiccInfo`, `highestSvn`; `IoTSpecificInfo` gains `ecallSupported`, `fallbackSupported` | asn ✓ / libipa TODO |
 | 5.9.4    | `AddInitialEimResponse.unsignedEimConfigDisallowed(2)` → `associatedEimAlreadyExists(2)`; new `commandError(7)` | asn ✓ / libipa TODO |
-| 5.9.5    | `EuiccMemoryReset` tag BF34 → BF64, new reset options, renamed auto-enable → immediate-enable | asn ✓ / libipa TODO |
+| 5.9.5    | `EuiccMemoryReset` tag BF34 → BF64, new reset options, renamed auto-enable → immediate-enable | asn ✓ / impl ✓ |
 | 5.9.11   | `RetrieveNotificationsListResponse` drops `notificationAndEprList`                         | asn ✓ / libipa TODO |
 | 5.9.15   | **`EnableUsingDD` → `ImmediateEnable`** with new `refreshFlag BOOLEAN`                     | asn ✓ / impl ✓ (renamed to es10b_immediate_enable.c) |
 | 5.9.17   | `ConfigureAutoProfileEnabling` → `ConfigureImmediateProfileEnabling`                       | asn ✓   |

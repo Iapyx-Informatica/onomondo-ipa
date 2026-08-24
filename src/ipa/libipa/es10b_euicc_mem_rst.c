@@ -229,12 +229,12 @@ int euicc_mem_rst_emu(struct ipa_context *ctx, const struct ipa_es10b_euicc_mem_
 	}
 	if (req->immediate_enable_cfg) {
 		IPA_LOGP_ES10X("eUICCMemoryReset", LINFO,
-			       "IoT eUICC emulation active, also clearing auto enable configuration...\n");
-		IPA_FREE(ctx->nvstate.iot_euicc_emu.auto_enable.smdp_oid);
-		ctx->nvstate.iot_euicc_emu.auto_enable.smdp_oid = NULL;
-		IPA_FREE(ctx->nvstate.iot_euicc_emu.auto_enable.smdp_address);
-		ctx->nvstate.iot_euicc_emu.auto_enable.smdp_address = NULL;
-		ctx->nvstate.iot_euicc_emu.auto_enable.flag = false;
+			       "IoT eUICC emulation active, also clearing immediate enable configuration...\n");
+		IPA_FREE(ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_oid);
+		ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_oid = NULL;
+		IPA_FREE(ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_address);
+		ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_address = NULL;
+		ctx->nvstate.iot_euicc_emu.immediate_enable.flag = false;
 	}
 
 	es10b_req = ipa_es10x_req_enc(&asn_DEF_EuiccMemoryResetRequest, &mem_rst_req, "eUICCMemoryReset");

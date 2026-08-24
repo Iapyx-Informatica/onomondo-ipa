@@ -103,21 +103,21 @@ static int cfg_immediate_enable_emu(struct ipa_context *ctx, bool immediate_enab
 	IPA_LOGP_ES10X("ConfigureImmediateProfileEnabling", LINFO,
 		       "IoT eUICC emulation active, storing the immediate enabling configuration locally\n");
 
-	ctx->nvstate.iot_euicc_emu.auto_enable.flag = immediate_enable;
+	ctx->nvstate.iot_euicc_emu.immediate_enable.flag = immediate_enable;
 
 	if (smdp_oid) {
 		OBJECT_IDENTIFIER_t oid = { 0 };
 
 		if (set_smdp_oid(&oid, smdp_oid) < 0)
 			return -EINVAL;
-		ipa_buf_free(ctx->nvstate.iot_euicc_emu.auto_enable.smdp_oid);
-		ctx->nvstate.iot_euicc_emu.auto_enable.smdp_oid = IPA_BUF_FROM_ASN(&oid);
+		ipa_buf_free(ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_oid);
+		ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_oid = IPA_BUF_FROM_ASN(&oid);
 		ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_OBJECT_IDENTIFIER, &oid);
 	}
 
 	if (smdp_address) {
-		ipa_buf_free(ctx->nvstate.iot_euicc_emu.auto_enable.smdp_address);
-		ctx->nvstate.iot_euicc_emu.auto_enable.smdp_address =
+		ipa_buf_free(ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_address);
+		ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_address =
 		    ipa_buf_alloc_data(strlen(smdp_address), (uint8_t *)smdp_address);
 	}
 

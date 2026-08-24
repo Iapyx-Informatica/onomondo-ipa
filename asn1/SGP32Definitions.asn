@@ -687,8 +687,7 @@ SGP32-RetrieveNotificationsListResponse ::= [43] CHOICE { -- Tag 'BF2B' — UPDA
 -- UPDATE for v1.2: CR111007R00 — on ImmediateEnable, rollback authorization MUST
 -- also be reset when refreshFlag == true (behavioral; see proc_euicc_pkg_dwnld_exec.c).
 -- Implemented in libipa/es10b_immediate_enable.{c,h}, which replaced the v1.0
--- es10b_enable_using_dd.c.  (The context.h state is still named auto_enable;
--- that rename is tracked by the TODO there.)
+-- es10b_enable_using_dd.c.
 -- ASN1START
 ImmediateEnableRequest ::= [90] SEQUENCE { -- Tag 'BF5A' — UPDATE for v1.1: 5.9.15 — renamed from EnableUsingDDRequest
   refreshFlag BOOLEAN -- NEW in v1.1: 5.9.15 — indicating whether REFRESH is required

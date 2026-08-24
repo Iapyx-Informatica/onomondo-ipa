@@ -23,22 +23,22 @@
 #include "es10x.h"
 #include "es10b_load_bnd_prfle_pkg.h"
 
-static void collect_auto_enable_data_from_prfle_inst_rslt(struct ipa_context *ctx,
+static void collect_immediate_enable_data_from_prfle_inst_rslt(struct ipa_context *ctx,
 							  struct ProfileInstallationResult *prfle_inst_rslt)
 {
 	struct ProfileInstallationResultData *prfle_inst_res_data = &prfle_inst_rslt->profileInstallationResultData;
 
-	/* When the profile was not successfully installed, then there is no point in collecting any auto enable data. */
+	/* When the profile was not successfully installed, then there is no point in collecting any immediate enable data. */
 	if (prfle_inst_res_data->finalResult.present != ProfileInstallationResultData__finalResult_PR_successResult)
 		return;
 
-	/* Collect smdpOid and smdpAddress so that we can verify later whether the auto enable is granted or not. */
-	ctx->iot_euicc_emu.auto_enable.smdp_oid = IPA_BUF_FROM_ASN(&prfle_inst_res_data->smdpOid);
-	ctx->iot_euicc_emu.auto_enable.smdp_address =
+	/* Collect smdpOid and smdpAddress so that we can verify later whether immediate enabling is granted or not. */
+	ctx->iot_euicc_emu.immediate_enable.smdp_oid = IPA_BUF_FROM_ASN(&prfle_inst_res_data->smdpOid);
+	ctx->iot_euicc_emu.immediate_enable.smdp_address =
 	    IPA_BUF_FROM_ASN(&prfle_inst_res_data->notificationMetadata.notificationAddress);
 
 	/* Collect AID of the profile so that we later know which profile to enable. */
-	ctx->iot_euicc_emu.auto_enable.profile_aid =
+	ctx->iot_euicc_emu.immediate_enable.profile_aid =
 	    IPA_BUF_FROM_ASN(&prfle_inst_res_data->finalResult.choice.successResult.aid);
 }
 
@@ -67,14 +67,14 @@ struct ipa_es10b_load_bnd_prfle_pkg_res *ipa_es10b_load_bnd_prfle_pkg(struct ipa
 	struct ipa_es10b_load_bnd_prfle_pkg_res *res = IPA_ALLOC_ZERO(struct ipa_es10b_load_bnd_prfle_pkg_res);
 	int rc;
 
-	/* In case IoT eUICC emulation is active, ensure that the auto enable data is cleared. (This data has no
+	/* In case IoT eUICC emulation is active, ensure that the immediate enable data is cleared. (This data has no
 	 * relevance in case a real IoT eUICC is used.) */
-	ipa_buf_free(ctx->iot_euicc_emu.auto_enable.smdp_oid);
-	ctx->iot_euicc_emu.auto_enable.smdp_oid = NULL;
-	ipa_buf_free(ctx->iot_euicc_emu.auto_enable.smdp_address);
-	ctx->iot_euicc_emu.auto_enable.smdp_address = NULL;
-	ipa_buf_free(ctx->iot_euicc_emu.auto_enable.profile_aid);
-	ctx->iot_euicc_emu.auto_enable.profile_aid = NULL;
+	ipa_buf_free(ctx->iot_euicc_emu.immediate_enable.smdp_oid);
+	ctx->iot_euicc_emu.immediate_enable.smdp_oid = NULL;
+	ipa_buf_free(ctx->iot_euicc_emu.immediate_enable.smdp_address);
+	ctx->iot_euicc_emu.immediate_enable.smdp_address = NULL;
+	ipa_buf_free(ctx->iot_euicc_emu.immediate_enable.profile_aid);
+	ctx->iot_euicc_emu.immediate_enable.profile_aid = NULL;
 
 	/* The ES10b LoadBoundProfilePackage function is a pseudo function that only exists as a placeholder in the
 	 * specification. In practice it is just a STORE DATA command that carries a profile segment without any
@@ -94,10 +94,10 @@ struct ipa_es10b_load_bnd_prfle_pkg_res *ipa_es10b_load_bnd_prfle_pkg(struct ipa
 		if (rc < 0)
 			goto error;
 
-		/* In case IoT eUICC emulation is active, collect auto enable data to support the emulation of
+		/* In case IoT eUICC emulation is active, collect immediate enable data to support the emulation of
 		 * the ES10b function EnableUsingDD. */
 		if (IPA_EUICC_EMU(ctx))
-			collect_auto_enable_data_from_prfle_inst_rslt(ctx, res->res);
+			collect_immediate_enable_data_from_prfle_inst_rslt(ctx, res->res);
 	}
 
 	IPA_FREE(es10b_res);

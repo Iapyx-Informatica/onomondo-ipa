@@ -270,21 +270,21 @@ struct EuiccResultData *iot_emo_do_configureImmediateEnable_psmo(struct ipa_cont
 
 	/* Update immediateEnableFlag */
 	if (configureImmediateEnable_psmo->immediateEnableFlag)
-		ctx->nvstate.iot_euicc_emu.auto_enable.flag = true;
+		ctx->nvstate.iot_euicc_emu.immediate_enable.flag = true;
 	else
-		ctx->nvstate.iot_euicc_emu.auto_enable.flag = false;
+		ctx->nvstate.iot_euicc_emu.immediate_enable.flag = false;
 
 	/* Update smdpOid */
-	ipa_buf_free(ctx->nvstate.iot_euicc_emu.auto_enable.smdp_oid);
-	ctx->nvstate.iot_euicc_emu.auto_enable.smdp_oid = NULL;
+	ipa_buf_free(ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_oid);
+	ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_oid = NULL;
 	if (configureImmediateEnable_psmo->defaultSmdpOid)
-		ctx->nvstate.iot_euicc_emu.auto_enable.smdp_oid = IPA_BUF_FROM_ASN(configureImmediateEnable_psmo->defaultSmdpOid);
+		ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_oid = IPA_BUF_FROM_ASN(configureImmediateEnable_psmo->defaultSmdpOid);
 
 	/* Update smdpAddress */
-	ipa_buf_free(ctx->nvstate.iot_euicc_emu.auto_enable.smdp_address);
-	ctx->nvstate.iot_euicc_emu.auto_enable.smdp_address = NULL;
+	ipa_buf_free(ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_address);
+	ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_address = NULL;
 	if (configureImmediateEnable_psmo->defaultSmdpAddress)
-		ctx->nvstate.iot_euicc_emu.auto_enable.smdp_address =
+		ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_address =
 		    IPA_BUF_FROM_ASN(configureImmediateEnable_psmo->defaultSmdpAddress);
 
 	euicc_result_data->choice.configureImmediateEnableResult = ConfigureImmediateEnableResult_ok;

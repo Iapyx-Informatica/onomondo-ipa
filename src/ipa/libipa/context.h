@@ -50,14 +50,12 @@ struct ipa_nvstate {
 		struct ipa_buf *eim_cfg_ber;
 
 		/*! Immediate Profile Enabling configuration (set via configureImmediateEnable PSMO).
-		 * UPDATE for v1.1: 2.11.1.1.3 — renamed from configureAutoEnable.
-		 * TODO v1.1: rename struct member auto_enable -> immediate_enable once
-		 * all call sites are updated (grep repo for 'auto_enable'). */
+		 * UPDATE for v1.1: 2.11.1.1.3 — renamed from configureAutoEnable. */
 		struct {
 			bool flag;           /* UPDATE for v1.1: 2.11.1.1.3 — corresponds to immediateEnableFlag */
 			struct ipa_buf *smdp_oid;     /* UPDATE for v1.1: 2.11.1.1.3 — corresponds to defaultSmdpOid */
 			struct ipa_buf *smdp_address; /* UPDATE for v1.1: 2.11.1.1.3 — corresponds to defaultSmdpAddress */
-		} auto_enable;
+		} immediate_enable;
 
 		/*! ICCID of the Profile carrying the Fallback Attribute, all-zero when there is none.
 		 * SGP.32 section 4.4 keeps this flag in the Profile Metadata (ProfileInfo.fallbackAttribute,
@@ -112,14 +110,12 @@ struct ipa_context {
 
 		/*! cached data to support the emulation of the ES10b function ImmediateEnable.
 		 * UPDATE for v1.1: 5.9.15 — ES10b function renamed EnableUsingDD -> ImmediateEnable
-		 * (now implemented in es10b_immediate_enable.{c,h}).
-		 * TODO v1.1: rename struct member auto_enable -> immediate_enable
-		 * (grep repo for 'auto_enable'). */
+		 * (now implemented in es10b_immediate_enable.{c,h}). */
 		struct {
 			struct ipa_buf *smdp_oid;
 			struct ipa_buf *smdp_address;
 			struct ipa_buf *profile_aid;
-		} auto_enable;
+		} immediate_enable;
 	} iot_euicc_emu;
 
 	/*! cached eimId (read from eUICC when ipa_init is called) */

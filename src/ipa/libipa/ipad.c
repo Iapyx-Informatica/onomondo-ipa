@@ -49,8 +49,8 @@ static void nvstate_free_contents(struct ipa_nvstate *nvstate)
 {
 	/* free dynamically allocated struct members (append code for new members here) */
 	IPA_FREE(nvstate->iot_euicc_emu.eim_cfg_ber);
-	IPA_FREE(nvstate->iot_euicc_emu.auto_enable.smdp_oid);
-	IPA_FREE(nvstate->iot_euicc_emu.auto_enable.smdp_address);
+	IPA_FREE(nvstate->iot_euicc_emu.immediate_enable.smdp_oid);
+	IPA_FREE(nvstate->iot_euicc_emu.immediate_enable.smdp_address);
 }
 
 static void nvstate_reset(struct ipa_nvstate *nvstate)
@@ -90,8 +90,8 @@ static struct ipa_buf *nvstate_serialize(struct ipa_nvstate *nvstate)
 
 	/* serialize dynamically allocated struct members (append code for new members here) */
 	nvstate_bin = nvstate_serialize_ipa_buf(nvstate_bin, nvstate->iot_euicc_emu.eim_cfg_ber);
-	nvstate_bin = nvstate_serialize_ipa_buf(nvstate_bin, nvstate->iot_euicc_emu.auto_enable.smdp_oid);
-	nvstate_bin = nvstate_serialize_ipa_buf(nvstate_bin, nvstate->iot_euicc_emu.auto_enable.smdp_address);
+	nvstate_bin = nvstate_serialize_ipa_buf(nvstate_bin, nvstate->iot_euicc_emu.immediate_enable.smdp_oid);
+	nvstate_bin = nvstate_serialize_ipa_buf(nvstate_bin, nvstate->iot_euicc_emu.immediate_enable.smdp_address);
 	return nvstate_bin;
 }
 
@@ -150,8 +150,8 @@ static void nvstate_deserialize(struct ipa_nvstate *nvstate, struct ipa_buf *nvs
 
 	/* deserialize dynamically allocated struct members (append code for new members here) */
 	nvstate->iot_euicc_emu.eim_cfg_ber = nvstate_deserialize_ipa_buf(&nvstate_data, &nvstate_data_len);
-	nvstate->iot_euicc_emu.auto_enable.smdp_oid = nvstate_deserialize_ipa_buf(&nvstate_data, &nvstate_data_len);
-	nvstate->iot_euicc_emu.auto_enable.smdp_address = nvstate_deserialize_ipa_buf(&nvstate_data, &nvstate_data_len);
+	nvstate->iot_euicc_emu.immediate_enable.smdp_oid = nvstate_deserialize_ipa_buf(&nvstate_data, &nvstate_data_len);
+	nvstate->iot_euicc_emu.immediate_enable.smdp_address = nvstate_deserialize_ipa_buf(&nvstate_data, &nvstate_data_len);
 }
 
 /*! Read eIM configuration from eUICC and pick a suitable eIM.
@@ -598,9 +598,9 @@ struct ipa_buf *ipa_free_ctx(struct ipa_context *ctx)
 	nvstate = nvstate_serialize(&ctx->nvstate);
 
 	IPA_FREE(ctx->iot_euicc_emu.rollback_iccid);
-	ipa_buf_free(ctx->iot_euicc_emu.auto_enable.smdp_oid);
-	ipa_buf_free(ctx->iot_euicc_emu.auto_enable.smdp_address);
-	ipa_buf_free(ctx->iot_euicc_emu.auto_enable.profile_aid);
+	ipa_buf_free(ctx->iot_euicc_emu.immediate_enable.smdp_oid);
+	ipa_buf_free(ctx->iot_euicc_emu.immediate_enable.smdp_address);
+	ipa_buf_free(ctx->iot_euicc_emu.immediate_enable.profile_aid);
 	IPA_FREE(ctx->eim_id);
 	IPA_FREE(ctx->eim_fqdn);
 	ipa_proc_eucc_pkg_dwnld_exec_res_free(ctx->proc_eucc_pkg_dwnld_exec_res);
