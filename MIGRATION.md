@@ -101,19 +101,16 @@ copy at all and the imported type is used directly: `ProfileInstallationResult`,
 
 None of these blocks a v1.2 deployment against a real IoT eUICC.
 
-**Spec review items** — procedure text that changed without a schema change, not
-yet walked against the implementation:
+**Unimplemented procedures**, each with knock-on items:
 
-| Section | Where to look |
-|---------|---------------|
-| 3.2.3.1, CR111006R00 | Direct Profile Download start conditions and Step 10 — `proc_indirect_prfle_dwnld.c`, `ipad.c` |
-| 3.5.2   | Additional error conditions — `proc_eim_pkg_retr.c` |
-| 5.7.4   | `HandleNotification` order of operations: this implementation batches and forwards — `proc_notif_delivery.c` |
-| Annex A.2 | CAT requirements for the IoT Device |
-| CR12012R00 | 64-character TLS CN limit — `http.c` |
-
-**Unimplemented features**, each with knock-on items:
-
+- **Direct Profile Download (§3.2.3.1).** Only the Indirect procedure (§3.2.3.2)
+  is implemented, entered from `proc_eim_pkg_retr.c`. The Activation Code parser
+  exists but is reached only through the eIM's `ProfileDownloadTriggerRequest`,
+  never from a locally supplied code. §3.2.3.1's own step 10 *is* satisfied,
+  because §3.2.3.2 step 15 delegates the Profile Metadata verification to it and
+  `ppr.c` performs it — fetching the RAT and the installed-Profile list from the
+  eUICC and cancelling the session with `pprNotAllowed` on failure. CR111006R00
+  clarified that same step 10 and needs nothing further.
 - **IPA Capability `minimizeEsipaBytes`** (the compact ESipa forms). The compact
   ASN.1 types are generated but nothing constructs them. CR12008R01's
   `CompactOtherSignedNotification.eidValue` belongs to this work, as does
@@ -122,6 +119,23 @@ yet walked against the implementation:
 - **The SM-DS branch.** `AuthenticateClientOkDSEsipa` is decoded, but
   `proc_indirect_prfle_dwnld.c` requires the DP branch and stops otherwise, so
   `profileDownloadTrigger` on that response is never read.
+
+**Out of scope for the IPA**, recorded because earlier drafts listed them as
+open review items:
+
+- **§5.7.4** is ES9+', the eIM to SM-DP+ interface. The IPA's HandleNotification
+  is the ESipa one, §5.14.7.
+- **Annex A.2** lists CAT mechanisms the *IoT Device* must support (TERMINAL
+  PROFILE, SET UP EVENT LIST, REFRESH, SMS-PP, BIP channels). Those belong to the
+  modem's CAT stack. The IPA's own touchpoints are TERMINAL CAPABILITY (§3.8.2,
+  `euicc.c`) and REFRESH handling in the ES10x transport, both present.
+- **CR12012R00** is a NOTE in §4.3 recommending that *eIM operators* keep the
+  `eimId` within the 64-character RFC 5280 limit on a certificate common name.
+  The normative rule is the 128-byte cap, enforced by `asn_check_constraints()`
+  in `es10b_add_init_eim.c`. Enforcing 64 in the IPA would reject valid eimIds.
+- **§3.5.2** (eIM Configuration Data managed by IPA) is implemented throughout:
+  AddInitialEim with all six error conditions of §3.5.2.1, deletion via
+  `IPA_EUICC_MEM_RST_EIM_CFG_DATA`, and `GetEimConfigurationData`.
 
 **IoT eUICC emulation limits.** A consumer eUICC cannot sign an eUICC Package
 Result (§2.11.2.1 requires `SK.EUICC.ECDSA`, which never leaves the card, and

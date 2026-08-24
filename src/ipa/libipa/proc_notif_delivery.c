@@ -6,15 +6,17 @@
  * Author: Philipp Maier <pmaier@sysmocom.de> / sysmocom - s.f.m.c. GmbH
  *
  * See also: GSMA SGP.32, section 3.7: Notification Delivery to Notification Receivers
- *           GSMA SGP.32, section 5.7.4 (HandleNotification, expanded description).
+ *           GSMA SGP.32, section 5.14.7: Function (ESipa): HandleNotification
  *
  * =====================================================================
  * v1.1/v1.2 migration notes for this file:
  * =====================================================================
- * UPDATE for v1.1: 5.7.4 — HandleNotification procedure text was expanded;
- *   review against v1.2 to ensure the order of operations matches (this
- *   implementation batches and forwards; v1.2 may require per-notification
- *   delivery semantics).
+ * NOT APPLICABLE: 5.7.4 — an earlier note here asked for a review of the
+ *   expanded HandleNotification text in section 5.7.4.  That section is ES9+',
+ *   the eIM to SM-DP+ interface ("Function Provider Entity: SM-DP+, Function
+ *   Caller Entity: eIM"), which the IPA is not a party to.  The IPA's
+ *   HandleNotification is the ESipa one, section 5.14.7, and its input is a
+ *   single pendingNotification per call — which is what the loop below sends.
  * UPDATE for v1.2: CR12008R01 / §5.14.7 — CompactOtherSignedNotification gained
  *   an optional eidValue so the eIM can identify the originating eUICC.  Not
  *   applicable here as things stand, and not a forwarding matter: the eUICC only
