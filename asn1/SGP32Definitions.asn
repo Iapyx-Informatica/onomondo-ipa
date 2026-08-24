@@ -1009,7 +1009,7 @@ CompactSuccessResult ::= SEQUENCE {
   simaResponse OCTET STRING OPTIONAL -- MUST be present if the simaResponse value (EUICCResponse) is different from the 9-byte value '30 07 A0 05 30 03 80 01 00' representing success
 }
 CompactOtherSignedNotification ::= SEQUENCE {
-  eidValue [APPLICATION 26] Octet16 OPTIONAL, -- NEW in v1.2: CR12008R01 — Tag '5A'; allows eIM to identify the related eUICC
+  eidValue [APPLICATION 26] Octet16 OPTIONAL, -- NEW in v1.2: CR12008R01 — Tag '5A'; lets the eIM identify the related eUICC. Recommended (not required) by 5.14.7, and only where no underlying transport already identifies the EID. Unused by libipa: the compact forms are only built by an IPA declaring minimizeEsipaBytes, which this one does not.
   tbsOtherNotification NotificationMetadata,
   euiccNotificationSignature [APPLICATION 55] OCTET STRING -- eUICC signature of tbsOtherNotification, Tag '5F37'
 }
