@@ -43,17 +43,31 @@
 #include "esipa_auth_clnt.h"
 
 #ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
+/* The error codes of ESipa.AuthenticateClient (SGP.32, section 6.3.2.2), which are those of
+ * ES9+'.AuthenticateClient plus pprNotAllowed(50) from section 5.14.3.  Not to be confused with
+ * AuthenticateErrorCode, the unrelated ES10b.AuthenticateServer set used in es10b_auth_serv.c: the two
+ * overlap numerically but name entirely different failures. */
+#define AC_ERR(name) \
+	{ AuthenticateClientResponseEsipa__authenticateClientErrorEsipa_##name, #name }
 static const struct num_str_map error_code_strings[] = {
-	{ AuthenticateErrorCode_invalidCertificate, "invalidCertificate" },
-	{ AuthenticateErrorCode_invalidSignature, "invalidSignature" },
-	{ AuthenticateErrorCode_unsupportedCurve, "unsupportedCurve" },
-	{ AuthenticateErrorCode_noSessionContext, "noSessionContext" },
-	{ AuthenticateErrorCode_invalidOid, "invalidOid" },
-	{ AuthenticateErrorCode_euiccChallengeMismatch, "euiccChallengeMismatch" },
-	{ AuthenticateErrorCode_ciPKUnknown, "ciPKUnknown" },
-	{ AuthenticateErrorCode_undefinedError, "undefinedError" },
+	AC_ERR(eumCertificateInvalid),
+	AC_ERR(eumCertificateExpired),
+	AC_ERR(euiccCertificateInvalid),
+	AC_ERR(euiccCertificateExpired),
+	AC_ERR(euiccSignatureInvalid),
+	AC_ERR(matchingIdRefused),
+	AC_ERR(eidMismatch),
+	AC_ERR(noEligibleProfile),
+	AC_ERR(ciPKUnknown),
+	AC_ERR(invalidTransactionId),
+	AC_ERR(insufficientMemory),
+	/* NEW in v1.2: 5.14.3 — status code 8.2.8 "PPR - Not Allowed" maps onto this. */
+	AC_ERR(pprNotAllowed),
+	AC_ERR(eventIdUnknown),
+	AC_ERR(undefinedError),
 	{ 0, NULL }
 };
+#undef AC_ERR
 
 static struct ipa_buf *enc_auth_clnt_req(const struct ipa_esipa_auth_clnt_req *req)
 {

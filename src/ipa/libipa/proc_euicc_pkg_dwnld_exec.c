@@ -225,7 +225,11 @@ int ipa_proc_eucc_pkg_dwnld_exec_onset(struct ipa_context *ctx, struct ipa_proc_
 		prvde_eim_pkg_rslt_req.sgp32_notification_list = retr_notif_from_lst_res->sgp32_res;
 	prvde_eim_pkg_rslt_res = ipa_esipa_prvde_eim_pkg_rslt(ctx, &prvde_eim_pkg_rslt_req);
 
-	if (!prvde_eim_pkg_rslt_res) {
+	/* A provideEimPackageResultError means the eIM received the result but could not attribute it to an
+	 * eUICC (SGP.32, section 6.3.2.7), so it did not process it -- the same outcome as never reaching the
+	 * eIM at all, and handled the same way here. Treating it as success would delete the eUICC Package
+	 * Result notification below and lose the result for good, since the eUICC cannot reproduce it. */
+	if (!prvde_eim_pkg_rslt_res || prvde_eim_pkg_rslt_res->prvde_eim_pkg_rslt_err) {
 		/* In case we fail to communicate the EuiccPackageResult back to the eIM we may try to perform a
 		 * profile rollback. However, this maneuver only makes sense when the profile has actually changed.
 		 * The profile rollback can only be tried once and the eIM also must have allowed the profile rollback

@@ -30,6 +30,7 @@
 #include "src/ipa/libipa/esipa_init_auth.h"
 #include "src/ipa/libipa/esipa_get_eim_pkg.h"
 #include "src/ipa/libipa/esipa_auth_clnt.h"
+#include "src/ipa/libipa/esipa_prvde_eim_pkg_rslt.h"
 #include "src/ipa/libipa/esipa_json.h"
 
 static uint8_t transaction_id_bytes[] = { 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef };
@@ -423,6 +424,91 @@ static void json_get_eim_pkg_test(void)
 }
 #endif /* IPA_HAVE_ESIPA_JSON */
 
+#ifdef IPA_HAVE_ESIPA_ASN1
+/* dec_prvde_eim_pkg_rslt_res() is not declared in a header; it is reached from the binding table in the
+ * same file. */
+struct ipa_esipa_prvde_eim_pkg_rslt_res *dec_prvde_eim_pkg_rslt_res(const struct ipa_buf *encoded);
+
+static uint8_t esipa_enc_buf[2048];
+static size_t esipa_enc_len;
+
+static int esipa_enc_sink(const void *b, size_t sz, void *key)
+{
+	(void)key;
+	assert(esipa_enc_len + sz <= sizeof(esipa_enc_buf));
+	memcpy(esipa_enc_buf + esipa_enc_len, b, sz);
+	esipa_enc_len += sz;
+	return 0;
+}
+
+/* DER-encode an EsipaMessageFromEimToIpa the way the eIM would put it on the wire. */
+static struct ipa_buf *esipa_encode(const struct EsipaMessageFromEimToIpa *msg)
+{
+	asn_enc_rval_t er;
+
+	esipa_enc_len = 0;
+	er = der_encode(&asn_DEF_EsipaMessageFromEimToIpa, (void *)msg, esipa_enc_sink, NULL);
+	assert(er.encoded > 0);
+	return ipa_buf_alloc_data(esipa_enc_len, esipa_enc_buf);
+}
+
+/* The eIM answers ProvideEimPackageResult with one of three branches (SGP.32, section 6.3.2.7).  Two of
+ * them carry no acknowledgements, and only prvde_eim_pkg_rslt_err separates "accepted, nothing to
+ * acknowledge" from "refused, the result was never processed" -- a distinction the caller needs, because
+ * on a refusal it must keep the eUICC Package Result instead of retiring it. */
+static void asn1_prvde_eim_pkg_rslt_response_test(void)
+{
+	struct EsipaMessageFromEimToIpa msg = { 0 };
+	struct ProvideEimPackageResultResponse *r = &msg.choice.provideEimPackageResultResponse;
+	struct ipa_esipa_prvde_eim_pkg_rslt_res *res;
+	struct ipa_buf *enc;
+	long *seq;
+
+	printf("== asn1_prvde_eim_pkg_rslt_response_test ==\n");
+	msg.present = EsipaMessageFromEimToIpa_PR_provideEimPackageResultResponse;
+
+	/* eimAcknowledgements: accepted, and the sequence numbers come back. */
+	r->present = ProvideEimPackageResultResponse_PR_eimAcknowledgements;
+	seq = calloc(1, sizeof(*seq));
+	assert(seq);
+	*seq = 7;
+	ASN_SEQUENCE_ADD(&r->choice.eimAcknowledgements.list, seq);
+	enc = esipa_encode(&msg);
+	res = dec_prvde_eim_pkg_rslt_res(enc);
+	assert(res && res->eim_acknowledgements && res->eim_acknowledgements->list.count == 1);
+	assert(res->prvde_eim_pkg_rslt_err == 0);
+	printf("   eimAcknowledgements          -> accepted, 1 ack\n");
+	ipa_esipa_prvde_eim_pkg_rslt_free(res);
+	ipa_buf_free(enc);
+	ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_EimAcknowledgements, &r->choice.eimAcknowledgements);
+
+	/* emptyResponse: also accepted, just with nothing to acknowledge. */
+	memset(r, 0, sizeof(*r));
+	r->present = ProvideEimPackageResultResponse_PR_emptyResponse;
+	enc = esipa_encode(&msg);
+	res = dec_prvde_eim_pkg_rslt_res(enc);
+	assert(res && res->eim_acknowledgements == NULL);
+	assert(res->prvde_eim_pkg_rslt_err == 0);
+	printf("   emptyResponse                -> accepted, no acks\n");
+	ipa_esipa_prvde_eim_pkg_rslt_free(res);
+	ipa_buf_free(enc);
+
+	/* provideEimPackageResultError: refused, and it must not look like the case above. */
+	memset(r, 0, sizeof(*r));
+	r->present = ProvideEimPackageResultResponse_PR_provideEimPackageResultError;
+	r->choice.provideEimPackageResultError =
+	    ProvideEimPackageResultResponse__provideEimPackageResultError_eidNotFound;
+	enc = esipa_encode(&msg);
+	res = dec_prvde_eim_pkg_rslt_res(enc);
+	assert(res && res->eim_acknowledgements == NULL);
+	assert(res->prvde_eim_pkg_rslt_err ==
+	       ProvideEimPackageResultResponse__provideEimPackageResultError_eidNotFound);
+	printf("   provideEimPackageResultError -> refused, eidNotFound reported\n");
+	ipa_esipa_prvde_eim_pkg_rslt_free(res);
+	ipa_buf_free(enc);
+}
+#endif /* IPA_HAVE_ESIPA_ASN1 */
+
 int main(int argc, char **argv)
 {
 	transaction_id_lookup_test();
@@ -430,6 +516,7 @@ int main(int argc, char **argv)
 #ifdef IPA_HAVE_ESIPA_ASN1
 	asn1_init_auth_transaction_id_test();
 	asn1_get_eim_pkg_test();
+	asn1_prvde_eim_pkg_rslt_response_test();
 #else
 	printf("== ASN.1 binding not built, its encoder cases skipped ==\n");
 #endif

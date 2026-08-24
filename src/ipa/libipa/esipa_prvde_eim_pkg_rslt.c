@@ -8,53 +8,31 @@
  * See also: GSMA SGP.32, section 5.14.6: Function (ESipa): ProvideEimPackageResult
  *
  * =====================================================================
- * v1.1/v1.2 migration notes for this file (MAJOR CHANGES — rewrite needed):
+ * v1.1/v1.2 migration notes for this file:
  * =====================================================================
- * UPDATE for v1.1: 5.14.6 / 6.3.2.7 — ProvideEimPackageResult was restructured
- *   from a top-level CHOICE to a SEQUENCE:
- *     ProvideEimPackageResult ::= [80] SEQUENCE {
- *       eidValue    [APPLICATION 26] Octet16 OPTIONAL,
- *       eimPackageResult EimPackageResult
- *     }
- *   where EimPackageResult is the CHOICE that used to be the outer type.
- *   All of the enc_prvde_eim_pkg_rslt_req() code below must be rewritten
- *   to populate the new wrapper: set .eidValue conditionally and assign
- *   the chosen branch into .eimPackageResult.choice.<branch>.
- *
- * UPDATE for v1.1: 6.3.2.7 — The eimPackageError INTEGER branch was replaced
- *   by eimPackageResultResponseError [0] EimPackageResultResponseError, which
- *   wraps the code with an optional eimTransactionId:
- *     EimPackageResultResponseError ::= SEQUENCE {
- *       eimTransactionId [0] TransactionId OPTIONAL,
- *       eimPackageResultErrorCode EimPackageResultErrorCode
- *     }
- *   The error-path fallback at the bottom of enc_prvde_eim_pkg_rslt_req()
- *   must be updated accordingly.
- *
- * UPDATE for v1.1: 6.3.2.7 — ePRAndNotifications.notificationList tag changed
- *   from [43] (SGP32-RetrieveNotificationsListResponse) to [0]
- *   (PendingNotificationList alias).  The existing field assignment of
- *   sgp32_notification_list into .notificationList will still compile but
- *   the wire format changes; consumer must extract the inner notification
- *   list rather than the full response.
- *
- * UPDATE for v1.1: 6.3.2.7 — ProvideEimPackageResultResponse changed from a
- *   SEQUENCE (with optional EimAcknowledgements) to a CHOICE with three
- *   branches: eimAcknowledgements, emptyResponse, provideEimPackageResultError.
- *   The decoder below unconditionally reads .eimAcknowledgements which will
- *   no longer type-check after regeneration.  Rewrite:
- *     switch (msg_to_ipa->choice.provideEimPackageResultResponse.present) {
- *     case ProvideEimPackageResultResponse_PR_eimAcknowledgements: ...
- *     case ProvideEimPackageResultResponse_PR_emptyResponse:       ...
- *     case ProvideEimPackageResultResponse_PR_provideEimPackageResultError: ...
- *     }
- *
- * UPDATE for v1.2: CR111002R00 — new error codes in provideEimPackageResultError:
- *   eidNotFound(2), invalidEid(3), missingEid(4).
- * UPDATE for v1.2: CR111003R00 — eimPackageResultErrorCode was removed from
- *   the old EimPackageResult; error now lives in eimPackageResultResponseError.
- * UPDATE for v1.2: CR12014R02 — clarified when EidValue must be included in
- *   ProvideEimPackageResult (see §5.14.6 procedure text).
+ * DONE for v1.1: 5.14.6 / 6.3.2.7 — ProvideEimPackageResult was restructured
+ *   from a top-level CHOICE into a SEQUENCE of an optional eidValue and an
+ *   EimPackageResult, which is now the CHOICE.  enc_prvde_eim_pkg_rslt_req()
+ *   fills the wrapper and assigns every branch into .eimPackageResult.
+ * DONE for v1.1: 6.3.2.7 — the eimPackageError INTEGER branch was replaced by
+ *   eimPackageResultResponseError [0], which wraps the code together with an
+ *   optional eimTransactionId.  Both error paths below use it.
+ * DONE for v1.1: 6.3.2.7 — ePRAndNotifications.notificationList moved to tag [0]
+ *   and carries the bare list, so the inner notificationList is extracted from
+ *   the RetrieveNotificationsListResponse the callers still hand over.
+ * DONE for v1.1: 6.3.2.7 — ProvideEimPackageResultResponse became a CHOICE of
+ *   eimAcknowledgements, emptyResponse and provideEimPackageResultError;
+ *   dec_prvde_eim_pkg_rslt_res() switches on all three.
+ * DONE for v1.2: CR111002R00 — provideEimPackageResultError carries eidNotFound,
+ *   invalidEid and missingEid.  All three mean the eIM could not tell which eUICC
+ *   the result came from and therefore did not process it, so the code is
+ *   reported to the caller in prvde_eim_pkg_rslt_err rather than being logged and
+ *   dropped: an accepted-with-no-acknowledgements response is otherwise
+ *   indistinguishable from a rejection.
+ * DONE for v1.2: CR111003R00 — eimPackageResultErrorCode no longer sits at the
+ *   top level of EimPackageResult.
+ * DONE for v1.2: CR12014R02 — section 5.14.6 NOTE 1 requires EidValue whenever
+ *   the eIM has no other means of identifying the eUICC; it is always sent.
  * =====================================================================
  */
 
@@ -206,6 +184,19 @@ err:
  *                                      ipa_esipa_build_eim_pkg_result_der)
  */
 #ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
+/* Why the eIM refused the eIM Package Result (SGP.32, section 6.3.2.7). All three named codes say the
+ * eIM could not work out which eUICC the result belongs to, which is what eidValue exists to prevent. */
+#define PEPR_ERR(name) \
+	{ ProvideEimPackageResultResponse__provideEimPackageResultError_##name, #name }
+static const struct num_str_map error_code_strings[] = {
+	/* NEW in v1.2: CR111002R00 */
+	PEPR_ERR(eidNotFound),
+	PEPR_ERR(invalidEid),
+	PEPR_ERR(missingEid),
+	PEPR_ERR(undefinedError),
+	{ 0, NULL }
+};
+#undef PEPR_ERR
 static struct ipa_buf *enc_prvde_eim_pkg_rslt_req_passthru(
 	const struct ipa_context *ctx,
 	const struct ipa_esipa_prvde_eim_pkg_rslt_req *req)
@@ -359,10 +350,12 @@ struct ipa_esipa_prvde_eim_pkg_rslt_res *dec_prvde_eim_pkg_rslt_res(const struct
 		res->eim_acknowledgements = NULL;
 		break;
 	case ProvideEimPackageResultResponse_PR_provideEimPackageResultError:
+		res->prvde_eim_pkg_rslt_err =
+		    msg_to_ipa->choice.provideEimPackageResultResponse.choice.provideEimPackageResultError;
 		IPA_LOGP_ESIPA("ProvideEimPackageResult", LERROR,
-			       "eIM rejected the result with error code %ld\n",
-			       msg_to_ipa->choice.provideEimPackageResultResponse
-				   .choice.provideEimPackageResultError);
+			       "eIM rejected the result with error code %ld=%s!\n",
+			       res->prvde_eim_pkg_rslt_err,
+			       ipa_str_from_num(error_code_strings, res->prvde_eim_pkg_rslt_err, "(unknown)"));
 		res->eim_acknowledgements = NULL;
 		break;
 	default:

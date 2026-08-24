@@ -332,6 +332,12 @@ send_response:
 	if (!prvde_eim_pkg_rslt_res)
 		goto error;
 
+	/* The eIM may have taken the response and then refused it because it could not tell which eUICC sent
+	 * it (SGP.32, section 6.3.2.7). The data did not reach the eIM in any usable sense, so this is a
+	 * failure of the procedure, not a success with a warning. */
+	if (prvde_eim_pkg_rslt_res->prvde_eim_pkg_rslt_err)
+		goto error;
+
 	if (ipa_euicc_data_response.present == IpaEuiccDataResponse_PR_ipaEuiccDataResponseError)
 		IPA_LOGP(SIPA, LINFO, "IPA get EUICC data failed, eIM is informed about the failure!\n");
 	else

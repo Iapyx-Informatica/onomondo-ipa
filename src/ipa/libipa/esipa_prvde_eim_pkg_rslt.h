@@ -33,6 +33,13 @@ struct ipa_esipa_prvde_eim_pkg_rslt_req {
 struct ipa_esipa_prvde_eim_pkg_rslt_res {
 	struct EsipaMessageFromEimToIpa *msg_to_ipa;
 	struct EimAcknowledgements *eim_acknowledgements;
+	/*! provideEimPackageResultError from the eIM, 0 when the result was accepted (SGP.32, section
+	 *  6.3.2.7; the codes were added by CR111002R00). An acceptance carrying no acknowledgements and a
+	 *  rejection both leave eim_acknowledgements NULL, so this is the only way to tell them apart, and
+	 *  the difference matters: on a rejection the eIM did not process the eIM Package Result, so the
+	 *  IPA must keep it rather than retire it. Always 0 on the JSON binding, which carries the failure
+	 *  as an HTTP status code instead (section 6.4.1.6). */
+	long prvde_eim_pkg_rslt_err;
 };
 
 struct ipa_esipa_prvde_eim_pkg_rslt_res *ipa_esipa_prvde_eim_pkg_rslt(struct ipa_context *ctx, const struct ipa_esipa_prvde_eim_pkg_rslt_req

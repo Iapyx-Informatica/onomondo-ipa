@@ -933,8 +933,19 @@ CompactEuiccSigned2 ::= SEQUENCE {
 -- every successful response and proc_cmn_mtl_auth.c forwards it verbatim, so the
 -- signed bytes reach the SM-DP+ exactly as the eUICC produced them.  The loss is
 -- therefore latent, not active, but it is the reason that raw path must stay.
--- UPDATE for v1.1: 5.14.3 — AuthenticateClient procedure description changed;
--- libipa/esipa_auth_clnt.c + proc_cmn_mtl_auth.c need behavioural review.
+-- UPDATE for v1.1: 5.14.3 — AuthenticateClient procedure description changed.
+-- Reviewed against v1.2: almost all of 5.14.3 binds the eIM, and the IPA-side
+-- obligations are met.  transactionId is optional when smdpSigned2 is present
+-- and esipa_auth_clnt.c falls back to the signed copy; hashCc is optional and
+-- reaches PrepareDownload (proc_prfle_dwnld.c); profileMetaData arrives because
+-- this IPA leaves IPA Capability eimProfileMetadataVerification cleared, meaning
+-- it verifies the metadata itself, which ipa_ppr_verify_metadata() does.
+-- Two things are deliberately not done.  compactAuthenticateResponseOk needs IPA
+-- Capability minimizeEsipaBytes, which is unimplemented.  And
+-- AuthenticateClientOkDSEsipa.profileDownloadTrigger [84] is decoded but never
+-- read, because the SM-DS branch as a whole is unimplemented:
+-- proc_indirect_prfle_dwnld.c requires authenticateClientOkDPEsipa and stops
+-- otherwise.  Both belong to those features, not to this section.
 -- ASN1START
 SGP32-AuthenticateServerResponse ::= [56] CHOICE { -- Tag 'BF38' — spec name is AuthenticateServerResponse; SGP.32 adds the compact branch, so the prefix is permanent (see the note above SGP32-EUICCInfo2)
   authenticateResponseOk AuthenticateResponseOk,
@@ -1226,8 +1237,12 @@ GetEimPackageResponse ::= [79] CHOICE { -- Tag 'BF4F'
 -- EimPackageResult; error now carried by eimPackageResultResponseError [0] wrapper.
 -- UPDATE for v1.2: CR111002R00 — ProvideEimPackageResultResponse gains
 -- provideEimPackageResultError with eidNotFound(2), invalidEid(3), missingEid(4).
--- UPDATE for v1.2: CR12014R02 — clarified when EidValue is included.
--- TODO v1.1/1.2: esipa_prvde_eim_pkg_rslt.c requires significant rework.
+-- UPDATE for v1.2: CR12014R02 — clarified when EidValue is included: section
+-- 5.14.6 NOTE 1 makes it required whenever the eIM has no other way to identify
+-- the eUICC, so esipa_prvde_eim_pkg_rslt.c always sends it.
+-- The rework these notes called for is done: the SEQUENCE wrapper, the
+-- eimPackageResultResponseError branch, the notificationList tag [0] and the
+-- three-branch ProvideEimPackageResultResponse are all implemented there.
 -- ASN1START
 EimPackageResultErrorCode ::= INTEGER { -- NEW in v1.1: 6.3.2.7
   invalidPackageFormat(1),
