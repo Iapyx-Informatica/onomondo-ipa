@@ -588,7 +588,9 @@ IpaMode ::= INTEGER {
 -- Section 5.9.4
 -- UPDATE for v1.2: CR12010R00 — clarified behaviour when optional
 -- EimConfigurationData subfields are absent (no schema change, libipa-side only).
--- TODO v1.2: review es10b_add_init_eim.c for absent-field handling.
+-- Handled in libipa/es10b_add_init_eim.c: eimIdType, eimSupportedProtocol and
+-- euiccCiPKId get the defaults the eUICC is mandated to assign; eimFqdn and
+-- trustedPublicKeyDataTls stay absent because no default is mandated for them.
 -- ASN1START
 AddInitialEimRequest ::= [87] SEQUENCE { -- Tag 'BF57'
   eimConfigurationDataList [0] SEQUENCE OF EimConfigurationData

@@ -229,6 +229,7 @@ static void emulation_defaults_test(void)
 	struct EimConfigurationData *cfg;
 	uint8_t ci_pk_id_buf[] = { 0xde, 0xad, 0xbe, 0xef };
 	SubjectKeyIdentifier_t ci_pk_id = { 0 };
+	SubjectKeyIdentifier_t *ci_pk_ids[] = { &ci_pk_id };
 
 	printf("== emulation_defaults_test ==\n");
 
@@ -237,7 +238,7 @@ static void emulation_defaults_test(void)
 	ci_pk_id.size = sizeof(ci_pk_id_buf);
 
 	cfg = valid_entry("eim.example.com");
-	assert(complete_eim_cfg(&ctx, cfg, &ci_pk_id) == 0);
+	assert(complete_eim_cfg(&ctx, cfg, ci_pk_ids, 1) == 0);
 
 	/* "If the eimIdType is not provided, the eUICC SHALL assign the value eimIdTypeProprietary". */
 	assert(cfg->eimIdType);
@@ -257,13 +258,72 @@ static void emulation_defaults_test(void)
 	/* Values the caller did supply are left alone. */
 	cfg = valid_entry("eim.example.com");
 	cfg->eimIdType = make_long(EimIdType_eimIdTypeFqdn);
-	assert(complete_eim_cfg(&ctx, cfg, &ci_pk_id) == 0);
+	assert(complete_eim_cfg(&ctx, cfg, ci_pk_ids, 1) == 0);
 	assert(*cfg->eimIdType == EimIdType_eimIdTypeFqdn);
 
 	/* Without a CI public key identifier to fall back to, euiccCiPKId is left absent rather than guessed. */
 	cfg = valid_entry("eim.example.com");
-	assert(complete_eim_cfg(&ctx, cfg, NULL) == 0);
+	assert(complete_eim_cfg(&ctx, cfg, NULL, 0) == 0);
 	assert(cfg->euiccCiPKId == NULL);
+
+	/* "The eimIdType, the associationToken [...] and eimFqdn are optional for the IPA to provide" and
+	 * "The trustedPublicKeyDataTls is optional for the IPAd to provide": section 5.9.4 mandates no value for
+	 * the eUICC to assign in place of either, so neither may be invented here. */
+	cfg = valid_entry("eim.example.com");
+	assert(complete_eim_cfg(&ctx, cfg, ci_pk_ids, 1) == 0);
+	assert(cfg->eimFqdn == NULL);
+	assert(cfg->trustedPublicKeyDataTls == NULL);
+}
+
+/* "Check that the sub-field euiccCiPKId [...] if present, is a valid entry within euiccCiPKIdListForSigning in
+ * eUICCInfo2. If not, the eUICC SHALL return an error code ciPKUnknown." */
+static void ci_pk_id_test(void)
+{
+	struct ipa_config cfg_ipa = { 0 };
+	struct ipa_context ctx = { 0 };
+	struct EimConfigurationData *cfg;
+	uint8_t known_a[] = { 0xde, 0xad, 0xbe, 0xef };
+	uint8_t known_b[] = { 0x01, 0x02, 0x03 };
+	uint8_t unknown[] = { 0xba, 0xdc, 0x0f, 0xfe };
+	SubjectKeyIdentifier_t id_a = { .buf = known_a, .size = sizeof(known_a) };
+	SubjectKeyIdentifier_t id_b = { .buf = known_b, .size = sizeof(known_b) };
+	SubjectKeyIdentifier_t *ci_pk_ids[] = { &id_a, &id_b };
+
+	printf("== ci_pk_id_test ==\n");
+	ctx.cfg = &cfg_ipa;
+
+	/* The first entry of the list is accepted. */
+	cfg = valid_entry("eim.example.com");
+	cfg->euiccCiPKId = OCTET_STRING_new_fromBuf(&asn_DEF_SubjectKeyIdentifier, (const char *)known_a,
+						    (int)sizeof(known_a));
+	assert(complete_eim_cfg(&ctx, cfg, ci_pk_ids, 2) == 0);
+
+	/* So is any later entry -- the list is a set, not an ordered preference. */
+	cfg = valid_entry("eim.example.com");
+	cfg->euiccCiPKId = OCTET_STRING_new_fromBuf(&asn_DEF_SubjectKeyIdentifier, (const char *)known_b,
+						    (int)sizeof(known_b));
+	assert(complete_eim_cfg(&ctx, cfg, ci_pk_ids, 2) == 0);
+
+	/* An identifier the eUICC cannot sign for is refused, and with the code section 5.9.4 names. */
+	cfg = valid_entry("eim.example.com");
+	cfg->euiccCiPKId = OCTET_STRING_new_fromBuf(&asn_DEF_SubjectKeyIdentifier, (const char *)unknown,
+						    (int)sizeof(unknown));
+	assert(complete_eim_cfg(&ctx, cfg, ci_pk_ids, 2) ==
+	       AddInitialEimResponse__addInitialEimError_ciPKUnknown);
+
+	/* A prefix of a known entry is not a match: the comparison is over the whole identifier. */
+	cfg = valid_entry("eim.example.com");
+	cfg->euiccCiPKId = OCTET_STRING_new_fromBuf(&asn_DEF_SubjectKeyIdentifier, (const char *)known_a, 3);
+	assert(complete_eim_cfg(&ctx, cfg, ci_pk_ids, 2) ==
+	       AddInitialEimResponse__addInitialEimError_ciPKUnknown);
+
+	/* When euiccCiPKIdListForSigning could not be read there is nothing to check against, so a supplied
+	 * identifier is accepted unchanged rather than rejected on a guess. */
+	cfg = valid_entry("eim.example.com");
+	cfg->euiccCiPKId = OCTET_STRING_new_fromBuf(&asn_DEF_SubjectKeyIdentifier, (const char *)unknown,
+						   (int)sizeof(unknown));
+	assert(complete_eim_cfg(&ctx, cfg, NULL, 0) == 0);
+	assert(cfg->euiccCiPKId->size == (int)sizeof(unknown));
 }
 
 /* "Check if counterValue exceeds the maximum value supported by the eUICC." */
@@ -279,15 +339,19 @@ static void counter_value_range_test(void)
 	/* The largest value every eUICC must support, per SGP.32 section 2.11.1.1. */
 	cfg = valid_entry("eim.example.com");
 	*cfg->counterValue = 8388607;
-	assert(complete_eim_cfg(&ctx, cfg, NULL) == 0);
+	assert(complete_eim_cfg(&ctx, cfg, NULL, 0) == 0);
 
+	/* "If so, the eUICC SHALL return the error code counterValueOutOfRange" -- naming the offending sub-field
+	 * is the whole point, so a generic failure would not do. */
 	cfg = valid_entry("eim.example.com");
 	*cfg->counterValue = 8388608;
-	assert(complete_eim_cfg(&ctx, cfg, NULL) < 0);
+	assert(complete_eim_cfg(&ctx, cfg, NULL, 0) ==
+	       AddInitialEimResponse__addInitialEimError_counterValueOutOfRange);
 
 	cfg = valid_entry("eim.example.com");
 	*cfg->counterValue = -1;
-	assert(complete_eim_cfg(&ctx, cfg, NULL) < 0);
+	assert(complete_eim_cfg(&ctx, cfg, NULL, 0) ==
+	       AddInitialEimResponse__addInitialEimError_counterValueOutOfRange);
 }
 
 /* An association token is only calculated when one was requested with -1. */
@@ -302,18 +366,18 @@ static void association_token_calculation_test(void)
 
 	cfg = valid_entry("eim-a");
 	cfg->associationToken = make_long(-1);
-	assert(complete_eim_cfg(&ctx, cfg, NULL) == 0);
+	assert(complete_eim_cfg(&ctx, cfg, NULL, 0) == 0);
 	assert(*cfg->associationToken == 1);
 
 	/* "It SHALL NOT be possible to reset the counter": the next request gets the next value. */
 	cfg = valid_entry("eim-b");
 	cfg->associationToken = make_long(-1);
-	assert(complete_eim_cfg(&ctx, cfg, NULL) == 0);
+	assert(complete_eim_cfg(&ctx, cfg, NULL, 0) == 0);
 	assert(*cfg->associationToken == 2);
 
 	/* No token requested, no token assigned. */
 	cfg = valid_entry("eim-c");
-	assert(complete_eim_cfg(&ctx, cfg, NULL) == 0);
+	assert(complete_eim_cfg(&ctx, cfg, NULL, 0) == 0);
 	assert(cfg->associationToken == NULL);
 	assert(ctx.nvstate.iot_euicc_emu.association_token_counter == 2);
 }
@@ -325,6 +389,7 @@ int main(int argc, char **argv)
 	eim_id_uniqueness_test();
 	association_token_test();
 	emulation_defaults_test();
+	ci_pk_id_test();
 	counter_value_range_test();
 	association_token_calculation_test();
 	printf("add_init_eim_test: all checks passed\n");

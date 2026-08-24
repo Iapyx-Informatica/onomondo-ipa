@@ -31,12 +31,13 @@ long ipa_es10b_add_init_eim_validate(const struct AddInitialEimRequest *req);
  * meaningful for an initial configuration supplied to the IPA, see ipa_add_init_eim_cfg(). */
 long ipa_es10b_add_init_eim_check_assoc_tokens(const struct AddInitialEimRequest *req);
 
-/* Fill in the sub-fields that a native IoT eUICC would assign itself when the IPA leaves them out, see also
- * SGP.32, section 5.9.4. Only used by the IoT eUICC emulation; a real eUICC does this on its own.
- * ci_pk_id_default may be NULL, in which case euiccCiPKId is left absent instead of being guessed.
- * Returns 0 on success, -1 when the entry cannot be stored (counterValue out of range). */
-int complete_eim_cfg(struct ipa_context *ctx, struct EimConfigurationData *eim_cfg,
-		     const SubjectKeyIdentifier_t *ci_pk_id_default);
+/* Fill in the sub-fields that a native IoT eUICC would assign itself when the IPA leaves them out, and apply the
+ * per-entry checks of SGP.32, section 5.9.4, to the ones it did supply. Only used by the IoT eUICC emulation; a real
+ * eUICC does this on its own. ci_pk_ids is euiccCiPKIdListForSigning from eUICCInfo2 and may be empty
+ * (ci_pk_id_count 0), in which case euiccCiPKId is neither checked nor defaulted.
+ * Returns 0 on success, an AddInitialEimResponse error code when the entry cannot be stored. */
+long complete_eim_cfg(struct ipa_context *ctx, struct EimConfigurationData *eim_cfg,
+		      SubjectKeyIdentifier_t *const *ci_pk_ids, int ci_pk_id_count);
 
 struct ipa_es10b_add_init_eim_res *ipa_es10b_add_init_eim(struct ipa_context *ctx,
 							  const struct ipa_es10b_add_init_eim_req *req);

@@ -9,7 +9,8 @@
  * stub placed any higher would have replaced instead of exercised.
  *
  * Covered here: ES10b SetDefaultDpAddress and the setDefaultDpAddress PSMO (SGP.32 sections 5.9.25
- * and 2.11.1.1.3), and the Fallback Mechanism (sections 5.9.20, 5.9.21, 3.4.6, 3.4.7).
+ * and 2.11.1.1.3), the Fallback Mechanism (sections 5.9.20, 5.9.21, 3.4.6, 3.4.7), and the error
+ * codes AddInitialEim reports for a rejected eIM Configuration Data entry (section 5.9.4).
  */
 
 #include <stdio.h>
@@ -28,12 +29,14 @@
 #include <ExecuteFallbackMechanismResponse.h>
 #include <ReturnFromFallbackResponse.h>
 #include <EuiccResultData.h>
+#include <EUICCInfo2.h>
 #include <Psmo.h>
 #include "src/ipa/libipa/context.h"
 #include "src/ipa/libipa/length.h"
 #include "src/ipa/libipa/es10b_set_default_dp_addr.h"
 #include "src/ipa/libipa/es10b_execute_fallback.h"
 #include "src/ipa/libipa/es10b_return_from_fallback.h"
+#include "src/ipa/libipa/es10b_add_init_eim.h"
 #include "tests/stubs/euicc_stub.h"
 
 /* Not declared in a header: the PSMO handlers are reached from the dispatch in the same file. */
@@ -45,6 +48,7 @@ struct EuiccResultData *iot_emo_do_setDefaultDpAddress_psmo(struct ipa_context *
 #define TAG_SET_DEFAULT_DP_SGP32 0xBF65	/* SGP.32 [101], what a real IoT eUICC understands */
 #define TAG_GET_PROFILES_INFO 0xBF2D
 #define TAG_ENABLE_PROFILE 0xBF31
+#define TAG_GET_EUICC_INFO2 0xBF22
 
 static const uint8_t ICCID_OP[IPA_LEN_ICCID] = { 0x98, 0x10, 0, 0, 0, 0, 0, 0, 0, 0x1a };
 static const uint8_t ICCID_FB[IPA_LEN_ICCID] = { 0x98, 0x10, 0, 0, 0, 0, 0, 0, 0, 0x2b };
@@ -283,6 +287,159 @@ static void fallback_emu_test(void)
 	free_ctx(ctx);
 }
 
+/* Queue an SGP.22 EUICCInfo2 carrying the given euiccCiPKIdListForSigning.  Under emulation
+ * ipa_es10b_get_euicc_info() reads this form and derives the SGP.32 one from it, so this is where
+ * the CI Public Key Identifiers that section 5.9.4 checks against come from. */
+static void queue_euicc_info2(const uint8_t *const *ci_pk_ids, const size_t *ci_pk_id_lens, int count)
+{
+	EUICCInfo2_t res = { 0 };
+	SubjectKeyIdentifier_t *id;
+	static const uint8_t version[3] = { 0x02, 0x02, 0x00 };
+	static const uint8_t empty[1] = { 0 };
+	int i;
+
+	/* The mandatory members have to be set for der_encode() to succeed; only the signing list matters
+	 * to the code under test, the rest just has to be structurally sound. */
+	assert(OCTET_STRING_fromBuf(&res.profileVersion, (const char *)version, sizeof(version)) == 0);
+	assert(OCTET_STRING_fromBuf(&res.svn, (const char *)version, sizeof(version)) == 0);
+	assert(OCTET_STRING_fromBuf(&res.euiccFirmwareVer, (const char *)version, sizeof(version)) == 0);
+	assert(OCTET_STRING_fromBuf(&res.extCardResource, (const char *)empty, sizeof(empty)) == 0);
+	assert(OCTET_STRING_fromBuf(&res.ppVersion, (const char *)version, sizeof(version)) == 0);
+	assert(OCTET_STRING_fromBuf(&res.sasAcreditationNumber, "TEST", 4) == 0);
+	res.uiccCapability.buf = calloc(1, 1);
+	assert(res.uiccCapability.buf);
+	res.uiccCapability.size = 1;
+	res.uiccCapability.bits_unused = 7;
+	res.rspCapability.buf = calloc(1, 1);
+	assert(res.rspCapability.buf);
+	res.rspCapability.size = 1;
+	res.rspCapability.bits_unused = 7;
+
+	for (i = 0; i < count; i++) {
+		id = calloc(1, sizeof(*id));
+		assert(id);
+		assert(OCTET_STRING_fromBuf(id, (const char *)ci_pk_ids[i], (int)ci_pk_id_lens[i]) == 0);
+		ASN_SEQUENCE_ADD(&res.euiccCiPKIdListForSigning.list, id);
+	}
+
+	euicc_stub_queue_asn1(&asn_DEF_EUICCInfo2, &res);
+	ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_EUICCInfo2, &res);
+}
+
+/* Build a one-entry AddInitialEimRequest holding everything section 5.9.4 makes mandatory. */
+static struct AddInitialEimRequest *add_init_eim_req(long counter_value, const uint8_t *ci_pk_id,
+						     size_t ci_pk_id_len)
+{
+	static const uint8_t oid_ec_public_key[] = { 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01 };
+	struct AddInitialEimRequest *req = calloc(1, sizeof(*req));
+	struct EimConfigurationData *cfg_eim = calloc(1, sizeof(*cfg_eim));
+	struct EimConfigurationData__eimPublicKeyData *pk = calloc(1, sizeof(*pk));
+
+	assert(req && cfg_eim && pk);
+	assert(OCTET_STRING_fromBuf(&cfg_eim->eimId, "eim.example.com", 15) == 0);
+	cfg_eim->counterValue = calloc(1, sizeof(*cfg_eim->counterValue));
+	assert(cfg_eim->counterValue);
+	*cfg_eim->counterValue = counter_value;
+
+	/* The OID is an OBJECT IDENTIFIER, not an OCTET STRING, so it is filled in by hand.  It has to be
+	 * set at all because validate_eim_cfg() runs asn_check_constraints() over the whole entry. */
+	pk->present = EimConfigurationData__eimPublicKeyData_PR_eimPublicKey;
+	pk->choice.eimPublicKey.algorithm.algorithm.buf = malloc(sizeof(oid_ec_public_key));
+	assert(pk->choice.eimPublicKey.algorithm.algorithm.buf);
+	memcpy(pk->choice.eimPublicKey.algorithm.algorithm.buf, oid_ec_public_key, sizeof(oid_ec_public_key));
+	pk->choice.eimPublicKey.algorithm.algorithm.size = sizeof(oid_ec_public_key);
+	pk->choice.eimPublicKey.subjectPublicKey.buf = calloc(1, 1);
+	assert(pk->choice.eimPublicKey.subjectPublicKey.buf);
+	pk->choice.eimPublicKey.subjectPublicKey.size = 1;
+	cfg_eim->eimPublicKeyData = pk;
+
+	if (ci_pk_id) {
+		cfg_eim->euiccCiPKId = OCTET_STRING_new_fromBuf(&asn_DEF_SubjectKeyIdentifier,
+								(const char *)ci_pk_id, (int)ci_pk_id_len);
+		assert(cfg_eim->euiccCiPKId);
+	}
+
+	ASN_SEQUENCE_ADD(&req->eimConfigurationDataList.list, cfg_eim);
+	return req;
+}
+
+/* Run AddInitialEim against the emulation and report the error code it put in the response. */
+static long add_init_eim_err(struct ipa_context *ctx, struct AddInitialEimRequest *req)
+{
+	struct ipa_es10b_add_init_eim_req wrapped = { 0 };
+	struct ipa_es10b_add_init_eim_res *res;
+	long err;
+
+	wrapped.req = *req;
+	res = ipa_es10b_add_init_eim(ctx, &wrapped);
+	assert(res && res->res);
+	err = res->res->present == AddInitialEimResponse_PR_addInitialEimError ?
+	      res->res->choice.addInitialEimError : 0;
+	ipa_es10b_add_init_eim_res_free(res);
+	return err;
+}
+
+/* SGP.32 5.9.4 names a distinct error code per rejected sub-field.  Reporting undefinedError instead
+ * tells the eIM only that something went wrong, not what to correct, so the codes are worth pinning
+ * all the way out to the response the eIM would see. */
+static void add_init_eim_errors_test(void)
+{
+	struct ipa_context *ctx;
+	struct AddInitialEimRequest *req;
+	static const uint8_t known[] = { 0xde, 0xad, 0xbe, 0xef };
+	static const uint8_t unknown[] = { 0xba, 0xdc, 0x0f, 0xfe };
+	const uint8_t *ids[] = { known };
+	const size_t id_lens[] = { sizeof(known) };
+
+	printf("== add_init_eim_errors_test ==\n");
+
+	/* A euiccCiPKId the eUICC can actually sign for is stored, and the eIM configuration lands. */
+	ctx = emu_ctx();
+	queue_euicc_info2(ids, id_lens, 1);
+	req = add_init_eim_req(1, known, sizeof(known));
+	assert(add_init_eim_err(ctx, req) == 0);
+	assert(euicc_stub_request_has_tag(0, TAG_GET_EUICC_INFO2));
+	assert(ctx->nvstate.iot_euicc_emu.eim_cfg_ber != NULL);
+	ASN_STRUCT_FREE(asn_DEF_AddInitialEimRequest, req);
+	printf("   known euiccCiPKId       -> accepted\n");
+	free_ctx(ctx);
+
+	/* One that is not in euiccCiPKIdListForSigning is refused with ciPKUnknown, and nothing is stored:
+	 * "in case of any error [...] the command SHALL [...] leave the eIM Configuration Data in their
+	 * original state prior to function execution." */
+	ctx = emu_ctx();
+	queue_euicc_info2(ids, id_lens, 1);
+	req = add_init_eim_req(1, unknown, sizeof(unknown));
+	assert(add_init_eim_err(ctx, req) == AddInitialEimResponse__addInitialEimError_ciPKUnknown);
+	assert(ctx->nvstate.iot_euicc_emu.eim_cfg_ber == NULL);
+	ASN_STRUCT_FREE(asn_DEF_AddInitialEimRequest, req);
+	printf("   unknown euiccCiPKId     -> ciPKUnknown, nothing stored\n");
+	free_ctx(ctx);
+
+	/* A counterValue above the mandated minimum ceiling gets its own code, not undefinedError. */
+	ctx = emu_ctx();
+	queue_euicc_info2(ids, id_lens, 1);
+	req = add_init_eim_req(8388608, known, sizeof(known));
+	assert(add_init_eim_err(ctx, req) ==
+	       AddInitialEimResponse__addInitialEimError_counterValueOutOfRange);
+	assert(ctx->nvstate.iot_euicc_emu.eim_cfg_ber == NULL);
+	ASN_STRUCT_FREE(asn_DEF_AddInitialEimRequest, req);
+	printf("   counterValue too large  -> counterValueOutOfRange, nothing stored\n");
+	free_ctx(ctx);
+
+	/* When the eUICC cannot be asked for its list there is nothing to check against, so a supplied
+	 * identifier is stored rather than rejected on a guess. */
+	ctx = emu_ctx();
+	euicc_stub_set_offline(true);
+	req = add_init_eim_req(1, unknown, sizeof(unknown));
+	assert(add_init_eim_err(ctx, req) == 0);
+	assert(ctx->nvstate.iot_euicc_emu.eim_cfg_ber != NULL);
+	ASN_STRUCT_FREE(asn_DEF_AddInitialEimRequest, req);
+	euicc_stub_set_offline(false);
+	printf("   list unreadable         -> accepted unchecked\n");
+	free_ctx(ctx);
+}
+
 int main(int argc, char **argv)
 {
 	(void)argc;
@@ -291,6 +448,7 @@ int main(int argc, char **argv)
 	set_default_dp_addr_emu_test();
 	set_default_dp_addr_psmo_test();
 	fallback_emu_test();
+	add_init_eim_errors_test();
 
 	printf("euicc_emu_test: all checks passed\n");
 	return 0;

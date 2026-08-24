@@ -15,11 +15,13 @@
  *   - new commandError(7) added.
  *   The error table below must be updated after libasn regeneration.
  * DONE for v1.2: CR12010R00 / §5.9.4 — clarified behaviour when optional
- *   EimConfigurationData subfields are absent.  complete_eim_cfg() now assigns
+ *   EimConfigurationData subfields are absent.  complete_eim_cfg() assigns
  *   the same defaults a native IoT eUICC would (eimIdTypeProprietary,
- *   eimProprietary, first euiccCiPKIdListForSigning entry) and no longer
- *   demands the optional-per-spec eimFqdn.  The mandatory subfields moved to
- *   ipa_es10b_add_init_eim_validate(), which runs for both eUICC flavours.
+ *   eimProprietary, first euiccCiPKIdListForSigning entry), leaves
+ *   trustedPublicKeyDataTls and eimFqdn absent because §5.9.4 mandates no
+ *   default for either, and rejects a euiccCiPKId that is not in
+ *   euiccCiPKIdListForSigning with ciPKUnknown.  The mandatory subfields moved
+ *   to ipa_es10b_add_init_eim_validate(), which runs for both eUICC flavours.
  * UPDATE for v1.1: 2.11.1.1.1 — EimConfigurationData gains
  *   indirectProfileDownload [9] NULL OPTIONAL.  If the eIM advertises it in
  *   the initial configuration, the IPA must record it and honour it in the
@@ -258,15 +260,41 @@ static BIT_STRING_t *make_default_supported_protocol(void)
 	return bs;
 }
 
+/*! Is this CI Public Key Identifier one of the entries of euiccCiPKIdListForSigning?
+ *  \param[in] ci_pk_id identifier presented by the IPA.
+ *  \param[in] ci_pk_ids euiccCiPKIdListForSigning as read from eUICCInfo2.
+ *  \param[in] ci_pk_id_count number of entries in ci_pk_ids.
+ *  \returns true when the identifier appears in the list. */
+static bool ci_pk_id_known(const SubjectKeyIdentifier_t *ci_pk_id, SubjectKeyIdentifier_t *const *ci_pk_ids,
+			   int ci_pk_id_count)
+{
+	int i;
+
+	for (i = 0; i < ci_pk_id_count; i++) {
+		if (ci_pk_ids[i]->size != ci_pk_id->size)
+			continue;
+		if (memcmp(ci_pk_ids[i]->buf, ci_pk_id->buf, (size_t)ci_pk_id->size) == 0)
+			return true;
+	}
+
+	return false;
+}
+
 /* This function is only relevant in case the IoT eUICC emulation is enabled. It fills in the values that a native
- * IoT eUICC would assign itself when the IPA leaves an optional sub-field out (see also SGP.32, section 5.9.4).
- * The mandatory sub-fields are not checked here; ipa_es10b_add_init_eim_validate() has already done that for both eUICC
- * flavours by the time this runs.
+ * IoT eUICC would assign itself when the IPA leaves an optional sub-field out, and applies the two per-entry checks
+ * that section 5.9.4 puts on values the IPA did supply (see also SGP.32, section 5.9.4). The mandatory sub-fields are
+ * not checked here; ipa_es10b_add_init_eim_validate() has already done that for both eUICC flavours by the time this
+ * runs.
  *
- * ci_pk_id_default may be NULL when the underlying eUICC could not be asked for its euiccCiPKIdListForSigning; in
- * that case euiccCiPKId is left absent rather than being filled with a guess. */
-int complete_eim_cfg(struct ipa_context *ctx, struct EimConfigurationData *eim_cfg,
-		     const SubjectKeyIdentifier_t *ci_pk_id_default)
+ * eimFqdn and trustedPublicKeyDataTls are deliberately absent from this function: section 5.9.4 declares both
+ * optional for the IPA to provide but mandates no value for the eUICC to assign in their place, so an absent one
+ * stays absent.
+ *
+ * ci_pk_ids may be empty when the underlying eUICC could not be asked for its euiccCiPKIdListForSigning; a missing
+ * euiccCiPKId is then left absent rather than being filled with a guess, and a supplied one is accepted unchecked
+ * because there is nothing to check it against. */
+long complete_eim_cfg(struct ipa_context *ctx, struct EimConfigurationData *eim_cfg,
+		      SubjectKeyIdentifier_t *const *ci_pk_ids, int ci_pk_id_count)
 {
 	/* "Check if counterValue exceeds the maximum value supported by the eUICC. If so, the eUICC SHALL
 	 * return the error code counterValueOutOfRange." */
@@ -274,7 +302,7 @@ int complete_eim_cfg(struct ipa_context *ctx, struct EimConfigurationData *eim_c
 		IPA_LOGP_ES10X("AddInitialEim", LERROR,
 			       "counterValue %ld is out of the range supported by this eUICC (0..%d)!\n",
 			       *eim_cfg->counterValue, IPA_EIM_COUNTER_VALUE_MAX);
-		return -1;
+		return AddInitialEimResponse__addInitialEimError_counterValueOutOfRange;
 	}
 
 	/* "If the eimIdType is not provided, the eUICC SHALL assign the value eimIdTypeProprietary before
@@ -295,12 +323,24 @@ int complete_eim_cfg(struct ipa_context *ctx, struct EimConfigurationData *eim_c
 			       "eimSupportedProtocol not provided, assigning eimProprietary.\n");
 	}
 
+	/* "Check that the sub-field euiccCiPKId of EimConfigurationData in each entry of the
+	 * eimConfigurationDataList, if present, is a valid entry within euiccCiPKIdListForSigning in eUICCInfo2.
+	 * If not, the eUICC SHALL return an error code ciPKUnknown." An eIM keyed to a CI the eUICC cannot sign
+	 * for would be accepted here and then fail at the first eUICC Package, so this is worth catching now. */
+	if (eim_cfg->euiccCiPKId && ci_pk_id_count > 0 &&
+	    !ci_pk_id_known(eim_cfg->euiccCiPKId, ci_pk_ids, ci_pk_id_count)) {
+		IPA_LOGP_ES10X("AddInitialEim", LERROR,
+			       "euiccCiPKId is not one of the %d entries of euiccCiPKIdListForSigning, so this "
+			       "eUICC could never sign for that CI!\n", ci_pk_id_count);
+		return AddInitialEimResponse__addInitialEimError_ciPKUnknown;
+	}
+
 	/* "The euiccCiPKId is optional for the IPA to provide [...]. If not provided, the eUICC SHALL assign the
 	 * value of first entry of euiccCiPKIdListForSigning in eUICCInfo2". */
-	if (!eim_cfg->euiccCiPKId && ci_pk_id_default) {
+	if (!eim_cfg->euiccCiPKId && ci_pk_id_count > 0) {
 		eim_cfg->euiccCiPKId = OCTET_STRING_new_fromBuf(&asn_DEF_SubjectKeyIdentifier,
-								(const char *)ci_pk_id_default->buf,
-								(int)ci_pk_id_default->size);
+								(const char *)ci_pk_ids[0]->buf,
+								(int)ci_pk_ids[0]->size);
 		assert(eim_cfg->euiccCiPKId);
 		IPA_LOGP_ES10X("AddInitialEim", LDEBUG,
 			       "euiccCiPKId not provided, assigning the first entry of "
@@ -316,48 +356,59 @@ int complete_eim_cfg(struct ipa_context *ctx, struct EimConfigurationData *eim_c
 	return 0;
 }
 
-/* Ask the underlying eUICC for the first entry of euiccCiPKIdListForSigning, which is what a native IoT eUICC
- * would fall back to when the IPA leaves euiccCiPKId out. Returns NULL (and logs) when the eUICC cannot be asked;
- * the caller then leaves the field absent rather than inventing a value. The result borrows from euicc_info, which
- * the caller must keep alive for as long as it is used. */
-static const SubjectKeyIdentifier_t *default_ci_pk_id(struct ipa_es10b_euicc_info *euicc_info)
+/* Ask the underlying eUICC for euiccCiPKIdListForSigning, which section 5.9.4 uses twice: as the set a supplied
+ * euiccCiPKId must belong to, and as the source of the default when the IPA leaves the field out. Sets *count to 0
+ * (and logs) when the eUICC cannot be asked; the caller then neither checks nor invents a value. The result borrows
+ * from euicc_info, which the caller must keep alive for as long as it is used. */
+static SubjectKeyIdentifier_t *const *ci_pk_id_list(struct ipa_es10b_euicc_info *euicc_info, int *count)
 {
+	*count = 0;
+
 	if (!euicc_info || !euicc_info->sgp32_euicc_info_2)
 		return NULL;
 
-	if (euicc_info->sgp32_euicc_info_2->euiccCiPKIdListForSigning.list.count < 1)
-		return NULL;
-
-	return euicc_info->sgp32_euicc_info_2->euiccCiPKIdListForSigning.list.array[0];
+	*count = euicc_info->sgp32_euicc_info_2->euiccCiPKIdListForSigning.list.count;
+	return euicc_info->sgp32_euicc_info_2->euiccCiPKIdListForSigning.list.array;
 }
 
-struct AddInitialEimRequest *complete_eim_cfg_list(struct ipa_context *ctx, const struct AddInitialEimRequest *req)
+/*! Apply the eUICC side of section 5.9.4 to every entry of a request, on a copy of it.
+ *  \param[in] ctx pointer to ipa_context.
+ *  \param[in] req request to complete.
+ *  \param[out] err set to the AddInitialEimResponse error code when the request is refused.
+ *  \returns newly allocated completed request, NULL when an entry was refused. */
+static struct AddInitialEimRequest *complete_eim_cfg_list(struct ipa_context *ctx,
+							  const struct AddInitialEimRequest *req, long *err)
 {
 	struct AddInitialEimRequest *req_dup;
 	struct ipa_es10b_euicc_info *euicc_info;
-	const SubjectKeyIdentifier_t *ci_pk_id;
+	SubjectKeyIdentifier_t *const *ci_pk_ids;
+	int ci_pk_id_count;
 	int i;
-	int rc;
 
+	*err = 0;
 	req_dup = ipa_asn1c_dup(&asn_DEF_AddInitialEimRequest, req);
 
 	/* Query the eUICC once for the whole list instead of once per entry. */
 	euicc_info = ipa_es10b_get_euicc_info(ctx, true);
-	ci_pk_id = default_ci_pk_id(euicc_info);
-	if (!ci_pk_id)
+	ci_pk_ids = ci_pk_id_list(euicc_info, &ci_pk_id_count);
+	if (ci_pk_id_count < 1)
 		IPA_LOGP_ES10X("AddInitialEim", LINFO,
 			       "cannot read euiccCiPKIdListForSigning from the eUICC, any missing euiccCiPKId "
-			       "will be left absent.\n");
+			       "will be left absent and any supplied one accepted unchecked.\n");
 
 	for (i = 0; i < req_dup->eimConfigurationDataList.list.count; i++) {
-		rc = complete_eim_cfg(ctx, req_dup->eimConfigurationDataList.list.array[i], ci_pk_id);
-		if (rc < 0)
+		*err = complete_eim_cfg(ctx, req_dup->eimConfigurationDataList.list.array[i], ci_pk_ids,
+					ci_pk_id_count);
+		if (*err)
 			goto error;
 	}
 
 	ipa_es10b_get_euicc_info_free(euicc_info);
 	return req_dup;
 error:
+	/* "The function SHALL be performed in an atomic way, meaning that in case of any error during the function
+	 * execution, the command SHALL stop and SHALL leave the eIM Configuration Data in their original state prior
+	 * to function execution." Working on the duplicate and discarding it is what makes that hold. */
 	ipa_es10b_get_euicc_info_free(euicc_info);
 	ASN_STRUCT_FREE(asn_DEF_AddInitialEimRequest, req_dup);
 	return NULL;
@@ -405,11 +456,12 @@ static struct ipa_es10b_add_init_eim_res *add_init_eim_iot_emu(struct ipa_contex
 	struct ipa_buf *eim_cfg_new = NULL;
 	struct AddInitialEimRequest *req_cfg_new_decoded = NULL;
 	struct ipa_es10b_add_init_eim_res *res = IPA_ALLOC_ZERO(struct ipa_es10b_add_init_eim_res);
+	long err = AddInitialEimResponse__addInitialEimError_undefinedError;
 
 	IPA_LOGP_ES10X("AddInitialEim", LINFO,
 		       "IoT eUICC emulation active, pretending to query eUICC to set eIM configuration...\n");
 
-	req_cfg_new_decoded = complete_eim_cfg_list(ctx, &req->req);
+	req_cfg_new_decoded = complete_eim_cfg_list(ctx, &req->req, &err);
 	if (!req_cfg_new_decoded) {
 		IPA_LOGP_ES10X("AddInitialEim", LERROR, "unable to complete ES10b request\n");
 		goto error;
@@ -417,6 +469,7 @@ static struct ipa_es10b_add_init_eim_res *add_init_eim_iot_emu(struct ipa_contex
 	eim_cfg_new = ipa_es10x_req_enc(&asn_DEF_AddInitialEimRequest, req_cfg_new_decoded, "AddInitialEim");
 	if (!eim_cfg_new) {
 		IPA_LOGP_ES10X("AddInitialEim", LERROR, "unable to encode ES10b request\n");
+		err = AddInitialEimResponse__addInitialEimError_undefinedError;
 		goto error;
 	}
 
@@ -439,7 +492,9 @@ static struct ipa_es10b_add_init_eim_res *add_init_eim_iot_emu(struct ipa_contex
 	ASN_STRUCT_FREE(asn_DEF_AddInitialEimRequest, req_cfg_new_decoded);
 	return res;
 error:
-	res->res = generate_add_init_eim_response_err(AddInitialEimResponse__addInitialEimError_undefinedError);
+	/* Report what section 5.9.4 names for this failure -- counterValueOutOfRange or ciPKUnknown tell the eIM
+	 * which sub-field to correct, where undefinedError leaves it guessing. */
+	res->res = generate_add_init_eim_response_err(err);
 	res->add_init_eim_err = res->res->choice.addInitialEimError;
 	IPA_FREE(eim_cfg_new);
 	ASN_STRUCT_FREE(asn_DEF_AddInitialEimRequest, req_cfg_new_decoded);
