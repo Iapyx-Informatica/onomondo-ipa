@@ -1,156 +1,136 @@
-# onomondo-ipa — v1.0 → v1.2 migration notes
+# onomondo-ipa — SGP.32 v1.0 → v1.2 migration record
 
-This document tracks the in-progress migration of `onomondo-ipa` from
-**GSMA SGP.32 v1.0** to **v1.2** (the version implemented by all
-commercially deployed IoT eUICCs).
+This fork implements **GSMA SGP.32 v1.2**, the version deployed on commercially
+available IoT eUICCs. The migration from v1.0 is complete: the schema is v1.2
+Annex C, every call site follows, and no `TODO v1.1` / `TODO v1.2` markers remain
+anywhere in the tree.
 
-Every change in this repository is traceable via inline markers of the form:
+This document is the record of what that involved and what is deliberately still
+open. For the current build and test state see [MIGRATION_STATUS.md](MIGRATION_STATUS.md).
 
-| Marker                           | Meaning                                                                   |
-|----------------------------------|---------------------------------------------------------------------------|
-| `UPDATE for v1.1: <section>`     | Changed in the v1.0.1 → v1.1 step (accepted CRs)                          |
-| `UPDATE for v1.2: <CR>`          | Changed in the v1.1 → v1.2 step (itemised CRs; see below)                 |
-| `NEW in v1.1/v1.2: <section>`    | Net-new type / command / procedure                                        |
-| `TODO v1.1/v1.2: <section>`      | Still to be done — listed below                                           |
+The ASN.1 schema lives in [`asn1/SGP32Definitions.asn`](asn1/SGP32Definitions.asn).
+CMake re-runs asn1c whenever a schema or the generator changes, emitting into the
+build tree under `build/.../libasn/gen`. **Do not hand-edit generated files** —
+change [`asn1/*.asn`](asn1/) instead.
 
-The ASN.1 schema in [`asn1/SGP32Definitions.asn`](asn1/SGP32Definitions.asn)
-has been rewritten to match v1.2 Annex C.  After pulling those changes, just
-rebuild — CMake detects the changed schema and re-runs asn1c automatically (the
-generated `.c/.h` land in the build tree under `build/.../libasn/gen`).  **Do
-not hand-edit generated files** — they are overwritten on the next
-regeneration; change [`asn1/*.asn`](asn1/) instead.
+Changes carry inline markers so each one is traceable back to the spec:
 
-> **Note:** this document covers only the v1.0 → v1.2 spec migration.
-> Correctness / robustness issues found in a separate code-review pass have been
-> fixed; the behavior-affecting runtime TODOs that remain will be tracked in the
-> issue tracker.
+| Marker                         | Meaning                                         |
+|--------------------------------|-------------------------------------------------|
+| `UPDATE for v1.1: <section>`   | Changed in the v1.0.1 → v1.1 step               |
+| `UPDATE for v1.2: <CR>`        | Changed in the v1.1 → v1.2 step                 |
+| `NEW in v1.1/v1.2: <section>`  | Net-new type, command or procedure              |
+| `DONE for v1.2: <CR>`          | Behavioural change verified against the spec    |
 
 ---
 
-## Build workflow after migration
+## What shipped
 
-Native Linux build (needs `asn1c` + `cmake` + `libcurl` (OpenSSL backend) + `libssl` + `libpcsclite`):
+### v1.0.1 → v1.1
 
-```sh
-cmake -S . -B build -DENABLE_SANITIZE=ON -DSHOW_ASN_OUTPUT=ON
-cmake --build build --parallel
-```
+| Section    | Change |
+|------------|--------|
+| 2.1.3      | Slimmer `RSPDefinitions` import list per Annex C; SGP.32 overrides carry a local `SGP32-` prefix (see below) |
+| 2.11.1.1   | `EuiccPackageSigned.transactionId` → `eimTransactionId` |
+| 2.11.1.1.1 | `eimId` size constraint (1..128); new `indirectProfileDownload [9]` |
+| 2.11.1.1.3 | `configureAutoEnable` → `configureImmediateEnable`; new `setFallbackAttribute`, `unsetFallbackAttribute`, `setDefaultDpAddress` PSMOs |
+| 2.11.1.2   | `IpaEuiccDataRequest`: `searchCriteria` → `searchCriteriaNotification`, new `searchCriteriaEuiccPackageResult` |
+| 2.11.2     | Renames and new result branches across `EuiccPackageResultDataSigned` |
+| 2.11.2.2   | `IpaEuiccDataResponse` restructure |
+| 2.11.2.3   | `ProfileDownloadTriggerResult.profileDownloadErrorReason` |
+| 3.4.5-3.4.7| **Fallback Mechanism**, including the Fallback Attribute PSMOs and the consumer-eUICC emulation of it |
+| 3.8.2      | IoT Device Capabilities sent via TERMINAL CAPABILITY |
+| 3.8.4      | ISD-R selection, `ipaeSupported` read from the FCI, `ipa_activate_ipae()` |
+| 4.4        | `ProfileInfo` SGP.32 override (`ecallIndication`, `fallbackAttribute`, `fallbackAllowed`) |
+| 5.9.2      | `EUICCInfo2` gains `euiccCiPKIdListForSigningV3`, `additionalEuiccInfo`, `highestSvn`; `IoTSpecificInfo` gains `ecallSupported`, `fallbackSupported`, surfaced by `ipa_get_euicc_caps()` |
+| 5.9.4      | `unsignedEimConfigDisallowed(2)` → `associatedEimAlreadyExists(2)`; new `commandError(7)` |
+| 5.9.5      | `EuiccMemoryReset` tag BF34 → BF64, new reset options, `resetImmediateEnableConfig` |
+| 5.9.11     | `RetrieveNotificationsListResponse` drops `notificationAndEprList` |
+| 5.9.15     | **`EnableUsingDD` → `ImmediateEnable`** with mandatory `refreshFlag` |
+| 5.9.17     | `ConfigureAutoProfileEnabling` → `ConfigureImmediateProfileEnabling` |
+| 5.9.18     | `GetEimConfigurationDataRequest` gains optional `searchCriteria` |
+| 5.9.20-25  | **New ES10b functions**: `ExecuteFallbackMechanism`, `ReturnFromFallback`, `EnableEmergencyProfile`, `DisableEmergencyProfile`, `GetConnectivityParameters`, `SetDefaultDpAddress` |
+| 5.14.1     | `InitiateAuthentication` gains optional `eimTransactionId` |
+| 5.14.3     | `AuthenticateClient`: optional `transactionId`, `hashCc`, `profileMetadata` gating |
+| 5.14.5     | `GetEimPackage` gains `stateChangeCause` and `rPLMN` |
+| 5.14.6 / 6.3.2.7 | `ProvideEimPackageResult` restructured from CHOICE to a SEQUENCE wrapper; `ProvideEimPackageResultResponse` became a three-branch CHOICE |
+| 6.3.2.1    | `euiccCiPKIdToBeused` → `euiccCiPKIdentifierToBeUsed`; new error codes |
+| 6.3.2.4    | `HandleNotificationEsipa.pendingNotification` tag [0] |
+| 6.3.2.6    | New `StateChangeCause`; `rPLMN` tag shifted |
 
-Under the hood, CMake generates `libasn` from `asn1/*.asn` during configure, via
-[`asn1/gen_libasn.sh`](asn1/gen_libasn.sh), into the build tree.  asn1c is re-run
-only when a schema (or the generator) changes, or on a fresh checkout; the
-output list is globbed, so added/removed types need no manual bookkeeping.
+### v1.1 → v1.2 change requests
 
-When the schema changes, **expect compile errors** in `libipa/*.c` if a rename
-or new struct member lands there.  Every such site carries a `TODO v1.1` /
-`TODO v1.2` marker pointing at the exact change needed.  Work through them
-top-down; most are mechanical.
+| CR          | Sections            | Outcome |
+|-------------|---------------------|---------|
+| CR111002R00 | 6.3.2.7             | `provideEimPackageResultError` codes decoded and reported to callers |
+| CR111003R00 | 6.3.2.7             | `eimPackageResultErrorCode` removed from top-level `EimPackageResult` |
+| CR111005R00 | 6.1                 | Mandatory `User-Agent` value (`http_hdr.h`) |
+| CR111007R00 | 5.9.15 / 22 / 23    | eUICC-side only; the IPA conveys `refreshFlag`, which it already did |
+| CR12010R00  | 5.9.4               | Absent optional `EimConfigurationData` subfields get the mandated defaults; a supplied `euiccCiPKId` is validated |
+| CR12011R00  | 5.2.6 / 5.14 / 6.1  | JSON ↔ ASN.1 status code mapping, in the JSON binding |
+| CR12013R00  | 6.4.1.1 / 6.4.1.3   | JSON binding alignment |
+| CR12014R02  | 5.14.6 / 6.3.2.7    | `EidValue` always included, per §5.14.6 NOTE 1 |
 
----
+Both ESipa wire bindings are built: ASN.1/BER (§6.3) and JSON (§6.4), selected by
+`ESIPA_BINDING_ASN1` / `ESIPA_BINDING_JSON`, both ON by default.
 
-## Change summary
+### The `SGP32-` prefix
 
-### v1.0.1 → v1.1 (roughly 158 accepted CRs)
+asn1c compiles `RSPDefinitions.asn` and `SGP32Definitions.asn` in one pass into a
+single flat C namespace and rejects two definitions of one name outright. libipa
+needs the SGP.22 codecs as well — that is what the consumer-eUICC emulation runs
+on — so wherever SGP.32 redefines an SGP.22 type under the same name, the local
+one keeps an `SGP32-` prefix. This is permanent, and pruning the import does not
+change it: the clash is between the definitions. The canonical explanation sits
+above `SGP32-EUICCInfo2` in the schema.
 
-| Section  | Change                                                                                     | Status  |
-|----------|--------------------------------------------------------------------------------------------|---------|
-| 2.1.3    | Slimmer import list from RSPDefinitions; SGP.32 overrides EUICCInfo2 / AuthenticateClient / etc. | asn ✓ / libipa TODO |
-| 2.11.1.1 | `EuiccPackageSigned.transactionId` → `eimTransactionId`                                    | asn ✓   |
-| 2.11.1.1.1 | Size constraint (1..128) on `eimId`; new `indirectProfileDownload[9]`                    | asn ✓   |
-| 2.11.1.1.3 | `configureAutoEnable` → `configureImmediateEnable`; new `setFallbackAttribute`, `unsetFallbackAttribute`, `setDefaultDpAddress` PSMOs | asn ✓ |
-| 2.11.1.2 | `IpaEuiccDataRequest` restructure: new `searchCriteriaNotification` + `searchCriteriaEuiccPackageResult`; `euiccCiPKIdentifierToBeUsed` (OCTET STRING) | asn ✓ / libipa TODO |
-| 2.11.2.1 | **Signing input changed**: `euiccSignEPR/EPE` now over (`data || associationToken`) instead of (`data || eimSignature`) | asn-marker ✓ / libipa TODO |
-| 2.11.2   | Renames + new result branches across `EuiccPackageResultDataSigned`; new `SetFallbackAttributeResult`, `UnsetFallbackAttributeResult` | asn ✓ |
-| 2.11.2.2 | `IpaEuiccDataResponse` major restructure                                                   | asn ✓ / libipa TODO |
-| 2.11.2.3 | `ProfileDownloadTriggerResult.profileDownloadErrorReason` added                            | asn ✓   |
-| 3.2.3.1  | Start conditions updated                                                                   | TODO (ipad.c review) |
-| 3.4.5    | **Fallback Mechanism** (new procedure)                                                     | TODO    |
-| 3.5.2    | More error conditions in procedure                                                         | TODO (proc_eim_pkg_retr.c review) |
-| 3.8.1-4  | New SGP.32 sections overriding SGP.22                                                      | TODO    |
-| 4.4      | `ProfileInfo` SGP.32 override                                                              | asn-stub / TODO |
-| 5.5      | `StoreMetadataRequest` SGP.32 override                                                     | asn-stub / TODO |
-| 5.6.1    | `AuthenticateClientRequest` SGP.32 override                                                | asn-stub / TODO |
-| 5.7.4    | `HandleNotification` description expanded                                                  | TODO (review proc_notif_delivery.c) |
-| 5.9.2    | `EUICCInfo2` gains `euiccCiPKIdListForSigningV3`, `additionalEuiccInfo`, `highestSvn`; `IoTSpecificInfo` gains `ecallSupported`, `fallbackSupported` | asn ✓ / libipa TODO |
-| 5.9.4    | `AddInitialEimResponse.unsignedEimConfigDisallowed(2)` → `associatedEimAlreadyExists(2)`; new `commandError(7)` | asn ✓ / libipa TODO |
-| 5.9.5    | `EuiccMemoryReset` tag BF34 → BF64, new reset options, renamed auto-enable → immediate-enable | asn ✓ / impl ✓ |
-| 5.9.11   | `RetrieveNotificationsListResponse` drops `notificationAndEprList`                         | asn ✓ / libipa TODO |
-| 5.9.15   | **`EnableUsingDD` → `ImmediateEnable`** with new `refreshFlag BOOLEAN`                     | asn ✓ / impl ✓ (renamed to es10b_immediate_enable.c) |
-| 5.9.17   | `ConfigureAutoProfileEnabling` → `ConfigureImmediateProfileEnabling`                       | asn ✓   |
-| 5.9.18   | `GetEimConfigurationDataRequest` gains optional `searchCriteria`                           | asn ✓   |
-| 5.9.20   | **NEW** ES10b `ExecuteFallbackMechanism`                                                   | asn ✓ / impl ✓ |
-| 5.9.21   | **NEW** ES10b `ReturnFromFallback`                                                         | asn ✓ / impl ✓ |
-| 5.9.22   | **NEW** ES10b `EnableEmergencyProfile`                                                     | asn ✓ / impl ✓ |
-| 5.9.23   | **NEW** ES10b `DisableEmergencyProfile`                                                    | asn ✓ / impl ✓ |
-| 5.9.24   | **NEW** ES10b `GetConnectivityParameters`                                                  | asn ✓ / impl ✓ |
-| 5.9.25   | **NEW** ES10b `SetDefaultDpAddress`                                                        | asn ✓ / impl ✓ |
-| 5.14.1   | `InitiateAuthentication` gains optional `eimTransactionId`                                 | asn ✓ / libipa TODO |
-| 5.14.3   | `AuthenticateClient`: SGP.32 `EuiccSigned1` override; procedure description changed        | asn-stub / libipa TODO |
-| 5.14.5   | `GetEimPackage` gains `stateChangeCause`                                                   | asn ✓ / libipa TODO |
-| 5.14.6   | `ProvideEimPackageResult` restructured from CHOICE to SEQUENCE wrapper                     | asn ✓ / libipa TODO |
-| 5.14.7   | `HandleNotification` details                                                               | asn ✓   |
-| 6.1      | eIM must support both JSON and ASN.1 — IPA-side unaffected (ASN.1 only)                    | n/a     |
-| 6.3.2.1  | Rename `euiccCiPKIdToBeused` → `euiccCiPKIdentifierToBeUsed`; new error codes              | asn ✓ / libipa TODO |
-| 6.3.2.4  | `HandleNotificationEsipa.pendingNotification` tag [0]                                      | asn ✓   |
-| 6.3.2.6  | New `StateChangeCause`; `rPLMN` tag shifted; new error codes                               | asn ✓ / libipa TODO |
-| 6.3.2.7  | `ProvideEimPackageResult` / `Response` major restructure                                   | asn ✓ / libipa TODO |
-| 6.4.x    | JSON bindings — N/A (this IPA is ASN.1-only)                                               | n/a     |
-| Annex A.2| CAT requirements for IoT device                                                            | TODO review |
+Prefixed: `EUICCInfo2`, `EuiccMemoryResetRequest/Response`, `ProfileInfo`,
+`ProfileInfoListResponse/Error`, `RetrieveNotificationsListRequest/Response`,
+`PendingNotification`, `PendingNotificationList`, `PrepareDownloadResponse`,
+`AuthenticateServerResponse`, `CancelSessionResponse`,
+`SetDefaultDpAddressRequest/Response`.
 
-### v1.1 → v1.2 (9 CRs)
-
-| CR            | Sections          | Change                                                          | Status       |
-|---------------|-------------------|-----------------------------------------------------------------|--------------|
-| CR111002R00   | 6.3.2.7, Annex C  | New error codes in `ProvideEimPackageResultResponse`            | asn ✓ / libipa TODO |
-| CR111003R00   | 6.3.2.7, Annex C  | Remove `eimPackageResultErrorCode` from top-level `EimPackageResult` | asn ✓   |
-| CR111005R00   | 6.1               | Mandatory `User-Agent` header value (`gsma-rsp-ipad`)           | done ✓ (http_hdr.h) |
-| CR111006R00   | 3.2.3.1           | Direct profile download Step 10 clarified                       | TODO review |
-| CR111007R00   | 5.9.15 / 22 / 23  | Reset rollback authorization when `refreshFlag == true`         | asn ✓ / n/a to libipa (eUICC-side; the IPA only conveys `refreshFlag`) |
-| CR12008R01    | 5.14.7            | `CompactOtherSignedNotification.eidValue` added                 | asn ✓ / libipa TODO |
-| CR12010R00    | 5.9.4             | Absent optional `EimConfigurationData` subfields clarified      | asn ✓ / impl ✓ (es10b_add_init_eim.c) |
-| CR12011R00    | 5.2.6 / 5.14 / 6.1| JSON↔ASN.1 status code mapping                                  | n/a (ASN.1) |
-| CR12012R00    | 4.3               | 64-char TLS CN limit (RFC5280 reference)                        | review http.c |
-| CR12013R00    | 6.4.1.1 / 6.4.1.3 | JSON binding alignment                                          | n/a (ASN.1) |
-| CR12014R02    | 6.3.2.7 / 6.4.1.6 / 5.14.6 | `ProvideEimPackageResult` EidValue inclusion clarified | asn-marker ✓ / libipa TODO |
-
-Legend: **asn ✓** = `SGP32Definitions.asn` already reflects the change.
-**libipa TODO** = caller source still needs to be updated; search the repo
-for the corresponding `TODO v1.1` / `TODO v1.2` marker.
+Where SGP.32's definition is textually identical to SGP.22's, there is no local
+copy at all and the imported type is used directly: `ProfileInstallationResult`,
+`CancelSessionOk`, `EuiccSigned1`, `AuthenticateResponseOk`,
+`StoreMetadataRequest`.
 
 ---
 
-## Suggested sequencing for finishing the migration
+## What remains
 
-1. **Regenerate libasn.**  Just build (`cmake --build build`) after editing the
-   schema — CMake re-runs asn1c automatically.  This triggers compile errors at
-   every renamed field / enum — those errors become the work list.
-2. **Fix pure renames.**  Small, mechanical edits; follow `UPDATE for v1.1`
-   markers in the `libipa/*.c` files.  Good candidates for the first PR.
-3. **Handle the §2.11.2.1 signing-input change.**  If the IPA runs against
-   real IoT eUICCs, the change is transparent (eUICC signs).  If running
-   against consumer eUICCs in emulation mode, the TBS construction in the
-   scard emulation layer must be updated to use `associationToken` instead
-   of `eimSignature`.
-4. **Restructure `IpaEuiccDataResponse` / `ProvideEimPackageResult`.**
-   These touch several files (`proc_euicc_data_req.c`,
-   `esipa_prvde_eim_pkg_rslt.c`).  Markers describe each replacement.
-5. **`EnableUsingDD` → `ImmediateEnable` — done.**  File renamed to
-   `es10b_immediate_enable.{c,h}`; the `refresh_flag` parameter is threaded
-   through the API (callers pass `false` to preserve v1.0 no-REFRESH semantics).
-6. **`Fallback` / `Emergency-Profile` / `GetConnectivityParameters` /
-   `SetDefaultDpAddress` — implemented and exposed.**  The ES10b
-   encode/transceive/decode is in place (`es10b_execute_fallback.c`,
-   `es10b_return_from_fallback.c`, `es10b_enable_emergency_profile.c`,
-   `es10b_disable_emergency_profile.c`, `es10b_get_connectivity_params.c`,
-   `es10b_set_default_dp_addr.c`) and surfaced as a public trigger API in
-   `include/onomondo/ipa/ipad.h` (`ipa_execute_fallback()`, …), with the sample
-   app exercising each via one-shot CLI options (`-F`, `-b`, `-X`, `-x`, `-G`,
-   `-D`, `-i`, `-R`).  What remains is device-specific policy: the daemon
-   decides *when* to invoke them (e.g. Fallback on radio-registration failure)
-   and feeds GetConnectivityParameters back into `http.c` / `esipa.c`.
-7. **Apply the v1.1 → v1.2 CRs** last — they are small and localised.
+None of these blocks a v1.2 deployment against a real IoT eUICC.
 
-Expected upstream strategy (as discussed with the developer): fork, land
-the renames + signing fix as one reviewable PR, validate against a real
-device + the client's eIM, then propose upstream to
-`onomondo/onomondo-ipa`.
+**Spec review items** — procedure text that changed without a schema change, not
+yet walked against the implementation:
+
+| Section | Where to look |
+|---------|---------------|
+| 3.2.3.1, CR111006R00 | Direct Profile Download start conditions and Step 10 — `proc_indirect_prfle_dwnld.c`, `ipad.c` |
+| 3.5.2   | Additional error conditions — `proc_eim_pkg_retr.c` |
+| 5.7.4   | `HandleNotification` order of operations: this implementation batches and forwards — `proc_notif_delivery.c` |
+| Annex A.2 | CAT requirements for the IoT Device |
+| CR12012R00 | 64-character TLS CN limit — `http.c` |
+
+**Unimplemented features**, each with knock-on items:
+
+- **IPA Capability `minimizeEsipaBytes`** (the compact ESipa forms). The compact
+  ASN.1 types are generated but nothing constructs them. CR12008R01's
+  `CompactOtherSignedNotification.eidValue` belongs to this work, as does
+  extending the `seqNumber` extraction in `proc_notif_delivery.c` to cover the
+  compact branches.
+- **The SM-DS branch.** `AuthenticateClientOkDSEsipa` is decoded, but
+  `proc_indirect_prfle_dwnld.c` requires the DP branch and stops otherwise, so
+  `profileDownloadTrigger` on that response is never read.
+
+**IoT eUICC emulation limits.** A consumer eUICC cannot sign an eUICC Package
+Result (§2.11.2.1 requires `SK.EUICC.ECDSA`, which never leaves the card, and
+SGP.22 ES10 has no primitive that signs caller-supplied data), so `euiccSignEPR`
+is a placeholder and `seqNumber` is always 0. A conforming eIM discards such a
+result under §5.14.6. See README, "IoT eUICC emulation".
+
+**Device policy, not a spec gap.** The six new ES10b functions are implemented
+and exposed through `ipad.h` (`ipa_execute_fallback()`, …), with the sample app
+driving each from a one-shot CLI option. Deciding *when* to invoke them — Fallback
+on radio-registration failure, say — and feeding `GetConnectivityParameters` back
+into `http.c` / `esipa.c` is integration work for the host application.

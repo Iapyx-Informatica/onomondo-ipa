@@ -5,12 +5,14 @@ element in the 3GPP IoT eSIM system as described in SGP.31 and SGP.32. It interf
 and the eIM (via HTTPS) on the other side. The implementation presented here can run on a regular Linux host. It can also be used
 as a library to add IPAd functionality to an IoT device that runs an RTOS.
 
-This code originally implemented SGP.32 v1.0.  An **in-progress migration to
-SGP.32 v1.2** is underway — see [MIGRATION.md](MIGRATION.md) for the full plan,
-per-section status, and a checklist of remaining work.  Every changed line in
-the schema and source carries an inline marker of the form
-`UPDATE for v1.1: <section>` / `UPDATE for v1.2: <CR>` / `NEW in v1.1/v1.2:<section>` / `TODO v1.1/v1.2: <section>` so the diff against the v1.0 baseline
-is traceable end-to-end.
+This code originally implemented SGP.32 v1.0 and has since been **migrated to
+SGP.32 v1.2** — see [MIGRATION.md](MIGRATION.md) for what that covered and what
+is deliberately still open, and [MIGRATION_STATUS.md](MIGRATION_STATUS.md) for
+the current build and test state.  Every changed line in the schema and source
+carries an inline marker of the form `UPDATE for v1.1: <section>` /
+`UPDATE for v1.2: <CR>` / `NEW in v1.1/v1.2: <section>` /
+`DONE for v1.2: <CR>`, so the diff against the v1.0 baseline is traceable
+end-to-end.
 
 This effort to bring the project to SGP.32 v1.2 is independent from the one going on at the `project/nrf-ipa-v1.2` branch of the original [project](https://github.com/onomondo/onomondo-ipa).
 
