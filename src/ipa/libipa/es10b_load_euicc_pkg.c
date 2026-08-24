@@ -728,6 +728,15 @@ struct ipa_es10b_load_euicc_pkg_res *load_euicc_pkg_iot_emu(struct ipa_context *
 	struct ipa_buf eim_id = { 0 };
 	struct ipa_buf euicc_sign_epr = { 0 };
 	unsigned int i;
+	/* euiccSignEPR is a placeholder, not a signature.  SGP.32 section 2.11.2.1 has the eUICC sign
+	 * euiccPackageResultDataSigned concatenated with the associationToken using SK.EUICC.ECDSA, and
+	 * section 5.14.6 has the eIM verify it against PK.EUICC.ECDSA and "discard the input" when it does
+	 * not check out.  Neither this code nor any other part of libipa can produce that signature: the
+	 * private key never leaves the eUICC, and SGP.22 ES10 has no function that signs caller-supplied
+	 * bytes, only ones that sign structures the eUICC assembles itself (euiccSigned1, euiccSigned2,
+	 * euiccCancelSessionSigned, euiccSignPIR).  So an eUICC Package executed under the emulation cannot
+	 * have its result accepted by a conforming eIM.  Fixing the byte pattern would not change that;
+	 * see README, "IoT eUICC emulation". */
 	const uint8_t euiccSignEPR_dummy[64] = { "RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS" };
 
 	IPA_LOGP_ES10X("LoadEuiccPackage", LINFO,

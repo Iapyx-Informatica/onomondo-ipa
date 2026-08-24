@@ -40,6 +40,19 @@ is in particular the case for the functions related to the management of the eIM
 
 The emulation is a build option and is **not** built by default, see `-DIOT_EUICC_EMULATION` under Options below.
 
+#### Limitation: eUICC Package Results are not signed
+
+A consumer eUICC cannot sign an eUICC Package Result. SGP.32 section 2.11.2.1 requires `euiccSignEPR` over
+`euiccPackageResultDataSigned` concatenated with the `associationToken`, created with `SK.EUICC.ECDSA`; that key never
+leaves the eUICC, and SGP.22 ES10 provides no function that signs caller-supplied data. The emulation therefore fills
+`euiccSignEPR` with a fixed placeholder, and the `seqNumber` of the result is always 0 rather than one assigned by the
+eUICC.
+
+An eIM that follows section 5.14.6 verifies the signature and the sequence number and discards the result if either
+fails, so **eUICC Package execution results produced under `-E` will not be accepted by a conforming eIM**. Profile
+download and the notifications around it are unaffected: those are signed by the eUICC itself and are passed through
+untouched. Use the emulation to exercise the IPA against real hardware, not to validate an eIM integration end to end.
+
 
 Installation
 ------------

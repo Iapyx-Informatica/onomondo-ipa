@@ -10,15 +10,14 @@
  * =====================================================================
  * v1.1/v1.2 migration notes for this file (see MIGRATION.md):
  * =====================================================================
- * UPDATE for v1.1: 2.11.2.1 — HIGH RISK: the signing input for euiccSignEPR /
- *   euiccSignEPE changed.  In v1.0 the eUICC signs over
- *   `euiccPackageResultDataSigned || eimSignature`; in v1.2 it signs over
- *   `euiccPackageResultDataSigned || associationToken` (integer, zero if none).
- *   This is eUICC-side signing, so the IPAd normally does not compute the
- *   signature.  BUT the consumer-eUICC emulation path used by this project
- *   (when -E is supplied) DOES synthesise eUICC signatures; that synthesis
- *   code must be updated accordingly.  TODO v1.1: locate signing helper and
- *   switch the TBS construction.
+ * UPDATE for v1.1: 2.11.2.1 — the signing input for euiccSignEPR / euiccSignEPE
+ *   changed: v1.0 signs over `euiccPackageResultDataSigned || eimSignature`,
+ *   v1.2 over `euiccPackageResultDataSigned || associationToken` (zero if none).
+ *   Nothing to do here.  The signature is produced inside the eUICC with
+ *   SK.EUICC.ECDSA; libipa never builds the TBS and contains no ECDSA signing.
+ *   The consumer-eUICC emulation cannot produce it either, and emits a fixed
+ *   placeholder instead — see the note in load_euicc_pkg_iot_emu()
+ *   (es10b_load_euicc_pkg.c) for what that costs.
  *
  * UPDATE for v1.1: 2.11.1.1 — EuiccPackageSigned.transactionId renamed to
  *   eimTransactionId.  Propagate rename wherever this field is accessed.

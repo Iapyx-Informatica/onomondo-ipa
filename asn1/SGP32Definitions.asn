@@ -198,16 +198,23 @@ SequenceNumber ::= [0] INTEGER
 
 
 -- Section 2.11.2.1
--- UPDATE for v1.1: 2.11.2.1 — HIGH RISK SIGNING CHANGE.
+-- UPDATE for v1.1: 2.11.2.1 — signing change.
 -- v1.0: euiccSignEPR = sign(euiccPackageResultDataSigned || eimSignature)
 -- v1.2: euiccSignEPR = sign(euiccPackageResultDataSigned || associationToken)
---       (if no associationToken configured, use integer value 0)
--- Same change applies to euiccSignEPE.  This is an eUICC-side signing change,
--- but it also affects IPA emulation mode (scard emulation path) when running
--- against consumer eUICCs: the TBS (to-be-signed) byte concatenation used to
--- synthesise the signature MUST be updated.
--- TODO v1.1: inspect any signing/TBS construction code invoked by
--- libipa/proc_euicc_pkg_dwnld_exec.c and the consumer-eUICC emulation path.
+--       (if no associationToken is configured, the value 0 is used)
+-- The same change applies to euiccSignEPE over euiccPackageErrorDataSigned.
+-- Both are produced with SK.EUICC.ECDSA and verified by the eIM against
+-- PK.EUICC.ECDSA from CERT.EUICC.ECDSA.
+--
+-- No IPA-side action: this is signing done inside the eUICC, and libipa neither
+-- builds the TBS nor signs anything (it contains no ECDSA signing at all).
+-- The consumer-eUICC emulation does construct an EuiccPackageResult, but it
+-- cannot sign one either: SK.EUICC.ECDSA never leaves the card and SGP.22 ES10
+-- offers no primitive that signs caller-supplied data, only functions that sign
+-- structures the eUICC composes itself.  It therefore emits a fixed 64-byte
+-- placeholder (es10b_load_euicc_pkg.c), which a conforming eIM discards under
+-- section 5.14.6.  That is a limitation of the emulation, not a missing TBS
+-- update; see the note in load_euicc_pkg_iot_emu().
 --
 -- UPDATE for v1.1: 2.11.2 — many renames and additions below:
 --   - transactionId -> eimTransactionId (across signed/error data types)
