@@ -105,9 +105,9 @@ top-down; most are mechanical.
 | CR111003R00   | 6.3.2.7, Annex C  | Remove `eimPackageResultErrorCode` from top-level `EimPackageResult` | asn ✓   |
 | CR111005R00   | 6.1               | Mandatory `User-Agent` header value (`gsma-rsp-ipad`)           | done ✓ (http_hdr.h) |
 | CR111006R00   | 3.2.3.1           | Direct profile download Step 10 clarified                       | TODO review |
-| CR111007R00   | 5.9.15 / 22 / 23  | Reset rollback authorization when `refreshFlag == true`         | asn-marker ✓ / libipa TODO |
+| CR111007R00   | 5.9.15 / 22 / 23  | Reset rollback authorization when `refreshFlag == true`         | asn ✓ / n/a to libipa (eUICC-side; the IPA only conveys `refreshFlag`) |
 | CR12008R01    | 5.14.7            | `CompactOtherSignedNotification.eidValue` added                 | asn ✓ / libipa TODO |
-| CR12010R00    | 5.9.4             | Absent optional `EimConfigurationData` subfields clarified      | asn-marker ✓ / libipa TODO |
+| CR12010R00    | 5.9.4             | Absent optional `EimConfigurationData` subfields clarified      | asn ✓ / impl ✓ (es10b_add_init_eim.c) |
 | CR12011R00    | 5.2.6 / 5.14 / 6.1| JSON↔ASN.1 status code mapping                                  | n/a (ASN.1) |
 | CR12012R00    | 4.3               | 64-char TLS CN limit (RFC5280 reference)                        | review http.c |
 | CR12013R00    | 6.4.1.1 / 6.4.1.3 | JSON binding alignment                                          | n/a (ASN.1) |

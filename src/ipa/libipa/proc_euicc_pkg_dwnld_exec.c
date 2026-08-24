@@ -29,11 +29,6 @@
  *   unsetFallbackAttributeResult / setDefaultDpAddressResult branches).
  *   Any switch on EuiccResultData_PR must handle the new branches.
  *
- * UPDATE for v1.2: CR111007R00 / 5.9.15 — on ImmediateEnable, rollback
- *   authorization must be reset also when refreshFlag == true.  Same for
- *   EnableEmergencyProfile / DisableEmergencyProfile (5.9.22 / 5.9.23).
- *   TODO v1.2: verify rollback authorization reset path below.
- *
  * UPDATE for v1.1: 5.9.11 — RetrieveNotificationsListResponse dropped the
  *   notificationAndEprList branch; the code below always uses seqNumber
  *   search criteria so this is safe, but the response consumer in
@@ -251,12 +246,11 @@ int ipa_proc_eucc_pkg_dwnld_exec_onset(struct ipa_context *ctx, struct ipa_proc_
 
 		IPA_LOGP(SIPA, LERROR,
 			 "unable to send the EuiccPackageResult to the eIM. (attempting profile rollback)\n");
-		/* UPDATE for v1.2: CR111007R00 — when refreshFlag == true the eUICC
-		 * is expected to reset rollback authorization as part of ImmediateEnable;
-		 * ProfileRollback's semantics for refreshFlag are unchanged, but the
-		 * downstream ImmediateEnable/Emergency flows should honour CR111007R00.
-		 * TODO v1.2: confirm ctx->cfg->refresh_flag propagation here matches
-		 * the refreshFlag semantics defined in v1.2 §5.9.15/5.9.22/5.9.23. */
+		/* This refreshFlag is ProfileRollback's own (SGP.32, section 5.9.16): it selects whether the
+		 * eUICC swaps the Profiles straight away or through a REFRESH, and is unrelated to the flag of
+		 * the same name in sections 5.9.15/5.9.20/5.9.22/5.9.23. Section 5.9.16 puts the choice on the
+		 * device ("the IoT Device has the responsibility to ensure that the relevant conditions for use
+		 * are met"), which is why it comes from the configuration rather than from the eUICC Package. */
 		res->prfle_rollback_res = ipa_es10b_prfle_rollback(ctx, ctx->cfg->refresh_flag);
 		if (!res->prfle_rollback_res
 		    || res->prfle_rollback_res->res->cmdResult != ProfileRollbackResponse__cmdResult_ok) {
