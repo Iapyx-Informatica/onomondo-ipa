@@ -51,7 +51,11 @@ void ipa_esipa_prvde_eim_pkg_rslt_free(struct ipa_esipa_prvde_eim_pkg_rslt_res *
  *  ASN.1 (BER) and JSON binding paths to avoid corrupting the byte representation
  *  of euiccPackageResultDataSigned that euiccSignEPR was computed over.
  *
- *  \param[in] raw_euicc_pkg_result  Raw BER bytes of the EuiccPackageResult.
+ *  A notification list that cannot be encoded is dropped rather than failing the
+ *  whole message: the notifications stay pending and are retried, whereas an
+ *  undelivered EuiccPackageResult is lost for good.
+ *
+ *  \param[in] raw_euicc_pkg_result  Raw BER bytes of the EuiccPackageResult; must be non-empty.
  *  \param[in] sgp32_notif_list      Notification list (may be NULL).
  *  \returns heap-allocated ipa_buf with DER bytes, or NULL on error.
  *           Caller frees with IPA_FREE(). */

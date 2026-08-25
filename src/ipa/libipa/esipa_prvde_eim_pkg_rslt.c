@@ -37,7 +37,6 @@
  */
 
 #include <stdint.h>
-#include <assert.h>
 #include <string.h>
 #include <onomondo/ipa/mem.h>
 #include <onomondo/ipa/utils.h>
@@ -109,7 +108,11 @@ static size_t der_write_length(uint8_t *p, size_t val)
  *  Without notifications (euiccPackageResult arm):
  *    BF 51 ...         raw EuiccPackageResult bytes (identifies the CHOICE arm)
  *
- *  \param[in] raw_euicc_pkg_result  Raw BER bytes from ES10b.LoadEuiccPackage.
+ *  A notification list that cannot be encoded is dropped and the euiccPackageResult
+ *  arm is produced instead; only a missing or empty raw_euicc_pkg_result, a failed
+ *  allocation or an inconsistent length header makes this fail outright.
+ *
+ *  \param[in] raw_euicc_pkg_result  Raw BER bytes from ES10b.LoadEuiccPackage; must be non-empty.
  *  \param[in] sgp32_notif_list      May be NULL; PR_notificationList is used.
  *  \returns heap-allocated ipa_buf with DER bytes, or NULL on error. */
 struct ipa_buf *ipa_esipa_build_eim_pkg_result_der(
@@ -121,20 +124,47 @@ struct ipa_buf *ipa_esipa_build_eim_pkg_result_der(
 	size_t off = 0;
 	size_t inner_len, seq_hdr_bytes, total_len;
 
+	if (!raw_euicc_pkg_result || raw_euicc_pkg_result->len == 0) {
+		IPA_LOGP_ESIPA("ProvideEimPackageResult", LERROR,
+			       "no raw EuiccPackageResult bytes to embed, cannot build EimPackageResult\n");
+		return NULL;
+	}
+
 	if (sgp32_notif_list &&
 	    sgp32_notif_list->present == SGP32_RetrieveNotificationsListResponse_PR_notificationList) {
+		asn_enc_rval_t rc_enc;
+
 		/* DER-encode the SGP32-PendingNotificationList (SEQUENCE OF → tag 0x30).
 		 * In ePRAndNotifications it appears as notificationList [0] IMPLICIT, so
 		 * the UNIVERSAL SEQUENCE tag 0x30 is replaced by CONTEXT [0] CONSTRUCTED
 		 * 0xA0. */
-		der_encode(&asn_DEF_SGP32_PendingNotificationList,
-			   IPA_ASN_PTR_RW(&sgp32_notif_list->choice.notificationList),
-			   ipa_asn1c_consume_bytes_cb, &notif_enc);
-		if (!notif_enc || notif_enc->len == 0) {
+		rc_enc = der_encode(&asn_DEF_SGP32_PendingNotificationList,
+				    IPA_ASN_PTR_RW(&sgp32_notif_list->choice.notificationList),
+				    ipa_asn1c_consume_bytes_cb, &notif_enc);
+
+		/* Every failure below drops the notifications and sends the bare
+		 * euiccPackageResult arm instead of failing the whole message.  The two
+		 * losses are not symmetric: the eUICC has already retired the eUICC
+		 * Package once it handed us the result, so a result we fail to deliver is
+		 * gone for good, while notifications stay pending until the eIM
+		 * acknowledges them (section 5.14.6) and are simply retried on the next
+		 * round. */
+		if (rc_enc.encoded <= 0 || !notif_enc || notif_enc->len == 0) {
+			IPA_LOGP_ESIPA("ProvideEimPackageResult", LERROR,
+				       "cannot DER-encode the notification list, sending the EuiccPackageResult without it (the notifications stay pending)\n");
+			IPA_FREE(notif_enc);
+			notif_enc = NULL;
+		} else if (notif_enc->data[0] != 0x30) {
+			/* The [0] IMPLICIT re-tag below only holds if the encoder really
+			 * produced a UNIVERSAL SEQUENCE, which is what a SEQUENCE OF is.
+			 * Overwriting anything else would emit a tag that does not match
+			 * the value that follows it. */
+			IPA_LOGP_ESIPA("ProvideEimPackageResult", LERROR,
+				       "notification list encodes to tag 0x%02x, expected UNIVERSAL SEQUENCE 0x30; sending the EuiccPackageResult without it (the notifications stay pending)\n",
+				       notif_enc->data[0]);
 			IPA_FREE(notif_enc);
 			notif_enc = NULL;
 		} else {
-			assert(notif_enc->data[0] == 0x30);
 			notif_enc->data[0] = 0xA0;
 		}
 	}
@@ -158,8 +188,19 @@ struct ipa_buf *ipa_esipa_build_eim_pkg_result_der(
 		off += raw_euicc_pkg_result->len;
 		memcpy(result->data + off, notif_enc->data, notif_enc->len);
 		off += notif_enc->len;
+
+		/* der_length_size() sized the header that der_write_length() then wrote;
+		 * if the two ever disagree the length field would not describe the bytes
+		 * that follow it, so check rather than trust. */
+		if (off != total_len) {
+			IPA_LOGP_ESIPA("ProvideEimPackageResult", LERROR,
+				       "EimPackageResult DER length mismatch (wrote %zu bytes, sized %zu)\n",
+				       off, total_len);
+			IPA_FREE(result);
+			result = NULL;
+			goto err;
+		}
 		result->len = total_len;
-		assert(off == total_len);
 	} else {
 		/*
 		 * euiccPackageResult arm: the raw bytes already carry the BF51 outer
@@ -241,7 +282,16 @@ static struct ipa_buf *enc_prvde_eim_pkg_rslt_req_passthru(
 	memcpy(result->data + off, eim_pkg_der->data, eim_pkg_der->len);
 	off += eim_pkg_der->len;
 
-	assert(off == total_len);
+	/* Same reasoning as in ipa_esipa_build_eim_pkg_result_der(): the outer BF 50
+	 * length was sized before the body was written. */
+	if (off != total_len) {
+		IPA_LOGP_ESIPA("ProvideEimPackageResult", LERROR,
+			       "provideEimPackageResult DER length mismatch (wrote %zu bytes, sized %zu)\n",
+			       off, total_len);
+		IPA_FREE(result);
+		result = NULL;
+		goto err;
+	}
 	result->len = total_len;
 
 err:
