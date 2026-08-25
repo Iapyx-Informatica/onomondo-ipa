@@ -509,10 +509,152 @@ static void asn1_prvde_eim_pkg_rslt_response_test(void)
 }
 #endif /* IPA_HAVE_ESIPA_ASN1 */
 
+
+#ifdef IPA_HAVE_ESIPA_JSON
+/* The JSON binding used to decode any response body it could parse as a success: it allocated an "Ok"
+ * structure up front and attached it whatever the body turned out to contain.  An eIM reporting a
+ * failure therefore reached the procedure layer as a successful call with every field absent, and the
+ * "no Ok member" guard there could not catch it because the member was always present.
+ *
+ * These feed each decoder a response the eIM would send on failure and check two things: the code is
+ * reported, and no "Ok" structure is attached. */
+static struct ipa_buf *json_body(const char *text)
+{
+	struct ipa_buf *buf = ipa_buf_alloc(strlen(text));
+
+	memcpy(buf->data, text, strlen(text));
+	buf->len = strlen(text);
+	return buf;
+}
+
+static void json_error_response_test(void)
+{
+	struct ipa_buf *body;
+
+	printf("== json_error_response_test ==\n");
+
+	{
+		struct ipa_esipa_init_auth_res *res;
+
+		body = json_body("{\"initiateAuthenticationErrorEsipa\":3}");
+		res = ipa_esipa_json_dec_init_auth_res(body);
+		assert(res);
+		assert(res->init_auth_err ==
+		       InitiateAuthenticationResponseEsipa__initiateAuthenticationErrorEsipa_ciPKIdNotSupported);
+		assert(res->init_auth_ok == NULL);
+		printf("   InitiateAuthentication  -> ciPKIdNotSupported reported, no Ok attached\n");
+		ipa_esipa_init_auth_res_free(res);
+		ipa_buf_free(body);
+	}
+
+	{
+		struct ipa_esipa_auth_clnt_res *res;
+
+		body = json_body("{\"authenticateClientErrorEsipa\":50}");
+		res = ipa_esipa_json_dec_auth_clnt_res(body, NULL);
+		assert(res);
+		/* The code #25 made visible: pprNotAllowed(50), which the old shared table could not name
+		 * and the JSON binding could not see at all. */
+		assert(res->auth_clnt_err ==
+		       AuthenticateClientResponseEsipa__authenticateClientErrorEsipa_pprNotAllowed);
+		assert(res->auth_clnt_ok_dpe == NULL);
+		assert(res->auth_clnt_ok_dse == NULL);
+		printf("   AuthenticateClient      -> pprNotAllowed reported, no Ok attached\n");
+		ipa_esipa_auth_clnt_res_free(res);
+		ipa_buf_free(body);
+	}
+
+	{
+		struct ipa_esipa_get_bnd_prfle_pkg_res *res;
+
+		/* The one with a spec consequence: section 3.2.3.3 requires the CancelSession that follows
+		 * to carry reason code metadataMismatch, which proc_prfle_dwnld.c derives from this field. */
+		body = json_body("{\"getBoundProfilePackageErrorEsipa\":50}");
+		res = ipa_esipa_json_dec_get_bnd_prfle_pkg_res(body);
+		assert(res);
+		assert(res->get_bnd_prfle_pkg_err ==
+		       GetBoundProfilePackageResponseEsipa__getBoundProfilePackageErrorEsipa_metadataMismatch);
+		assert(res->get_bnd_prfle_pkg_ok == NULL);
+		printf("   GetBoundProfilePackage  -> metadataMismatch reported, no Ok attached\n");
+		ipa_esipa_get_bnd_prfle_pkg_res_free(res);
+		ipa_buf_free(body);
+	}
+
+	{
+		struct ipa_esipa_get_eim_pkg_res *res;
+
+		body = json_body("{\"eimPackageError\":2}");
+		res = ipa_esipa_json_dec_get_eim_pkg_res(body);
+		assert(res);
+		assert(res->eim_pkg_err == GetEimPackageResponse__eimPackageError_eidNotFound);
+		assert(res->euicc_package_request == NULL);
+		assert(res->ipa_euicc_data_request == NULL);
+		assert(res->dwnld_trigger_request == NULL);
+		printf("   GetEimPackage           -> eidNotFound reported, no request attached\n");
+		ipa_esipa_get_eim_pkg_free(res);
+		ipa_buf_free(body);
+	}
+}
+
+/* A body that carries neither a result nor an error code must not become a success either.  This is
+ * the case the procedure layer's "no Ok member" guard was written for, and that the unconditional
+ * allocation defeated. */
+static void json_empty_response_test(void)
+{
+	struct ipa_buf *body = json_body("{}");
+	struct ipa_esipa_init_auth_res *ia;
+	struct ipa_esipa_auth_clnt_res *ac;
+	struct ipa_esipa_get_bnd_prfle_pkg_res *gb;
+
+	printf("== json_empty_response_test ==\n");
+
+	ia = ipa_esipa_json_dec_init_auth_res(body);
+	assert(ia && ia->init_auth_ok == NULL && ia->init_auth_err == 0);
+	ipa_esipa_init_auth_res_free(ia);
+
+	ac = ipa_esipa_json_dec_auth_clnt_res(body, NULL);
+	assert(ac && ac->auth_clnt_ok_dpe == NULL && ac->auth_clnt_ok_dse == NULL && ac->auth_clnt_err == 0);
+	ipa_esipa_auth_clnt_res_free(ac);
+
+	gb = ipa_esipa_json_dec_get_bnd_prfle_pkg_res(body);
+	assert(gb && gb->get_bnd_prfle_pkg_ok == NULL && gb->get_bnd_prfle_pkg_err == 0);
+	ipa_esipa_get_bnd_prfle_pkg_res_free(gb);
+
+	printf("   empty body              -> no Ok attached in any decoder\n");
+	ipa_buf_free(body);
+}
+#endif /* IPA_HAVE_ESIPA_JSON */
+
+/* Both bindings must describe one error code by one name.  #25 fixed a case where the ASN.1 binding
+ * printed the wrong one; nothing should reintroduce a second table. */
+static void error_name_test(void)
+{
+	printf("== error_name_test ==\n");
+
+	assert(strcmp(ipa_esipa_auth_clnt_err_str(
+		      AuthenticateClientResponseEsipa__authenticateClientErrorEsipa_pprNotAllowed),
+		      "pprNotAllowed") == 0);
+	assert(strcmp(ipa_esipa_auth_clnt_err_str(
+		      AuthenticateClientResponseEsipa__authenticateClientErrorEsipa_eidMismatch),
+		      "eidMismatch") == 0);
+	assert(strcmp(ipa_esipa_init_auth_err_str(
+		      InitiateAuthenticationResponseEsipa__initiateAuthenticationErrorEsipa_smdpOidMismatch),
+		      "smdpOidMismatch") == 0);
+	assert(strcmp(ipa_esipa_get_bnd_prfle_pkg_err_str(
+		      GetBoundProfilePackageResponseEsipa__getBoundProfilePackageErrorEsipa_metadataMismatch),
+		      "metadataMismatch") == 0);
+	assert(strcmp(ipa_esipa_get_eim_pkg_err_str(
+		      GetEimPackageResponse__eimPackageError_missingEid), "missingEid") == 0);
+	/* A code the set does not define must not be given a neighbour's name. */
+	assert(strcmp(ipa_esipa_auth_clnt_err_str(9999), "(unknown)") == 0);
+	printf("   shared tables           -> both bindings name codes identically\n");
+}
+
 int main(int argc, char **argv)
 {
 	transaction_id_lookup_test();
 	rplmn_encoding_test();
+	error_name_test();
 #ifdef IPA_HAVE_ESIPA_ASN1
 	asn1_init_auth_transaction_id_test();
 	asn1_get_eim_pkg_test();
@@ -526,6 +668,8 @@ int main(int argc, char **argv)
 	json_refuses_without_transaction_id_test();
 	json_init_auth_transaction_id_test();
 	json_get_eim_pkg_test();
+	json_error_response_test();
+	json_empty_response_test();
 #else
 	printf("== JSON binding not built, its encoder cases skipped ==\n");
 #endif
@@ -552,6 +696,12 @@ struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req, 
 	ipa_buf_free(captured_req);
 	captured_req = ipa_buf_dup((struct ipa_buf *)req);
 	return NULL;
+}
+
+/* The stub above never lets a request complete, so there is never a status to report. */
+long ipa_http_last_status(void *http_ctx)
+{
+	return 0;
 }
 
 void ipa_http_close(void *http_ctx)

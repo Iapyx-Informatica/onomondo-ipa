@@ -36,3 +36,7 @@ const TransactionId_t *ipa_esipa_get_bnd_prfle_pkg_transaction_id(const struct P
 struct ipa_esipa_get_bnd_prfle_pkg_res *ipa_esipa_get_bnd_prfle_pkg(struct ipa_context *ctx,
 								    const struct ipa_esipa_get_bnd_prfle_pkg_req *req);
 void ipa_esipa_get_bnd_prfle_pkg_res_free(struct ipa_esipa_get_bnd_prfle_pkg_res *res);
+
+/*! Name of an ESipa.GetBoundProfilePackage error code, for log messages.  Shared by the ASN.1 and
+ *  JSON bindings so that one code is never described by two different names. */
+const char *ipa_esipa_get_bnd_prfle_pkg_err_str(long err);

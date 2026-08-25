@@ -41,7 +41,6 @@ const TransactionId_t *ipa_esipa_get_bnd_prfle_pkg_transaction_id(const struct P
 	}
 }
 
-#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 static const struct num_str_map error_code_strings[] = {
 	{ GetBoundProfilePackageResponseEsipa__getBoundProfilePackageErrorEsipa_euiccSignatureInvalid,
 	 "euiccSignatureInvalid" },
@@ -63,6 +62,19 @@ static const struct num_str_map error_code_strings[] = {
 	{ GetBoundProfilePackageResponseEsipa__getBoundProfilePackageErrorEsipa_undefinedError, "undefinedError" },
 	{ 0, NULL }
 };
+
+/*! Name of an ESipa.GetBoundProfilePackage error code, for log messages.
+ *  \param[in] err the error code as decoded from the eIM response.
+ *  \returns the code's name from the ASN.1 definition (section 6.3.2.3), or "(unknown)".
+ *
+ *  Shared by both wire bindings on purpose: the JSON binding carries the same codes, and the two
+ *  must not describe one code by two different names. */
+const char *ipa_esipa_get_bnd_prfle_pkg_err_str(long err)
+{
+	return ipa_str_from_num(error_code_strings, err, "(unknown)");
+}
+
+#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 
 static struct ipa_buf *enc_get_bnd_prfle_pkg_req(struct ipa_context *ctx, const void *req_)
 {

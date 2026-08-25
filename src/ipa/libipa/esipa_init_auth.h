@@ -37,3 +37,7 @@ struct ipa_buf *ipa_esipa_init_auth_enc_req(struct ipa_context *ctx, const void 
 
 struct ipa_esipa_init_auth_res *ipa_esipa_init_auth(struct ipa_context *ctx, const struct ipa_esipa_init_auth_req *req);
 void ipa_esipa_init_auth_res_free(struct ipa_esipa_init_auth_res *res);
+
+/*! Name of an ESipa.InitiateAuthentication error code, for log messages.  Shared by the ASN.1 and
+ *  JSON bindings so that one code is never described by two different names. */
+const char *ipa_esipa_init_auth_err_str(long err);

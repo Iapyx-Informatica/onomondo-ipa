@@ -224,7 +224,6 @@ err:
  *     <eim_pkg_der> EimPackageResult  (CHOICE, no outer tag — built by
  *                                      ipa_esipa_build_eim_pkg_result_der)
  */
-#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 /* Why the eIM refused the eIM Package Result (SGP.32, section 6.3.2.7). All three named codes say the
  * eIM could not work out which eUICC the result belongs to, which is what eidValue exists to prevent. */
 #define PEPR_ERR(name) \
@@ -237,6 +236,19 @@ static const struct num_str_map error_code_strings[] = {
 	PEPR_ERR(undefinedError),
 	{ 0, NULL }
 };
+
+/*! Name of an ESipa.ProvideEimPackageResult error code, for log messages.
+ *  \param[in] err the error code as decoded from the eIM response.
+ *  \returns the code's name from the ASN.1 definition (section 6.3.2.7), or "(unknown)".
+ *
+ *  Shared by both wire bindings on purpose: the JSON binding carries the same codes, and the two
+ *  must not describe one code by two different names. */
+const char *ipa_esipa_prvde_eim_pkg_rslt_err_str(long err)
+{
+	return ipa_str_from_num(error_code_strings, err, "(unknown)");
+}
+
+#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 #undef PEPR_ERR
 static struct ipa_buf *enc_prvde_eim_pkg_rslt_req_passthru(
 	const struct ipa_context *ctx,

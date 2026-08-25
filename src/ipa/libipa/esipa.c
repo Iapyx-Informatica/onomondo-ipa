@@ -168,6 +168,7 @@ struct ipa_buf *ipa_esipa_req(struct ipa_context *ctx, const struct ipa_buf *esi
 	struct ipa_buf *esipa_res;
 	unsigned int i;
 	unsigned int wait_time;
+	long http_status;
 
 	if (!esipa_req) {
 		IPA_LOGP_ESIPA(function_name, LERROR, "eIM request failed due to missing encoded request data!\n");
@@ -195,6 +196,20 @@ struct ipa_buf *ipa_esipa_req(struct ipa_context *ctx, const struct ipa_buf *esi
 				       wait_time);
 			sleep(wait_time);
 		} else {
+			/* A response arrived, which is not the same as the function having succeeded.  SGP.32
+			 * section 6.4 reports a failed ESipa function through the HTTP status, and the HTTP
+			 * client hands 4xx/5xx bodies back like any other, so the status has to be consulted
+			 * before the body is treated as a result.  Not retried: the eIM answered, so sending
+			 * the same request again would only produce the same answer. */
+			http_status = ipa_http_last_status(ctx->http_ctx);
+			if (http_status < 200 || http_status > 299) {
+				IPA_LOGP_ESIPA(function_name, LERROR,
+					       "eIM rejected the request with HTTP status %ld\n", http_status);
+				ipa_buf_hexdump_multiline(esipa_res, 64, 1, SESIPA, LDEBUG);
+				IPA_FREE(esipa_res);
+				goto error;
+			}
+
 			/* Successful request */
 			IPA_LOGP_ESIPA(function_name, LDEBUG, "received %zu bytes from eIM (buffer size: %zu bytes)\n",
 				       esipa_res->len, esipa_res->data_len);
