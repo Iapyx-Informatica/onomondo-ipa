@@ -46,3 +46,12 @@ const struct SGP32_ProfileInfo *ipa_es10c_prfle_by_iccid(const struct ipa_es10c_
 /*! Is this Profile enabled? Tolerates a NULL Profile and an absent profileState, both of which mean
  *  "not enabled" rather than an error. */
 bool ipa_es10c_prfle_is_enabled(const struct SGP32_ProfileInfo *prfle_info);
+
+/*! Is the Emergency Profile currently enabled on the eUICC?
+ *  SGP.32 section 4.4 marks the Emergency Profile with ProfileInfo.ecallIndication (tag '9F7B'), and
+ *  several functions have to refuse while it is enabled -- section 2.11.2.2 has the IPA answer an
+ *  IpaEuiccDataRequest with ecallActive, for instance.  A Profile carrying the indication but sitting
+ *  disabled does not count: it is the enabled state that gates those refusals.
+ *  \param[in] res result of ipa_es10c_get_prfle_info(), may be NULL or hold an error.
+ *  \returns true when some Profile carries ecallIndication and is enabled. */
+bool ipa_es10c_ecall_prfle_enabled(const struct ipa_es10c_get_prfle_info_res *res);

@@ -69,6 +69,7 @@
 #include "utils.h"
 #include "es10a_get_euicc_cfg_addr.h"
 #include "es10b_get_euicc_info.h"
+#include "es10c_get_prfle_info.h"
 #include "es10b_get_eim_cfg_data.h"
 #include "es10b_get_certs.h"
 #include "es10b_retr_notif_from_lst.h"
@@ -135,6 +136,40 @@ static struct DeviceInfo *make_device_info(struct ipa_context *ctx)
 	return &device_info;
 }
 
+/* Build an IpaEuiccDataResponseError, echoing eimTransactionId from the request when the eIM supplied
+ * one: SGP.32 section 2.11.2.2 requires it back "in the IpaEuiccData or IpaEuiccDataResponseError", and
+ * asn1c omits the OPTIONAL field when the pointer is NULL. */
+static void set_data_error(struct IpaEuiccDataResponse *res, const struct IpaEuiccDataRequest *req,
+			   IpaEuiccDataErrorCode_t err_code)
+{
+	res->choice.ipaEuiccDataResponseError.eimTransactionId = req->eimTransactionId;
+	res->choice.ipaEuiccDataResponseError.ipaEuiccDataErrorCode = err_code;
+	res->present = IpaEuiccDataResponse_PR_ipaEuiccDataResponseError;
+}
+
+/* SGP.32, section 2.11.2.2: "If the Emergency Profile is enabled, then the IPA SHALL stop the procedure
+ * and return an IpaEuiccDataResponseError containing ipaEuiccDataErrorCode set to ecallActive."
+ *
+ * The enabled state changes at runtime, so unlike the rest of ipa_euicc_caps it cannot be cached and has
+ * to be read from the eUICC. The capability flag can be, though, and an eUICC that does not implement
+ * the Emergency Profile mechanism at all cannot have one enabled -- so the ES10c round trip is skipped
+ * in that case, which is every consumer eUICC under the IoT emulation. */
+static bool ecall_profile_enabled(struct ipa_context *ctx)
+{
+	struct ipa_es10c_get_prfle_info_res *prfle_info_res;
+	struct ipa_euicc_caps caps = { 0 };
+	bool enabled;
+
+	if (ipa_es10b_get_euicc_caps(ctx, &caps) == 0 && !caps.ecall_supported)
+		return false;
+
+	prfle_info_res = ipa_es10c_get_prfle_info(ctx, NULL);
+	enabled = ipa_es10c_ecall_prfle_enabled(prfle_info_res);
+	ipa_es10c_get_prfle_info_res_free(prfle_info_res);
+
+	return enabled;
+}
+
 /*! Perform IpaEuiccDataRequest Procedure.
  *  \param[inout] ctx pointer to ipa_context.
  *  \param[in] pars pointer to struct that holds the procedure parameters.
@@ -157,6 +192,16 @@ int ipa_proc_euicc_data_req(struct ipa_context *ctx, const struct ipa_proc_euicc
 
 	/* Final response */
 	struct IpaEuiccDataResponse ipa_euicc_data_response = { 0 };
+
+	/* SGP.32 section 2.11.2.2 has this refusal come before anything else: the procedure stops, so no
+	 * eUICC data is gathered and none is returned. */
+	if (ecall_profile_enabled(ctx)) {
+		IPA_LOGP(SIPA, LINFO,
+			 "Emergency Profile is enabled, refusing the eUICC data request with ecallActive\n");
+		set_data_error(&ipa_euicc_data_response, pars->ipa_euicc_data_request,
+			       IpaEuiccDataErrorCode_ecallActive);
+		goto send_response;
+	}
 
 	/* Collect requested data */
 	tag_list = IPA_BUF_FROM_ASN(&pars->ipa_euicc_data_request->tagList);
@@ -319,10 +364,7 @@ send_cert_error: {
 		IPA_LOGP(SIPA, LINFO,
 			 "GetCerts failed (eIM error code %ld), sending IpaEuiccDataResponseError\n",
 			 (long)err_code);
-		ipa_euicc_data_response.choice.ipaEuiccDataResponseError.eimTransactionId =
-		    pars->ipa_euicc_data_request->eimTransactionId;
-		ipa_euicc_data_response.choice.ipaEuiccDataResponseError.ipaEuiccDataErrorCode = err_code;
-		ipa_euicc_data_response.present = IpaEuiccDataResponse_PR_ipaEuiccDataResponseError;
+		set_data_error(&ipa_euicc_data_response, pars->ipa_euicc_data_request, err_code);
 	}
 	/* fall through to send_response */
 

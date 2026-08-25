@@ -330,12 +330,13 @@ DeleteProfileResult ::= INTEGER {
 -- Section 4.4
 -- SGP.32 v1.1/v1.2 override of SGP.22 ProfileInfo.  All base fields are
 -- identical to SGP.22; two IoT-specific extension additions are appended:
---   fallbackAttribute [103] / Tag '9F67': present iff this profile has been
---     designated as the fallback profile via the setFallbackAttribute PSMO
+--   fallbackAttribute [38] / Tag '9F26': TRUE if this Profile has been
+--     designated as the Fallback Profile via the setFallbackAttribute PSMO
 --     (§2.11.1.1.3).  Cleared by unsetFallbackAttribute.
---   emergencyCallAttribute [123] / Tag '9F7B': present iff this profile has
---     been enabled as the emergency call (eCall) profile via
---     EnableEmergencyProfile (§5.9.22).  Cleared by DisableEmergencyProfile.
+--   fallbackAllowed [103] / Tag '9F67': the Profile Owner authorises this
+--     Profile to be used by the Fallback Mechanism.
+--   ecallIndication [123] / Tag '9F7B': TRUE if this Profile is the Emergency
+--     Profile, set from the Profile Metadata at download (§3.2.3.1 step 12).
 -- IMPORTANT: both fields are part of the TBS signed by the eUICC as
 -- euiccSignEPR / euiccSignEPE (§2.11.2.1).  Any decode/re-encode path in
 -- the IPAd that touches euiccPackageResultDataSigned MUST preserve them.

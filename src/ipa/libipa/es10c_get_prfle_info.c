@@ -178,6 +178,28 @@ bool ipa_es10c_prfle_is_enabled(const struct SGP32_ProfileInfo *prfle_info)
 	return prfle_info && prfle_info->profileState && *prfle_info->profileState == ProfileState_enabled;
 }
 
+bool ipa_es10c_ecall_prfle_enabled(const struct ipa_es10c_get_prfle_info_res *res)
+{
+	int i;
+
+	if (!res || !res->sgp32_res ||
+	    res->sgp32_res->present != SGP32_ProfileInfoListResponse_PR_profileInfoListOk)
+		return false;
+
+	for (i = 0; i < res->sgp32_res->choice.profileInfoListOk.list.count; i++) {
+		const struct SGP32_ProfileInfo *prfle_info = res->sgp32_res->choice.profileInfoListOk.list.array[i];
+
+		/* ecallIndication is OPTIONAL and BOOLEAN: absent and present-but-false both mean "not the
+		 * Emergency Profile". A consumer eUICC never sends it at all. */
+		if (!prfle_info->ecallIndication || !*prfle_info->ecallIndication)
+			continue;
+		if (ipa_es10c_prfle_is_enabled(prfle_info))
+			return true;
+	}
+
+	return false;
+}
+
 /* Find the currently active profile */
 static void find_currently_active_prfle(struct ipa_es10c_get_prfle_info_res *res)
 {
