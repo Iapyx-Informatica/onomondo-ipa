@@ -8,6 +8,7 @@
 
 #include <stdio.h>
 #include <assert.h>
+#include <stddef.h>
 #include <string.h>
 #include <onomondo/ipa/mem.h>
 #include <onomondo/ipa/http.h>
@@ -95,12 +96,30 @@ static struct ipa_buf *nvstate_serialize(struct ipa_nvstate *nvstate)
 	return nvstate_bin;
 }
 
-struct ipa_buf *nvstate_deserialize_ipa_buf(uint8_t ** nvstate_data, size_t *nvstate_data_len)
+/*! Deserialize one dynamically allocated member from the nvstate image.
+ *  \param[inout] nvstate_data cursor into the image, advanced past the member that was read.
+ *  \param[inout] nvstate_data_len bytes left at the cursor, reduced by the same amount.
+ *  \param[out] malformed set when the image could not be read; left alone otherwise.
+ *  \returns the member, or NULL when it was stored absent or when the image is malformed.
+ *
+ *  NULL alone does not say which of the two happened, because a member that was never set is stored
+ *  as a placeholder and legitimately reads back as NULL. The caller has to consult malformed to tell
+ *  an absent member from an image it should not be loading at all. */
+static struct ipa_buf *nvstate_deserialize_ipa_buf(uint8_t ** nvstate_data, size_t *nvstate_data_len, bool *malformed)
 {
 	struct ipa_buf *buf;
 
 	buf = ipa_buf_deserialize(*nvstate_data, *nvstate_data_len);
+	if (!buf) {
+		/* The image ended early or its length fields contradict each other. Report it and leave
+		 * nothing behind for a further call to walk into. */
+		*malformed = true;
+		*nvstate_data_len = 0;
+		return NULL;
+	}
 
+	/* ipa_buf_deserialize() checked this fits, so neither the advance nor the subtraction runs off
+	 * the end of the image. */
 	*nvstate_data += buf->data_len + sizeof(*buf);
 	*nvstate_data_len -= (buf->data_len + sizeof(*buf));
 
@@ -118,6 +137,8 @@ static void nvstate_deserialize(struct ipa_nvstate *nvstate, struct ipa_buf *nvs
 {
 	uint8_t *nvstate_data;
 	size_t nvstate_data_len;
+	uint32_t version;
+	bool malformed = false;
 
 	/* nothing to deserialize */
 	if (!nvstate_bin) {
@@ -136,22 +157,50 @@ static void nvstate_deserialize(struct ipa_nvstate *nvstate, struct ipa_buf *nvs
 		return;
 	}
 
-	/* deserialize statically allocated struct members and check version */
-	memcpy((uint8_t *) nvstate, nvstate_bin->data, sizeof(*nvstate));
-	nvstate_data = nvstate_bin->data + sizeof(*nvstate);
-	nvstate_data_len = nvstate_bin->len - sizeof(*nvstate);
-	if (nvstate->version != IPA_NVSTATE_VERSION) {
+	/* Read the version on its own, before the wholesale copy below.  The struct holds pointers to
+	 * dynamically allocated members, and nvstate_serialize() writes it out as it stands, so those
+	 * pointer slots in the image hold the writing process's heap addresses.  Copying the struct in
+	 * first and rejecting it afterwards would leave those addresses in place for the
+	 * nvstate_reset() on the rejection path to free -- that is a free() of a value taken from the
+	 * file.  Same reasoning as the length check above: what decides whether the image may be
+	 * trusted has to be read before the image is acted on. */
+	memcpy(&version, nvstate_bin->data + offsetof(struct ipa_nvstate, version), sizeof(version));
+	if (version != IPA_NVSTATE_VERSION) {
 		IPA_LOGP(SIPA, LERROR,
 			 "cannot deserialize non volatile state with mismatching version number %u (expected version: %u)\n",
-			 nvstate->version, IPA_NVSTATE_VERSION);
+			 version, IPA_NVSTATE_VERSION);
 		nvstate_reset(nvstate);
 		return;
 	}
 
+	/* deserialize statically allocated struct members */
+	memcpy((uint8_t *) nvstate, nvstate_bin->data, sizeof(*nvstate));
+	nvstate_data = nvstate_bin->data + sizeof(*nvstate);
+	nvstate_data_len = nvstate_bin->len - sizeof(*nvstate);
+
+	/* The copy above also brought the stale pointers in.  Clear them so that the struct never holds
+	 * a pointer that came from the file: the assignments below overwrite all three, but an early
+	 * return added between here and there must not resurrect the bug this replaced. */
+	nvstate->iot_euicc_emu.eim_cfg_ber = NULL;
+	nvstate->iot_euicc_emu.immediate_enable.smdp_oid = NULL;
+	nvstate->iot_euicc_emu.immediate_enable.smdp_address = NULL;
+
 	/* deserialize dynamically allocated struct members (append code for new members here) */
-	nvstate->iot_euicc_emu.eim_cfg_ber = nvstate_deserialize_ipa_buf(&nvstate_data, &nvstate_data_len);
-	nvstate->iot_euicc_emu.immediate_enable.smdp_oid = nvstate_deserialize_ipa_buf(&nvstate_data, &nvstate_data_len);
-	nvstate->iot_euicc_emu.immediate_enable.smdp_address = nvstate_deserialize_ipa_buf(&nvstate_data, &nvstate_data_len);
+	nvstate->iot_euicc_emu.eim_cfg_ber =
+	    nvstate_deserialize_ipa_buf(&nvstate_data, &nvstate_data_len, &malformed);
+	nvstate->iot_euicc_emu.immediate_enable.smdp_oid =
+	    nvstate_deserialize_ipa_buf(&nvstate_data, &nvstate_data_len, &malformed);
+	nvstate->iot_euicc_emu.immediate_enable.smdp_address =
+	    nvstate_deserialize_ipa_buf(&nvstate_data, &nvstate_data_len, &malformed);
+
+	/* A truncated or inconsistent image means the members that did come through cannot be trusted
+	 * either -- there is no way to tell a member that was stored absent from one whose bytes went
+	 * missing. Start over rather than run on half a state. */
+	if (malformed) {
+		IPA_LOGP(SIPA, LERROR,
+			 "cannot deserialize non volatile state, the dynamically allocated members do not fit the stored image\n");
+		nvstate_reset(nvstate);
+	}
 }
 
 /*! Read eIM configuration from eUICC and pick a suitable eIM.

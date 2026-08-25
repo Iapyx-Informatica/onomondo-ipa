@@ -187,27 +187,43 @@ static inline void ipa_buf_assign(struct ipa_buf *buf, const uint8_t *data, size
 
 /*! Deserialize ipa_buf from a buffer (data may come from a file or similar).
  *  \param[in] data user provided memory with serialized ipa_buf.
- *  \param[in] len length of the user provided memory that contains the serialied ipa_buf. */
+ *  \param[in] len length of the user provided memory that contains the serialized ipa_buf.
+ *  \returns newly allocated ipa_buf, or NULL when the serialized data does not fit in len bytes. */
 static inline struct ipa_buf *ipa_buf_deserialize(uint8_t *data, size_t len)
 {
-	/*! An ipa_buf is serialized by writing its header to a file and append its data section directly after. Since
-	 *  ipa_buf_alloc already allocates an ipa_buf object this way no extra effort has to be taken. It is
-	 *  sufficient to pass the pointer to the ipa_buf object to memcpy and use sizeof(*buf) + buf->data_len as
-	 *  length. */
+	/*! An ipa_buf is serialized by writing its header to a file and appending its data section
+	 *  directly after, so the header is what says how long the data section is. That makes both
+	 *  lengths attacker- or corruption-controlled input: they come from the file, not from this
+	 *  process, and neither may be acted on before it has been checked against the memory that was
+	 *  actually handed to us. */
 
-	struct ipa_buf *buf_serialized;
+	struct ipa_buf hdr;
 	struct ipa_buf *buf;
 
-	/* This will give us an almost working ipa_buf (the data pointer will be stale) */
-	buf_serialized = (struct ipa_buf *)data;
+	/* The header must be present before it can be believed. */
+	if (!data || len < sizeof(hdr))
+		return NULL;
 
-	/* First we allocate a new buffer from the data in the serialzed buffer. We cannot trust the data pointer since
-	 * this serialzed buffer may have come from a different process on a different machine, so we must calculate
-	 * the beginning of the data ourselves. We also must be suere to copy the complete memory. */
-	buf = ipa_buf_alloc_data(buf_serialized->data_len, (uint8_t *) buf_serialized + sizeof(*buf_serialized));
+	/* Copy the header out instead of casting data to a struct ipa_buf *. The serialized bytes can
+	 * start at any offset in the source buffer -- in the nvstate image they follow a packed struct
+	 * -- and the cast would form a pointer that is not necessarily aligned for the type. */
+	memcpy(&hdr, data, sizeof(hdr));
+
+	/* data_len claims how many bytes follow the header, so it has to fit in what is left. The
+	 * subtraction cannot underflow: len >= sizeof(hdr) was established above. */
+	if (hdr.data_len > len - sizeof(hdr))
+		return NULL;
+
+	/* len claims how much of the data section is useful, which cannot be more than there is. */
+	if (hdr.len > hdr.data_len)
+		return NULL;
+
+	/* The data pointer in the header is an address in the process that wrote the image and means
+	 * nothing here, so the data section is located by offset instead. */
+	buf = ipa_buf_alloc_data(hdr.data_len, data + sizeof(hdr));
 
 	/* The original buffer may not have utilized all the available memory, so we restore the length. */
-	buf->len = buf_serialized->len;
+	buf->len = hdr.len;
 
 	return buf;
 }
