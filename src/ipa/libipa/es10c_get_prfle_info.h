@@ -55,3 +55,9 @@ bool ipa_es10c_prfle_is_enabled(const struct SGP32_ProfileInfo *prfle_info);
  *  \param[in] res result of ipa_es10c_get_prfle_info(), may be NULL or hold an error.
  *  \returns true when some Profile carries ecallIndication and is enabled. */
 bool ipa_es10c_ecall_prfle_enabled(const struct ipa_es10c_get_prfle_info_res *res);
+
+/*! Which Profile carries the Fallback Attribute (SGP.32 section 4.4, ProfileInfo.fallbackAttribute,
+ *  tag '9F26')?  At most one Profile can, and a consumer eUICC never reports the flag at all.
+ *  \param[in] res result of ipa_es10c_get_prfle_info(), may be NULL or hold an error.
+ *  \returns the Fallback Profile, NULL when none is tagged. */
+const struct SGP32_ProfileInfo *ipa_es10c_fallback_prfle(const struct ipa_es10c_get_prfle_info_res *res);

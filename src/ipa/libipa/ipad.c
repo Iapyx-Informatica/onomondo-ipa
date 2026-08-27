@@ -20,6 +20,7 @@
 #include "context.h"
 #include "euicc.h"
 #include "esipa.h"
+#include "es10c_get_prfle_info.h"
 #include "es10c_get_eid.h"
 #include "proc_eim_pkg_retr.h"
 #include "es10b_get_eim_cfg_data.h"
@@ -479,6 +480,38 @@ int ipa_immediate_enable(struct ipa_context *ctx, bool refresh_flag)
 int ipa_execute_fallback(struct ipa_context *ctx, bool refresh_flag)
 {
 	return ipa_es10b_execute_fallback(ctx, refresh_flag);
+}
+
+/*! Which Profile is the Fallback Profile?  See ipa_get_fallback_profile() in ipad.h. */
+int ipa_get_fallback_profile(struct ipa_context *ctx, uint8_t *iccid)
+{
+	struct ipa_es10c_get_prfle_info_res *res;
+	const struct SGP32_ProfileInfo *prfle;
+	int rc = -ENOENT;
+
+	if (!ctx || !iccid)
+		return -EINVAL;
+
+	res = ipa_es10c_get_prfle_info(ctx, NULL);
+	if (!res || res->prfle_info_list_err) {
+		ipa_es10c_get_prfle_info_res_free(res);
+		return -EIO;
+	}
+
+	/* The Profile Metadata is the eUICC's own answer, so it wins wherever it exists.  Only when the
+	 * eUICC cannot hold the flag does the emulation's record stand in -- and then it is the only
+	 * record there is, which is why the two can never disagree. */
+	prfle = ipa_es10c_fallback_prfle(res);
+	if (prfle && prfle->iccid && prfle->iccid->size == IPA_LEN_ICCID) {
+		memcpy(iccid, prfle->iccid->buf, IPA_LEN_ICCID);
+		rc = 0;
+	} else if (IPA_EMU_FALLBACK_SET(ctx)) {
+		memcpy(iccid, ctx->nvstate.iot_euicc_emu.fallback_iccid, IPA_LEN_ICCID);
+		rc = 0;
+	}
+
+	ipa_es10c_get_prfle_info_res_free(res);
+	return rc;
 }
 
 /*! ES10b ReturnFromFallback.  See ipa_return_from_fallback() in ipad.h. */

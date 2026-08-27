@@ -17,6 +17,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <errno.h>
 #include <stdbool.h>
 #include <onomondo/ipa/utils.h>
 #include <onomondo/ipa/ipad.h>
@@ -512,6 +513,36 @@ static void euicc_pkg_result_transaction_id_test(void)
 	free_ctx(ctx);
 }
 
+
+/* ipa_get_fallback_profile() answers "which Profile would ipa_execute_fallback() swap to".  A real IoT
+ * eUICC says so in the Profile Metadata (fallbackAttribute, section 4.4); a consumer eUICC has nowhere
+ * to keep that, so under the emulation the answer comes from nvstate instead.  This exercises the
+ * second path -- the first is covered by profile_info_test, which can build a Profile list carrying the
+ * attribute that this stub eUICC will never produce. */
+static void fallback_profile_query_emu_test(void)
+{
+	struct ipa_context *ctx = emu_ctx();
+	uint8_t iccid[IPA_LEN_ICCID];
+
+	printf("== fallback_profile_query_emu_test ==\n");
+
+	queue_profiles(ProfileState_enabled, ProfileState_disabled);
+	assert(ipa_get_fallback_profile(ctx, iccid) == -ENOENT);
+	printf("   no fallback profile set  -> -ENOENT\n");
+
+	memcpy(ctx->nvstate.iot_euicc_emu.fallback_iccid, ICCID_FB, IPA_LEN_ICCID);
+	queue_profiles(ProfileState_enabled, ProfileState_disabled);
+	assert(ipa_get_fallback_profile(ctx, iccid) == 0);
+	assert(memcmp(iccid, ICCID_FB, IPA_LEN_ICCID) == 0);
+	printf("   emulation nvstate record -> that ICCID\n");
+
+	assert(ipa_get_fallback_profile(ctx, NULL) == -EINVAL);
+	assert(ipa_get_fallback_profile(NULL, iccid) == -EINVAL);
+	printf("   NULL arguments           -> -EINVAL\n");
+
+	free_ctx(ctx);
+}
+
 int main(int argc, char **argv)
 {
 	(void)argc;
@@ -522,6 +553,7 @@ int main(int argc, char **argv)
 	fallback_emu_test();
 	add_init_eim_errors_test();
 	euicc_pkg_result_transaction_id_test();
+	fallback_profile_query_emu_test();
 
 	printf("euicc_emu_test: all checks passed\n");
 	return 0;

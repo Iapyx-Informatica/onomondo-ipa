@@ -419,6 +419,20 @@ int ipa_immediate_enable(struct ipa_context *ctx, bool refresh_flag);
 /*! ES10b ExecuteFallbackMechanism — swap to the tagged Fallback Profile. */
 int ipa_execute_fallback(struct ipa_context *ctx, bool refresh_flag);
 
+/*! Which Profile is the Fallback Profile that ipa_execute_fallback() would swap to?
+ *
+ *  SGP.32 section 4.4 marks it with ProfileInfo.fallbackAttribute (tag '9F26') in the Profile
+ *  Metadata, and forbids more than one Profile carrying it, so the answer is a single ICCID.  An eIM
+ *  can move the attribute to another Profile at any time with a setFallbackAttribute command
+ *  (sections 3.4.6 and 3.4.7), so this is read from the eUICC on each call rather than cached the way
+ *  ipa_get_euicc_caps() is.
+ *
+ *  \param[inout] ctx pointer to ipa_context.
+ *  \param[out] iccid receives IPA_LEN_ICCID bytes, untouched unless 0 is returned.
+ *  \returns 0 when a Fallback Profile is set, -ENOENT when no Profile carries the attribute,
+ *           -EIO when the Profile list could not be read, -EINVAL on a NULL argument. */
+int ipa_get_fallback_profile(struct ipa_context *ctx, uint8_t *iccid);
+
 /*! ES10b ReturnFromFallback — return from the Fallback Profile to the operational one. */
 int ipa_return_from_fallback(struct ipa_context *ctx, bool refresh_flag);
 

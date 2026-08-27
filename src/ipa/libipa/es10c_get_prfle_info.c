@@ -200,6 +200,37 @@ bool ipa_es10c_ecall_prfle_enabled(const struct ipa_es10c_get_prfle_info_res *re
 	return false;
 }
 
+/*! Which Profile carries the Fallback Attribute?
+ *  \param[in] res result of ipa_es10c_get_prfle_info(), may be NULL or hold an error.
+ *  \returns the Fallback Profile, NULL when no Profile is tagged.
+ *
+ *  SGP.32 section 4.4 puts the flag in the Profile Metadata and adds "It SHALL NOT be possible to have
+ *  multiple Profiles on an eUICC with the fallbackAttribute set to TRUE", so at most one Profile can
+ *  match; the first is returned without looking for a second.
+ *
+ *  A consumer eUICC has no Metadata to hold the flag and never reports it, so this returns NULL under
+ *  the IoT eUICC emulation no matter which Profile the emulation considers the Fallback Profile --
+ *  that one is recorded in nvstate instead (see IPA_EMU_FALLBACK_SET). */
+const struct SGP32_ProfileInfo *ipa_es10c_fallback_prfle(const struct ipa_es10c_get_prfle_info_res *res)
+{
+	int i;
+
+	if (!res || !res->sgp32_res ||
+	    res->sgp32_res->present != SGP32_ProfileInfoListResponse_PR_profileInfoListOk)
+		return NULL;
+
+	for (i = 0; i < res->sgp32_res->choice.profileInfoListOk.list.count; i++) {
+		const struct SGP32_ProfileInfo *prfle_info = res->sgp32_res->choice.profileInfoListOk.list.array[i];
+
+		/* DEFAULT FALSE rather than OPTIONAL: an absent flag means the Profile is not the Fallback
+		 * Profile, which is the same answer as a present-and-false one. */
+		if (prfle_info->fallbackAttribute && *prfle_info->fallbackAttribute)
+			return prfle_info;
+	}
+
+	return NULL;
+}
+
 /* Find the currently active profile */
 static void find_currently_active_prfle(struct ipa_es10c_get_prfle_info_res *res)
 {

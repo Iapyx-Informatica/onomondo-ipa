@@ -3,8 +3,9 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-only
  *
- * The lookup helpers over a decoded ES10c.GetProfilesInfo result, in particular the Emergency Profile
- * predicate that GSMA SGP.32 section 2.11.2.2 gates an eUICC data request on.
+ * The lookup helpers over a decoded ES10c.GetProfilesInfo result: the Emergency Profile predicate
+ * that GSMA SGP.32 section 2.11.2.2 gates an eUICC data request on, and the Fallback Profile lookup
+ * over the fallbackAttribute of section 4.4.
  */
 
 #include <stdio.h>
@@ -36,6 +37,16 @@ static struct SGP32_ProfileInfo *profile(const uint8_t *iccid, long state, int e
 		assert(p->ecallIndication);
 		*p->ecallIndication = ecall;
 	}
+	return p;
+}
+
+/* Tag a Profile as the Fallback Profile, or (fallback == 0) carry the flag set to FALSE, which SGP.32
+ * section 4.4 makes the same thing as not carrying it: the field is DEFAULT FALSE. */
+static struct SGP32_ProfileInfo *with_fallback(struct SGP32_ProfileInfo *p, int fallback)
+{
+	p->fallbackAttribute = calloc(1, sizeof(*p->fallbackAttribute));
+	assert(p->fallbackAttribute);
+	*p->fallbackAttribute = fallback;
 	return p;
 }
 
@@ -98,6 +109,54 @@ static void ecall_profile_enabled_test(void)
 }
 
 /* The helper is reached on paths where the eUICC may not have answered at all. */
+
+/* SGP.32 section 4.4 marks the Fallback Profile with fallbackAttribute (tag '9F26') and forbids more
+ * than one Profile carrying it.  The flag was decoded but never read by anything, so nothing could
+ * answer "which Profile would ipa_execute_fallback() swap to". */
+static void fallback_profile_test(void)
+{
+	struct SGP32_ProfileInfo *p[2];
+	struct ipa_es10c_get_prfle_info_res *res;
+	const struct SGP32_ProfileInfo *found;
+
+	printf("== fallback_profile_test ==\n");
+
+	/* Absent on both, which is what a consumer eUICC always sends. */
+	p[0] = profile(ICCID_A, ProfileState_enabled, -1);
+	p[1] = profile(ICCID_B, ProfileState_disabled, -1);
+	res = result_of(p, 2);
+	assert(ipa_es10c_fallback_prfle(res) == NULL);
+	printf("   attribute absent everywhere      -> none\n");
+	ipa_es10c_get_prfle_info_res_free(res);
+
+	/* Present but FALSE is the same answer as absent. */
+	p[0] = with_fallback(profile(ICCID_A, ProfileState_enabled, -1), 0);
+	p[1] = with_fallback(profile(ICCID_B, ProfileState_disabled, -1), 0);
+	res = result_of(p, 2);
+	assert(ipa_es10c_fallback_prfle(res) == NULL);
+	printf("   attribute present but false      -> none\n");
+	ipa_es10c_get_prfle_info_res_free(res);
+
+	/* The one that matters: the tagged Profile is found, and it is not simply the first in the list. */
+	p[0] = with_fallback(profile(ICCID_A, ProfileState_enabled, -1), 0);
+	p[1] = with_fallback(profile(ICCID_B, ProfileState_disabled, -1), 1);
+	res = result_of(p, 2);
+	found = ipa_es10c_fallback_prfle(res);
+	assert(found && found->iccid && found->iccid->size == IPA_LEN_ICCID);
+	assert(memcmp(found->iccid->buf, ICCID_B, IPA_LEN_ICCID) == 0);
+	printf("   second profile tagged            -> that one, not the first\n");
+	ipa_es10c_get_prfle_info_res_free(res);
+
+	/* A disabled Fallback Profile is the normal case -- it is what fallback swaps *to* -- so the
+	 * profile state must not filter the answer the way it does for the Emergency Profile. */
+	p[0] = with_fallback(profile(ICCID_A, ProfileState_disabled, -1), 1);
+	res = result_of(p, 1);
+	found = ipa_es10c_fallback_prfle(res);
+	assert(found && memcmp(found->iccid->buf, ICCID_A, IPA_LEN_ICCID) == 0);
+	printf("   tagged profile disabled          -> still found\n");
+	ipa_es10c_get_prfle_info_res_free(res);
+}
+
 static void degenerate_input_test(void)
 {
 	struct ipa_es10c_get_prfle_info_res res = { 0 };
@@ -107,22 +166,26 @@ static void degenerate_input_test(void)
 	printf("== degenerate_input_test ==\n");
 
 	assert(ipa_es10c_ecall_prfle_enabled(NULL) == false);
+	assert(ipa_es10c_fallback_prfle(NULL) == NULL);
 	printf("   NULL result                      -> false\n");
 
 	/* Decoded, but the eUICC returned the error arm rather than a list. */
 	assert(ipa_es10c_ecall_prfle_enabled(&res) == false);
+	assert(ipa_es10c_fallback_prfle(&res) == NULL);
 	printf("   no sgp32_res                     -> false\n");
 
 	res.sgp32_res = calloc(1, sizeof(*res.sgp32_res));
 	assert(res.sgp32_res);
 	res.sgp32_res->present = SGP32_ProfileInfoListResponse_PR_profileInfoListError;
 	assert(ipa_es10c_ecall_prfle_enabled(&res) == false);
+	assert(ipa_es10c_fallback_prfle(&res) == NULL);
 	printf("   profileInfoListError arm         -> false\n");
 
 	/* An empty list is a valid answer from an eUICC with no Profiles installed. */
 	p[0] = NULL;
 	empty = result_of(p, 0);
 	assert(ipa_es10c_ecall_prfle_enabled(empty) == false);
+	assert(ipa_es10c_fallback_prfle(empty) == NULL);
 	printf("   empty profile list               -> false\n");
 }
 
@@ -132,6 +195,7 @@ int main(int argc, char **argv)
 	(void)argv;
 
 	ecall_profile_enabled_test();
+	fallback_profile_test();
 	degenerate_input_test();
 	printf("profile_info_test: all checks passed\n");
 	return 0;
