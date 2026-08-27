@@ -51,6 +51,13 @@ int ipa_proc_indirect_prfle_dwnlod(struct ipa_context *ctx, const struct ipa_pro
 	ipa_activation_code_dump(activation_code, 0, SIPA, LDEBUG);
 	if (!activation_code) {
 		IPA_LOGP(SIPA, LERROR, "cannot continue, activation code invalid or missing!\n");
+		/* SGP.32, section 3.2.3.2, step 4: "If the format of the Activation Code is invalid the IPA
+		 * SHALL return invalidPackageFormat error and the procedure SHALL stop."  This is step 4, so
+		 * no RSP session exists yet and there is nothing to cancel; what is owed is a report to the
+		 * eIM, and that belongs with the caller, which still holds the eIM Package the code came from.
+		 * -EBADMSG says "the eIM Package was unusable" as opposed to the -EINVAL every later step
+		 * returns for a download that started and then failed. */
+		rc = -EBADMSG;
 		goto error;
 	}
 
