@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <stdbool.h>
+#include <onomondo/ipa/mem.h>
 #include <onomondo/ipa/utils.h>
 #include "src/ipa/libipa/length.h"
 #include "src/ipa/libipa/es10c_get_prfle_info.h"
@@ -21,19 +22,22 @@ static const uint8_t ICCID_A[IPA_LEN_ICCID] = { 0x98, 0x10, 0, 0, 0, 0, 0, 0, 0,
 static const uint8_t ICCID_B[IPA_LEN_ICCID] = { 0x98, 0x10, 0, 0, 0, 0, 0, 0, 0, 0x2b };
 
 /* One Profile. ecall == -1 leaves ecallIndication absent, the way a consumer eUICC sends it. */
+/* IPA_CALLOC rather than calloc: what these fixtures build is handed to ASN_STRUCT_FREE, whose FREEMEM
+ * is IPA_FREE.  Under -DMEM_EMIT_DEBUG that pair keeps a byte counter with an assert on it, so an
+ * allocation the counter never saw becomes an abort at free time rather than a leak. */
 static struct SGP32_ProfileInfo *profile(const uint8_t *iccid, long state, int ecall)
 {
-	struct SGP32_ProfileInfo *p = calloc(1, sizeof(*p));
+	struct SGP32_ProfileInfo *p = IPA_CALLOC(1, sizeof(*p));
 
 	assert(p);
-	p->iccid = calloc(1, sizeof(*p->iccid));
+	p->iccid = IPA_CALLOC(1, sizeof(*p->iccid));
 	assert(p->iccid);
 	assert(OCTET_STRING_fromBuf(p->iccid, (const char *)iccid, IPA_LEN_ICCID) == 0);
-	p->profileState = calloc(1, sizeof(*p->profileState));
+	p->profileState = IPA_CALLOC(1, sizeof(*p->profileState));
 	assert(p->profileState);
 	*p->profileState = state;
 	if (ecall >= 0) {
-		p->ecallIndication = calloc(1, sizeof(*p->ecallIndication));
+		p->ecallIndication = IPA_CALLOC(1, sizeof(*p->ecallIndication));
 		assert(p->ecallIndication);
 		*p->ecallIndication = ecall;
 	}
@@ -44,7 +48,7 @@ static struct SGP32_ProfileInfo *profile(const uint8_t *iccid, long state, int e
  * section 4.4 makes the same thing as not carrying it: the field is DEFAULT FALSE. */
 static struct SGP32_ProfileInfo *with_fallback(struct SGP32_ProfileInfo *p, int fallback)
 {
-	p->fallbackAttribute = calloc(1, sizeof(*p->fallbackAttribute));
+	p->fallbackAttribute = IPA_CALLOC(1, sizeof(*p->fallbackAttribute));
 	assert(p->fallbackAttribute);
 	*p->fallbackAttribute = fallback;
 	return p;
@@ -52,11 +56,11 @@ static struct SGP32_ProfileInfo *with_fallback(struct SGP32_ProfileInfo *p, int 
 
 static struct ipa_es10c_get_prfle_info_res *result_of(struct SGP32_ProfileInfo **profiles, int count)
 {
-	struct ipa_es10c_get_prfle_info_res *res = calloc(1, sizeof(*res));
+	struct ipa_es10c_get_prfle_info_res *res = IPA_CALLOC(1, sizeof(*res));
 	int i;
 
 	assert(res);
-	res->sgp32_res = calloc(1, sizeof(*res->sgp32_res));
+	res->sgp32_res = IPA_CALLOC(1, sizeof(*res->sgp32_res));
 	assert(res->sgp32_res);
 	res->sgp32_res->present = SGP32_ProfileInfoListResponse_PR_profileInfoListOk;
 	for (i = 0; i < count; i++)
@@ -174,7 +178,7 @@ static void degenerate_input_test(void)
 	assert(ipa_es10c_fallback_prfle(&res) == NULL);
 	printf("   no sgp32_res                     -> false\n");
 
-	res.sgp32_res = calloc(1, sizeof(*res.sgp32_res));
+	res.sgp32_res = IPA_CALLOC(1, sizeof(*res.sgp32_res));
 	assert(res.sgp32_res);
 	res.sgp32_res->present = SGP32_ProfileInfoListResponse_PR_profileInfoListError;
 	assert(ipa_es10c_ecall_prfle_enabled(&res) == false);
