@@ -38,9 +38,7 @@ struct ipa_esipa_prvde_eim_pkg_rslt_res {
 	 *  rejection both leave eim_acknowledgements NULL, so this is the only way to tell them apart, and
 	 *  the difference matters: on a rejection the eIM did not process the eIM Package Result, so the
 	 *  IPA must keep it rather than retire it. Always 0 on the JSON binding, which carries the failure
-	 *  as an HTTP status code instead (section 6.4.1.6); there the rejection surfaces as a failed call
-	 *  rather than as a code here, because ipa_esipa_req() refuses a non-2xx response before the body
-	 *  is decoded. */
+	 *  as an HTTP status code instead (section 6.4.1.6). */
 	long prvde_eim_pkg_rslt_err;
 };
 
@@ -64,7 +62,3 @@ void ipa_esipa_prvde_eim_pkg_rslt_free(struct ipa_esipa_prvde_eim_pkg_rslt_res *
 struct ipa_buf *ipa_esipa_build_eim_pkg_result_der(
 	const struct ipa_buf *raw_euicc_pkg_result,
 	const struct SGP32_RetrieveNotificationsListResponse *sgp32_notif_list);
-
-/*! Name of an ESipa.ProvideEimPackageResult error code, for log messages.  Shared by the ASN.1 and
- *  JSON bindings so that one code is never described by two different names. */
-const char *ipa_esipa_prvde_eim_pkg_rslt_err_str(long err);

@@ -47,10 +47,6 @@ struct http_ctx {
 	bool have_openssl_backend; /* libcurl supports CURLOPT_SSL_CTX_FUNCTION */
 	long connect_timeout_s; /* TCP connect phase timeout (CURLOPT_CONNECTTIMEOUT) */
 	long total_timeout_s;   /* whole-request timeout (CURLOPT_TIMEOUT) */
-	/* HTTP response status of the most recent request, 0 when none completed.  The ESipa JSON
-	 * binding needs it: section 6.4 reports a failed function through the HTTP status rather than
-	 * through a field in the response body. */
-	long last_status;
 	CURL *curl;
 	/* eUICC-provisioned TLS credentials. */
 	char *ca_pem;          /* PEM text of CA cert (trustedCertificateTls) */
@@ -514,7 +510,6 @@ struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req,
 		goto error;
 	}
 
-	ctx->last_status = 0;
 	rc = curl_easy_perform(ctx->curl);
 	if (rc != CURLE_OK) {
 		unsigned long ossl_err;
@@ -531,12 +526,7 @@ struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req,
 		IPA_LOGP(SHTTP, LERROR, "HTTP request to %s failed: %s\n", url, curl_easy_strerror(rc));
 		goto error;
 	}
-	/* The transfer succeeded, which says nothing about what the server answered: CURLOPT_FAILONERROR
-	 * is deliberately not set, so a 4xx or 5xx arrives here as CURLE_OK with the error body intact.
-	 * Record the status so the caller can tell the two apart. */
-	curl_easy_getinfo(ctx->curl, CURLINFO_RESPONSE_CODE, &ctx->last_status);
-	IPA_LOGP(SHTTP, LINFO, "HTTP request to %s completed: %s, status %ld\n", url,
-		 curl_easy_strerror(rc), ctx->last_status);
+	IPA_LOGP(SHTTP, LINFO, "HTTP request to %s successful: %s\n", url, curl_easy_strerror(rc));
 
 	curl_slist_free_all(list);
 	return res;
@@ -545,19 +535,6 @@ error:
 	curl_slist_free_all(list);
 	ipa_buf_free(res);
 	return NULL;
-}
-
-/*! HTTP response status of the most recent request on this context.
- *  \param[in] http_ctx pointer to the HTTP context.
- *  \returns the status code, or 0 when no request has completed on this context.  A transport level
- *  failure (no response at all) also leaves this 0, so 0 means "no status", never "success". */
-long ipa_http_last_status(void *http_ctx)
-{
-	struct http_ctx *ctx = http_ctx;
-
-	if (!ctx)
-		return 0;
-	return ctx->last_status;
 }
 
 /*! Override the connect and whole-request timeouts (seconds).  A value <= 0

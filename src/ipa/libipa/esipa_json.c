@@ -309,43 +309,6 @@ const char *ipa_esipa_json_url_path(const char *function_name)
 
 bool ipa_esipa_json_available(void) { return true; }
 
-/* Is a member present as a JSON string?  Used to check for the one member a response cannot be
- * without before an "Ok" structure is built for it.  A body that carries neither that member nor a
- * typed error is not a response this function understands, and attaching an empty "Ok" to it would
- * present it to the caller as a success.
- *
- * The check has to happen before the structure is populated rather than after: some members are
- * filled in with pointers that must not be freed (see matchingId below), so a half-built "Ok" cannot
- * simply be thrown away again. */
-static bool json_has_str(json_t *obj, const char *member)
-{
-	json_t *j = json_object_get(obj, member);
-
-	return j && json_is_string(j);
-}
-
-/* Read a typed error member out of a response body.
- *
- * Every ESipa response that can report a failure names the member after the ASN.1 CHOICE arm it
- * corresponds to and carries the code as a plain JSON integer -- the shape the GetEimPackage decoder
- * below has always used for eimPackageError, and the one the file's header comment records for
- * integer-valued members generally.  Returns true when the member was present, and only then writes
- * to err.
- *
- * A response that reports a failure this way is complete in itself: the decoders return immediately
- * without attaching an "Ok" structure, so a caller that checks only for a missing "Ok" member still
- * treats the call as failed.  Errors reported at the HTTP level instead never reach here at all --
- * ipa_esipa_req() rejects a non-2xx response before the body is decoded. */
-static bool json_get_err(json_t *obj, const char *member, long *err)
-{
-	json_t *j = json_object_get(obj, member);
-
-	if (!j || !json_is_integer(j))
-		return false;
-	*err = (long)json_integer_value(j);
-	return true;
-}
-
 /* ---------------------------------------------------------------------- */
 /* §6.4.1.1  InitiateAuthentication                                        */
 /* ---------------------------------------------------------------------- */
@@ -388,26 +351,8 @@ struct ipa_esipa_init_auth_res *ipa_esipa_json_dec_init_auth_res(const struct ip
 	struct ipa_esipa_init_auth_res *res = IPA_ALLOC_ZERO(struct ipa_esipa_init_auth_res);
 	if (!res) { json_decref(obj); return NULL; }
 
-	/* A failure reported in the body: no Ok structure is attached, so the caller's "no Ok member"
-	 * guard trips even if it never inspects the code. */
-	if (json_get_err(obj, "initiateAuthenticationErrorEsipa", &res->init_auth_err)) {
-		IPA_LOGP_ESIPA("InitiateAuthentication", LERROR, "function failed with error code %ld=%s!\n",
-			       res->init_auth_err, ipa_esipa_init_auth_err_str(res->init_auth_err));
-		json_decref(obj);
-		return res;
-	}
-
 	/* The JSON body is *not* wrapped in EsipaMessageFromEimToIpa, so we
 	 * synthesise the inner InitiateAuthenticationOkEsipa manually. */
-	/* Neither a result nor a reported error: nothing here is usable, and attaching an empty "Ok"
-	 * would hand the caller a success it never received. */
-	if (!json_has_str(obj, "serverSigned1")) {
-		IPA_LOGP_ESIPA("InitiateAuthentication", LERROR,
-			       "response carries neither serverSigned1 nor an error code, treating it as a failure\n");
-		json_decref(obj);
-		return res;
-	}
-
 	struct InitiateAuthenticationOkEsipa *ok = IPA_ALLOC_ZERO(struct InitiateAuthenticationOkEsipa);
 	if (!ok) { IPA_FREE(res); json_decref(obj); return NULL; }
 
@@ -523,28 +468,10 @@ struct ipa_esipa_auth_clnt_res *ipa_esipa_json_dec_auth_clnt_res(const struct ip
 	struct ipa_esipa_auth_clnt_res *res = IPA_ALLOC_ZERO(struct ipa_esipa_auth_clnt_res);
 	if (!res) { json_decref(obj); return NULL; }
 
-	/* A failure reported in the body: no Ok structure is attached, so the caller's "no Ok member"
-	 * guard trips even if it never inspects the code. */
-	if (json_get_err(obj, "authenticateClientErrorEsipa", &res->auth_clnt_err)) {
-		IPA_LOGP_ESIPA("AuthenticateClient", LERROR, "function failed with error code %ld=%s!\n",
-			       res->auth_clnt_err, ipa_esipa_auth_clnt_err_str(res->auth_clnt_err));
-		json_decref(obj);
-		return res;
-	}
-
 	/* §6.4.1.2 response body is NOT a CHOICE in JSON — it's an object with
 	 * the DP-case fields.  The DS-case (smds) path is transported via
 	 * profileDownloadTriggerResult in GetEimPackage/TransferEimPackage in
 	 * the JSON binding, so we always decode as DP here. */
-	/* Neither a result nor a reported error: nothing here is usable, and attaching an empty "Ok"
-	 * would hand the caller a success it never received. */
-	if (!json_has_str(obj, "smdpSigned2")) {
-		IPA_LOGP_ESIPA("AuthenticateClient", LERROR,
-			       "response carries neither smdpSigned2 nor an error code, treating it as a failure\n");
-		json_decref(obj);
-		return res;
-	}
-
 	struct AuthenticateClientOkDPEsipa *ok =
 	    IPA_ALLOC_ZERO(struct AuthenticateClientOkDPEsipa);
 	if (!ok) { IPA_FREE(res); json_decref(obj); return NULL; }
@@ -632,24 +559,6 @@ struct ipa_esipa_get_bnd_prfle_pkg_res *ipa_esipa_json_dec_get_bnd_prfle_pkg_res
 	if (!obj) return NULL;
 	struct ipa_esipa_get_bnd_prfle_pkg_res *res = IPA_ALLOC_ZERO(struct ipa_esipa_get_bnd_prfle_pkg_res);
 	if (!res) { json_decref(obj); return NULL; }
-	/* A failure reported in the body: no Ok structure is attached, so the caller's "no Ok member"
-	 * guard trips even if it never inspects the code. */
-	if (json_get_err(obj, "getBoundProfilePackageErrorEsipa", &res->get_bnd_prfle_pkg_err)) {
-		IPA_LOGP_ESIPA("GetBoundProfilePackage", LERROR, "function failed with error code %ld=%s!\n",
-			       res->get_bnd_prfle_pkg_err, ipa_esipa_get_bnd_prfle_pkg_err_str(res->get_bnd_prfle_pkg_err));
-		json_decref(obj);
-		return res;
-	}
-
-	/* Neither a result nor a reported error: nothing here is usable, and attaching an empty "Ok"
-	 * would hand the caller a success it never received. */
-	if (!json_has_str(obj, "boundProfilePackage")) {
-		IPA_LOGP_ESIPA("GetBoundProfilePackage", LERROR,
-			       "response carries neither boundProfilePackage nor an error code, treating it as a failure\n");
-		json_decref(obj);
-		return res;
-	}
-
 	struct GetBoundProfilePackageOkEsipa *ok = IPA_ALLOC_ZERO(struct GetBoundProfilePackageOkEsipa);
 	if (!ok) { IPA_FREE(res); json_decref(obj); return NULL; }
 
@@ -729,9 +638,8 @@ struct ipa_esipa_get_eim_pkg_res *ipa_esipa_json_dec_get_eim_pkg_res(const struc
 	} else if ((j = json_object_get(obj, "profileDownloadTriggerRequest")) && json_is_string(j)) {
 		res->dwnld_trigger_request = json_get_asn1_b64(obj, "profileDownloadTriggerRequest",
 							       &asn_DEF_ProfileDownloadTriggerRequest);
-	} else if (json_get_err(obj, "eimPackageError", &res->eim_pkg_err)) {
-		IPA_LOGP_ESIPA("GetEimPackage", LERROR, "function failed with error code %ld=%s!\n",
-			       res->eim_pkg_err, ipa_esipa_get_eim_pkg_err_str(res->eim_pkg_err));
+	} else if ((j = json_object_get(obj, "eimPackageError")) && json_is_integer(j)) {
+		res->eim_pkg_err = (long)json_integer_value(j);
 	}
 	json_decref(obj);
 	return res;

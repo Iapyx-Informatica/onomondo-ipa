@@ -42,6 +42,7 @@
 #include "esipa_json.h"
 #include "esipa_auth_clnt.h"
 
+#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 /* The error codes of ESipa.AuthenticateClient (SGP.32, section 6.3.2.2), which are those of
  * ES9+'.AuthenticateClient plus pprNotAllowed(50) from section 5.14.3.  Not to be confused with
  * AuthenticateErrorCode, the unrelated ES10b.AuthenticateServer set used in es10b_auth_serv.c: the two
@@ -67,19 +68,6 @@ static const struct num_str_map error_code_strings[] = {
 	{ 0, NULL }
 };
 #undef AC_ERR
-
-/*! Name of an ESipa.AuthenticateClient error code, for log messages.
- *  \param[in] err the error code as decoded from the eIM response.
- *  \returns the code's name from the ASN.1 definition (section 6.3.2.2), or "(unknown)".
- *
- *  Shared by both wire bindings on purpose: the JSON binding carries the same codes, and the two
- *  must not describe one code by two different names. */
-const char *ipa_esipa_auth_clnt_err_str(long err)
-{
-	return ipa_str_from_num(error_code_strings, err, "(unknown)");
-}
-
-#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 
 static struct ipa_buf *enc_auth_clnt_req(const struct ipa_esipa_auth_clnt_req *req)
 {

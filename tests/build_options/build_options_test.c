@@ -196,11 +196,6 @@ struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req, 
 	return NULL;
 }
 
-long ipa_http_last_status(void *http_ctx)
-{
-	return 0;
-}
-
 void ipa_http_close(void *http_ctx)
 {
 	return;

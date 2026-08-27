@@ -22,13 +22,6 @@ struct ipa_buf *ipa_http_req(void *http_ctx, const struct ipa_buf *req, const ch
  * to ipa_http_req() (ASN.1 default). */
 struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req,
 				     const char *url, const char *content_type);
-/* HTTP response status of the most recent request on this context, 0 when no
- * request has completed (a transport failure leaves it 0 too, so 0 never means
- * success).  The ESipa JSON binding needs this: SGP.32 section 6.4 reports a
- * failed function through the HTTP status rather than through a member of the
- * response body, and CURLOPT_FAILONERROR is not set, so a 4xx/5xx response body
- * is returned to the caller like any other. */
-long ipa_http_last_status(void *http_ctx);
 void ipa_http_close(void *http_ctx);
 void ipa_http_free(void *http_ctx);
 

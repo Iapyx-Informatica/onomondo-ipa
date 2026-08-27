@@ -36,7 +36,3 @@ struct ipa_esipa_auth_clnt_res {
 
 struct ipa_esipa_auth_clnt_res *ipa_esipa_auth_clnt(struct ipa_context *ctx, const struct ipa_esipa_auth_clnt_req *req);
 void ipa_esipa_auth_clnt_res_free(struct ipa_esipa_auth_clnt_res *res);
-
-/*! Name of an ESipa.AuthenticateClient error code, for log messages.  Shared by the ASN.1 and
- *  JSON bindings so that one code is never described by two different names. */
-const char *ipa_esipa_auth_clnt_err_str(long err);
