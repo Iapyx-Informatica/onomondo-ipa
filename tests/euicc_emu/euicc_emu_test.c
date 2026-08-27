@@ -26,6 +26,7 @@
 #include <SGP32-SetDefaultDpAddressRequest.h>
 #include <SGP32-SetDefaultDpAddressResponse.h>
 #include <ProfileInfoListResponse.h>
+#include <EsipaMessageFromEimToIpa.h>
 #include <EnableProfileResponse.h>
 #include <ExecuteFallbackMechanismResponse.h>
 #include <ReturnFromFallbackResponse.h>
@@ -39,6 +40,8 @@
 #include "src/ipa/libipa/es10b_return_from_fallback.h"
 #include "src/ipa/libipa/es10b_add_init_eim.h"
 #include "src/ipa/libipa/es10b_load_euicc_pkg.h"
+#include "src/ipa/libipa/proc_euicc_pkg_dwnld_exec.h"
+#include "src/ipa/libipa/es10b_prfle_rollback.h"
 #include "tests/stubs/euicc_stub.h"
 
 /* Not declared in a header: the PSMO handlers are reached from the dispatch in the same file. */
@@ -58,6 +61,32 @@ static const uint8_t ICCID_OP[IPA_LEN_ICCID] = { 0x98, 0x10, 0, 0, 0, 0, 0, 0, 0
 static const uint8_t ICCID_FB[IPA_LEN_ICCID] = { 0x98, 0x10, 0, 0, 0, 0, 0, 0, 0, 0x2b };
 
 static struct ipa_config cfg;
+
+static uint8_t eim_enc_buf[2048];
+static size_t eim_enc_len;
+
+static int eim_enc_sink(const void *b, size_t sz, void *k)
+{
+	(void)k;
+	assert(eim_enc_len + sz <= sizeof(eim_enc_buf));
+	memcpy(eim_enc_buf + eim_enc_len, b, sz);
+	eim_enc_len += sz;
+	return 0;
+}
+
+/* One canned eIM response, handed to the next ESipa request and then forgotten. */
+static struct ipa_buf *eim_response;
+
+static void queue_eim_response(const struct EsipaMessageFromEimToIpa *msg)
+{
+	asn_enc_rval_t er;
+
+	eim_enc_len = 0;
+	er = der_encode(&asn_DEF_EsipaMessageFromEimToIpa, (void *)msg, eim_enc_sink, NULL);
+	assert(er.encoded > 0);
+	ipa_buf_free(eim_response);
+	eim_response = ipa_buf_alloc_data(eim_enc_len, eim_enc_buf);
+}
 
 static struct ipa_context *emu_ctx(void)
 {
@@ -543,6 +572,100 @@ static void fallback_profile_query_emu_test(void)
 	free_ctx(ctx);
 }
 
+
+/* SGP.32 section 5.14.6 has the eIM discard an eUICC Package Result whose sequence number is not
+ * greater than the one it expects, and then raise its expectation to what it received.  The emulation
+ * used to send a constant 0, so every result after the first was discarded on that check alone --
+ * separately from, and in addition to, the unsignable euiccSignEPR placeholder.
+ *
+ * The number is this library's own, though, and section 5.9.12's RemoveNotificationFromList would read
+ * it as naming a Notification the consumer eUICC actually holds.  Both halves are checked here. */
+static void euicc_pkg_seq_number_test(void)
+{
+	struct ipa_context *ctx = emu_ctx();
+	struct ipa_es10b_load_euicc_pkg_req req;
+	struct ipa_es10b_load_euicc_pkg_res *res;
+	long first, second;
+
+	printf("== euicc_pkg_seq_number_test ==\n");
+	ctx->eim_id = strdup("eim.example.com");
+	assert(ctx->eim_id);
+
+	memset(&req, 0, sizeof(req));
+	req.req.euiccPackageSigned.euiccPackage.present = EuiccPackage_PR_ecoList;
+
+	res = load_euicc_pkg_iot_emu(ctx, &req);
+	assert(res && res->res && res->res->present == EuiccPackageResult_PR_euiccPackageResultSigned);
+	first = res->res->choice.euiccPackageResultSigned.euiccPackageResultDataSigned.seqNumber;
+	ipa_es10b_load_euicc_pkg_res_free(res);
+
+	res = load_euicc_pkg_iot_emu(ctx, &req);
+	assert(res && res->res);
+	second = res->res->choice.euiccPackageResultSigned.euiccPackageResultDataSigned.seqNumber;
+	ipa_es10b_load_euicc_pkg_res_free(res);
+
+	/* Greater than the previous one is the whole requirement; that it also starts above zero keeps the
+	 * first result from being discarded by an eIM whose expectation starts there. */
+	assert(first > 0);
+	assert(second > first);
+	printf("   two packages in a row    -> sequence numbers %ld then %ld\n", first, second);
+
+	/* Persisted, because a restart that walked it backwards would have the eIM discard again. */
+	assert(ctx->nvstate.iot_euicc_emu.epr_seq_number == (uint32_t)second);
+	printf("   counter kept in nvstate  -> survives a restart\n");
+
+	free_ctx(ctx);
+}
+
+/* The other half: that synthesised number must never reach the card.  ES10b.RemoveNotificationFromList
+ * (tag 'BF30') addresses the consumer eUICC's own Notification list, where the number would name an
+ * unrelated real Notification -- possibly one still waiting to be delivered. */
+static void euicc_pkg_no_spurious_removal_test(void)
+{
+	struct ipa_context *ctx = emu_ctx();
+	struct ipa_proc_eucc_pkg_dwnld_exec_res exec_res = { 0 };
+	struct EsipaMessageFromEimToIpa msg = { 0 };
+	struct ipa_es10b_load_euicc_pkg_req req;
+	long *ack;
+	long seq;
+	unsigned int i;
+
+	printf("== euicc_pkg_no_spurious_removal_test ==\n");
+	ctx->eim_id = strdup("eim.example.com");
+	assert(ctx->eim_id);
+
+	memset(&req, 0, sizeof(req));
+	req.req.euiccPackageSigned.euiccPackage.present = EuiccPackage_PR_ecoList;
+	exec_res.load_euicc_pkg_res = load_euicc_pkg_iot_emu(ctx, &req);
+	assert(exec_res.load_euicc_pkg_res && exec_res.load_euicc_pkg_res->res);
+	seq = exec_res.load_euicc_pkg_res->res->choice.euiccPackageResultSigned.
+	    euiccPackageResultDataSigned.seqNumber;
+
+	/* The eIM acknowledges the result by its sequence number, as section 3.1.1.1 step 8 has it do. */
+	msg.present = EsipaMessageFromEimToIpa_PR_provideEimPackageResultResponse;
+	msg.choice.provideEimPackageResultResponse.present =
+	    ProvideEimPackageResultResponse_PR_eimAcknowledgements;
+	ack = calloc(1, sizeof(*ack));
+	assert(ack);
+	*ack = seq;
+	ASN_SEQUENCE_ADD(&msg.choice.provideEimPackageResultResponse.choice.eimAcknowledgements.list, ack);
+	queue_eim_response(&msg);
+
+	euicc_stub_reset();
+	ipa_proc_eucc_pkg_dwnld_exec_onset(ctx, &exec_res);
+
+	for (i = 0; i < euicc_stub_requests(); i++)
+		assert(!euicc_stub_request_has_tag(i, 0xBF30));
+	printf("   eIM acknowledged seq %-3ld -> no RemoveNotificationFromList reached the card\n", seq);
+
+	ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_EsipaMessageFromEimToIpa, &msg);
+	/* exec_res itself is on the stack here, so only its members are freed -- not
+	 * ipa_proc_eucc_pkg_dwnld_exec_res_free(), which would free the struct too. */
+	ipa_es10b_prfle_rollback_res_free(exec_res.prfle_rollback_res);
+	ipa_es10b_load_euicc_pkg_res_free(exec_res.load_euicc_pkg_res);
+	free_ctx(ctx);
+}
+
 int main(int argc, char **argv)
 {
 	(void)argc;
@@ -554,16 +677,25 @@ int main(int argc, char **argv)
 	add_init_eim_errors_test();
 	euicc_pkg_result_transaction_id_test();
 	fallback_profile_query_emu_test();
+	euicc_pkg_seq_number_test();
+	euicc_pkg_no_spurious_removal_test();
 
 	printf("euicc_emu_test: all checks passed\n");
 	return 0;
 }
 
-/* Stubs: this test never reaches the eIM. */
-void *ipa_http_init(const char *cabundle, bool no_verif) { (void)cabundle; (void)no_verif; return NULL; }
+/* Stubs: the eIM answers only what a case queued with queue_eim_response(), and fails otherwise. */
+void *ipa_http_init(const char *cabundle, bool no_verif) { (void)cabundle; (void)no_verif; return (void *)1; }
 struct ipa_buf *ipa_http_req(void *c, const struct ipa_buf *r, const char *u)
 { (void)c; (void)r; (void)u; return NULL; }
 struct ipa_buf *ipa_http_req_with_ct(void *c, const struct ipa_buf *r, const char *u, const char *ct)
-{ (void)c; (void)r; (void)u; (void)ct; return NULL; }
+{
+	struct ipa_buf *res = eim_response;
+
+	(void)c; (void)r; (void)u; (void)ct;
+	eim_response = NULL;
+	return res;
+}
+long ipa_http_last_status(void *c) { (void)c; return 200; }
 void ipa_http_close(void *c) { (void)c; }
 void ipa_http_free(void *c) { (void)c; }

@@ -58,7 +58,16 @@
 #include "proc_euicc_pkg_dwnld_exec.h"
 #include "es10b_prfle_rollback.h"
 
-static int remove_notifications(struct ipa_context *ctx, struct EimAcknowledgements *eim_acknowledgements)
+/* Remove the notifications the eIM acknowledged.
+ *
+ * skip_seq_number names one sequence number that must not be forwarded to the eUICC, or is negative
+ * when there is none.  Under the IoT eUICC emulation the eUICC Package Result's sequence number is
+ * synthesised by this library rather than allocated by the card (see
+ * ipa_nvstate.iot_euicc_emu.epr_seq_number), so the eIM acknowledging it -- which section 3.1.1.1
+ * step 8 has it do -- would otherwise have the IPA delete whatever real, possibly undelivered
+ * Notification the consumer eUICC happens to hold under that number. */
+static int remove_notifications(struct ipa_context *ctx, struct EimAcknowledgements *eim_acknowledgements,
+				long skip_seq_number)
 {
 	unsigned int i;
 	int rc;
@@ -70,7 +79,15 @@ static int remove_notifications(struct ipa_context *ctx, struct EimAcknowledgeme
 		return 0;
 
 	for (i = 0; i < eim_acknowledgements->list.count; i++) {
-		rc = ipa_es10b_rm_notif_from_lst(ctx, *eim_acknowledgements->list.array[i]);
+		long seq_number = *eim_acknowledgements->list.array[i];
+
+		if (skip_seq_number >= 0 && seq_number == skip_seq_number) {
+			IPA_LOGP(SIPA, LDEBUG,
+				 "the eIM acknowledged the eUICC package result (sequence number %ld), which this "
+				 "eUICC never stored -- not removing anything for it\n", seq_number);
+			continue;
+		}
+		rc = ipa_es10b_rm_notif_from_lst(ctx, seq_number);
 		if (rc < 0)
 			return -EINVAL;
 	}
@@ -269,14 +286,21 @@ int ipa_proc_eucc_pkg_dwnld_exec_onset(struct ipa_context *ctx, struct ipa_proc_
 
 	/* Step #15-17 (ES10b.RemoveNotificationFromList) */
 	/* Remove the notification for the euiccPackageResult. There is none to remove when the eUICC rejected
-	 * the package outright, since then it never allocated a sequence number for a result. */
-	if (seq_number >= 0) {
+	 * the package outright, since then it never allocated a sequence number for a result.
+	 *
+	 * Nor is there one under the IoT eUICC emulation, whatever the sequence number says: SGP.32 section
+	 * 5.9.12 extends this function to eUICC Package Results, but a consumer eUICC has no such concept and
+	 * stored nothing.  The number is this library's own (ipa_nvstate.iot_euicc_emu.epr_seq_number), so
+	 * sending it would name some unrelated real Notification and delete it -- possibly one still waiting
+	 * to be delivered. */
+	if (seq_number >= 0 && !IPA_EUICC_EMU(ctx)) {
 		rc = ipa_es10b_rm_notif_from_lst(ctx, seq_number);
 		if (rc < 0)
 			goto error;
 	}
 	/* Remove the notifications that the eIM has requested to remove in the provideEimPackageResultResponse. */
-	rc = remove_notifications(ctx, prvde_eim_pkg_rslt_res->eim_acknowledgements);
+	rc = remove_notifications(ctx, prvde_eim_pkg_rslt_res->eim_acknowledgements,
+				  IPA_EUICC_EMU(ctx) ? seq_number : -1);
 	if (rc < 0)
 		goto error;
 

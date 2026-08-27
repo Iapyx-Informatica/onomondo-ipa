@@ -759,7 +759,13 @@ struct ipa_es10b_load_euicc_pkg_res *load_euicc_pkg_iot_emu(struct ipa_context *
 		asn->choice.euiccPackageResultSigned.euiccPackageResultDataSigned.eimTransactionId =
 		    ipa_asn1c_dup(&asn_DEF_TransactionId, req->req.euiccPackageSigned.eimTransactionId);
 	}
-	asn->choice.euiccPackageResultSigned.euiccPackageResultDataSigned.seqNumber = 0;
+	/* SGP.32 section 5.14.6: the eIM discards a result whose sequence number is not greater than the
+	 * one it expects, so this has to move on with every result.  A real IoT eUICC takes it from the
+	 * counter it also uses for Notifications; the consumer eUICC underneath cannot, so the emulation
+	 * counts here instead.  See ipa_nvstate.iot_euicc_emu.epr_seq_number for why this number must not
+	 * leave the eIM conversation. */
+	asn->choice.euiccPackageResultSigned.euiccPackageResultDataSigned.seqNumber =
+	    ++ctx->nvstate.iot_euicc_emu.epr_seq_number;
 	ipa_buf_assign(&euicc_sign_epr, euiccSignEPR_dummy, sizeof(euiccSignEPR_dummy));
 	IPA_COPY_IPA_BUF_TO_ASN(&asn->choice.euiccPackageResultSigned.euiccSignEPR, &euicc_sign_epr);
 

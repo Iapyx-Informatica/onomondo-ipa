@@ -10,7 +10,7 @@
 #include <onomondo/ipa/ipad.h>
 #include <onomondo/ipa/utils.h>
 
-#define IPA_NVSTATE_VERSION 6
+#define IPA_NVSTATE_VERSION 7
 
 /*! Whether the IoT eUICC emulation may run, see ipa_config.iot_euicc_emu_enabled.
  *
@@ -63,6 +63,23 @@ struct ipa_nvstate {
 		 * Fixed size on purpose: it rides along in the wholesale serialization of this struct and
 		 * needs no entry in nvstate_serialize()/_deserialize()/_free_contents(). */
 		uint8_t fallback_iccid[IPA_LEN_ICCID];
+
+		/*! Sequence number for the next emulated eUICC Package Result.
+		 * SGP.32 section 5.14.6 has the eIM "Check if the sequence number of the EuiccPackageResult
+		 * is greater than the expected sequence number of the eUICC.  If not, the eIM SHALL discard
+		 * the input", and then update its expectation to what it received -- so a constant would have
+		 * every result after the first discarded.  A real IoT eUICC allocates these from the same
+		 * counter it uses for Notifications; a consumer eUICC has no concept of an eUICC Package
+		 * Result at all, so the emulation keeps its own counter here.
+		 *
+		 * Persisted because SGP.22 section 3.5 says of that counter that "Neither an eUICC Memory
+		 * Reset nor a reset of the eUICC SHALL affect this Sequence Number": restarting the IPA must
+		 * not walk it backwards, or the eIM starts discarding again.
+		 *
+		 * This number is a fiction shared only with the eIM.  It must never be sent to the card in an
+		 * ES10b.RemoveNotificationFromList, where it would name an unrelated real Notification -- see
+		 * ipa_proc_eucc_pkg_dwnld_exec_onset(). */
+		uint32_t epr_seq_number;
 
 		/*! ICCID of the Profile that ExecuteFallbackMechanism disabled to make room for the
 		 * Fallback Profile, all-zero when the fallback is not in effect. SGP.32 section 5.9.21 has
