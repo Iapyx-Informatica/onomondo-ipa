@@ -35,6 +35,7 @@
 #include <EsipaMessageFromIpaToEim.h>
 #include <EimPackageResult.h>
 #include <EimPackageResultErrorCode.h>
+#include <EuiccPackageRequest.h>
 
 /* A DER sink both bindings need: the ASN.1 cases encode whole ESipa messages with it, and the JSON
  * cases use it to build the EimPackageResult that the JSON body carries base64-encoded. */
@@ -646,6 +647,96 @@ static void asn1_trigger_rejection_test(void)
 	ipa_free_ctx(ctx);
 }
 
+
+/* The trigger sites above are not the only eIM Packages that can turn out to be unusable.  A
+ * GetEimPackageResponse that carries none of the request types this IPA implements used to end the
+ * poll cycle in silence too, and SGP.32 section 6.3.2.7's echo rule applies to whatever is reported.
+ *
+ * unknownPackage carries no eimTransactionId, and that is not an omission: the id travels inside the
+ * request object, and which request this is, is exactly what could not be established. */
+static void asn1_unknown_package_test(void)
+{
+	struct ipa_esipa_get_eim_pkg_res get_eim_pkg_res = { 0 };
+	struct EsipaMessageFromIpaToEim *msg = NULL;
+	struct EimPackageResultResponseError *err;
+	struct ipa_config cfg;
+	struct ipa_context *ctx = test_ctx(&cfg, IPA_ESIPA_BINDING_ASN1);
+	asn_dec_rval_t dr;
+
+	printf("== asn1_unknown_package_test ==\n");
+	memcpy(ctx->eid, eid_bytes, IPA_LEN_EID);
+
+	/* Every request member left NULL: nothing this IPA knows how to act on. */
+	ipa_buf_free(captured_req);
+	captured_req = NULL;
+	assert(eim_pkg_exec(ctx, &get_eim_pkg_res) < 0);
+
+	assert(captured_req);
+	dr = ber_decode(NULL, &asn_DEF_EsipaMessageFromIpaToEim, (void **)&msg,
+			captured_req->data, captured_req->len);
+	assert(dr.code == RC_OK && msg);
+	assert(msg->present == EsipaMessageFromIpaToEim_PR_provideEimPackageResult);
+	assert(msg->choice.provideEimPackageResult.eimPackageResult.present ==
+	       EimPackageResult_PR_eimPackageResultResponseError);
+	err = &msg->choice.provideEimPackageResult.eimPackageResult.choice.eimPackageResultResponseError;
+	assert(err->eimPackageResultErrorCode == EimPackageResultErrorCode_unknownPackage);
+	assert(err->eimTransactionId == NULL);
+	printf("   unsupported request type -> unknownPackage sent, no transaction id to echo\n");
+	ASN_STRUCT_FREE(asn_DEF_EsipaMessageFromIpaToEim, msg);
+
+	ipa_buf_free(captured_req);
+	captured_req = NULL;
+	ipa_free_ctx(ctx);
+}
+
+
+/* An eUICC Package the eUICC never answered.  There is no EuiccPackageResult to forward -- the eUICC
+ * produces that, and it produced nothing -- so the eIM hears nothing at all unless the IPA says so
+ * itself.  The eimTransactionId to echo is the one the eIM signed into euiccPackageSigned.
+ *
+ * The eUICC here is the stub at the bottom of this file, which answers nothing, so LoadEuiccPackage
+ * fails the way it would against an unresponsive card. */
+static void asn1_euicc_pkg_failure_test(void)
+{
+	struct ipa_esipa_get_eim_pkg_res get_eim_pkg_res = { 0 };
+	struct EuiccPackageRequest euicc_package_request = { 0 };
+	struct EsipaMessageFromIpaToEim *msg = NULL;
+	struct EimPackageResultResponseError *err;
+	struct ipa_config cfg;
+	struct ipa_context *ctx = test_ctx(&cfg, IPA_ESIPA_BINDING_ASN1);
+	TransactionId_t eim_tid = { 0 };
+	asn_dec_rval_t dr;
+
+	printf("== asn1_euicc_pkg_failure_test ==\n");
+	memcpy(ctx->eid, eid_bytes, IPA_LEN_EID);
+	set_transaction_id(&eim_tid);
+	euicc_package_request.euiccPackageSigned.eimTransactionId = &eim_tid;
+	get_eim_pkg_res.euicc_package_request = &euicc_package_request;
+
+	ipa_buf_free(captured_req);
+	captured_req = NULL;
+	assert(eim_pkg_exec(ctx, &get_eim_pkg_res) < 0);
+
+	assert(captured_req);
+	dr = ber_decode(NULL, &asn_DEF_EsipaMessageFromIpaToEim, (void **)&msg,
+			captured_req->data, captured_req->len);
+	assert(dr.code == RC_OK && msg);
+	assert(msg->choice.provideEimPackageResult.eimPackageResult.present ==
+	       EimPackageResult_PR_eimPackageResultResponseError);
+	err = &msg->choice.provideEimPackageResult.eimPackageResult.choice.eimPackageResultResponseError;
+	/* Not invalidPackageFormat: the package may well have been fine, the eUICC just did not answer. */
+	assert(err->eimPackageResultErrorCode == EimPackageResultErrorCode_undefinedError);
+	assert(err->eimTransactionId && err->eimTransactionId->size == sizeof(transaction_id_bytes));
+	assert(memcmp(err->eimTransactionId->buf, transaction_id_bytes, sizeof(transaction_id_bytes)) == 0);
+	printf("   eUICC did not answer     -> undefinedError sent, eimTransactionId echoed\n");
+	ASN_STRUCT_FREE(asn_DEF_EsipaMessageFromIpaToEim, msg);
+
+	free(eim_tid.buf);
+	ipa_buf_free(captured_req);
+	captured_req = NULL;
+	ipa_free_ctx(ctx);
+}
+
 #endif /* IPA_HAVE_ESIPA_ASN1 */
 
 
@@ -1002,6 +1093,8 @@ int main(int argc, char **argv)
 	asn1_prvde_eim_pkg_rslt_response_test();
 	asn1_eim_pkg_err_report_test();
 	asn1_trigger_rejection_test();
+	asn1_unknown_package_test();
+	asn1_euicc_pkg_failure_test();
 #else
 	printf("== ASN.1 binding not built, its encoder cases skipped ==\n");
 #endif

@@ -67,6 +67,11 @@ struct ipa_esipa_prvde_eim_pkg_rslt_res *ipa_esipa_prvde_eim_pkg_rslt(struct ipa
 								      *req);
 void ipa_esipa_prvde_eim_pkg_rslt_free(struct ipa_esipa_prvde_eim_pkg_rslt_res *res);
 
+/*! Report an unusable eIM Package to the eIM as an EimPackageResultResponseError, echoing the
+ *  eimTransactionId it carried.  Best effort: a failure to deliver is logged and swallowed, because
+ *  every caller is already on its way out with the error that prompted the report. */
+void ipa_esipa_report_eim_pkg_err(struct ipa_context *ctx, long err, const TransactionId_t *eim_transaction_id);
+
 /*! Build a DER-encoded EimPackageResult buffer that embeds raw_euicc_pkg_result
  *  verbatim instead of re-encoding from the decoded C struct.  Used by both the
  *  ASN.1 (BER) and JSON binding paths to avoid corrupting the byte representation

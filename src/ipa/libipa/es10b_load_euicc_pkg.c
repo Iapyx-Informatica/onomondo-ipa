@@ -856,6 +856,17 @@ error:
 	asn->present = EuiccPackageResult_PR_euiccPackageErrorUnsigned;
 	ipa_buf_assign(&eim_id, (uint8_t *) ctx->eim_id, strlen(ctx->eim_id));
 	IPA_COPY_IPA_BUF_TO_ASN(&asn->choice.euiccPackageErrorUnsigned.eimId, &eim_id);
+	/* UPDATE for v1.1: 2.11.2 — the echo rule names this branch explicitly: "If it was included in the
+	 * signed eUICC Package, the eUICC SHALL include the same eimTransactionId in the signed eUICC
+	 * Package Result and also euiccPackageErrorUnsigned and euiccPackageErrorSigned in case of
+	 * errors."  It is the eUICC's obligation, and under the emulation this function is the eUICC.  The
+	 * success branch above has always done it; without it here, a failed eUICC Package is the one
+	 * outcome the eIM cannot match to the package it sent -- exactly when it most needs to, since it
+	 * has to decide whether to retry. */
+	if (req->req.euiccPackageSigned.eimTransactionId) {
+		asn->choice.euiccPackageErrorUnsigned.eimTransactionId =
+		    ipa_asn1c_dup(&asn_DEF_TransactionId, req->req.euiccPackageSigned.eimTransactionId);
+	}
 	return res;
 }
 

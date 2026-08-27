@@ -52,6 +52,7 @@
 #include "esipa_get_eim_pkg.h"
 #include "es10b_load_euicc_pkg.h"
 #include "es10b_retr_notif_from_lst.h"
+#include <EimPackageResultErrorCode.h>
 #include "esipa_prvde_eim_pkg_rslt.h"
 #include "es10b_rm_notif_from_lst.h"
 #include "proc_euicc_pkg_dwnld_exec.h"
@@ -333,6 +334,20 @@ struct ipa_proc_eucc_pkg_dwnld_exec_res *ipa_proc_eucc_pkg_dwnld_exec(struct ipa
 	}
 error:
 	IPA_LOGP(SIPA, LERROR, "Generic eUICC Package Download and Execution failed!\n");
+	/* Nothing reached the eIM: the eUICC never produced a EuiccPackageResult, so there is no result to
+	 * forward and the eIM would otherwise wait out the operation it dispatched.  SGP.32 section 6.3.2.7
+	 * has the IPA echo the eimTransactionId of the eIM Package, which here is the one the eIM signed
+	 * into euiccPackageSigned.
+	 *
+	 * undefinedError rather than invalidPackageFormat on purpose: the eUICC failing to answer and the
+	 * package being malformed both arrive here, and telling the eIM the package was bad when the eUICC
+	 * was merely unreachable would have it discard a package that is in fact fine.
+	 *
+	 * error_silent below deliberately skips this.  It is reached when
+	 * ipa_proc_eucc_pkg_dwnld_exec_onset() failed, and that function sends the result itself -- so the
+	 * eIM has already been told, or could not be reached at all. */
+	ipa_esipa_report_eim_pkg_err(ctx, EimPackageResultErrorCode_undefinedError,
+				     euicc_package_request->euiccPackageSigned.eimTransactionId);
 error_silent:
 	ipa_proc_eucc_pkg_dwnld_exec_res_free(res);
 	return NULL;

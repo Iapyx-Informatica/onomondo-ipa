@@ -480,6 +480,52 @@ struct ipa_esipa_prvde_eim_pkg_rslt_res *ipa_esipa_prvde_eim_pkg_rslt(struct ipa
 			      IPA_ESIPA_JSON_CB(json_enc_prvde_eim_pkg_rslt_req, json_dec_prvde_eim_pkg_rslt_res));
 }
 
+static const struct num_str_map eim_pkg_result_error_strings[] = {
+	{ EimPackageResultErrorCode_invalidPackageFormat, "invalidPackageFormat" },
+	{ EimPackageResultErrorCode_unknownPackage, "unknownPackage" },
+	{ EimPackageResultErrorCode_undefinedError, "undefinedError" },
+	{ 0, NULL }
+};
+
+/*! Tell the eIM that an eIM Package it dispatched could not be used.
+ *
+ * SGP.32, sections 3.2.3.1 and 3.2.3.2, steps 3 and 4: "the IPA SHALL return invalidPackageFormat error
+ * and the procedure SHALL stop."  Stopping on its own is not enough -- the eIM keeps the operation
+ * pending until it times out, and from its side an IPA that goes quiet after GetEimPackage is
+ * indistinguishable from one that lost power mid-download.
+ *
+ * The result travels as an eIM Package Result, which section 3.1.1.1 step 6 delivers with
+ * ESipa.ProvideEimPackageResult -- the same function the successful paths use.
+ *
+ * A failure to deliver the report is logged and swallowed: the caller is already on its way out with
+ * the original error, and replacing that error with a transport one would hide what actually went
+ * wrong.
+ *  \param[inout] ctx pointer to ipa_context.
+ *  \param[in] err the EimPackageResultErrorCode to report.
+ *  \param[in] eim_transaction_id the id the eIM Package carried, NULL when it carried none. */
+void ipa_esipa_report_eim_pkg_err(struct ipa_context *ctx, long err, const TransactionId_t *eim_transaction_id)
+{
+	struct ipa_esipa_prvde_eim_pkg_rslt_req prvde_eim_pkg_rslt_req = { 0 };
+	struct ipa_esipa_prvde_eim_pkg_rslt_res *prvde_eim_pkg_rslt_res;
+
+	prvde_eim_pkg_rslt_req.eim_pkg_err = err;
+	prvde_eim_pkg_rslt_req.eim_transaction_id = eim_transaction_id;
+
+	IPA_LOGP(SIPA, LINFO, "reporting eIM package result error code %ld=%s to the eIM\n", err,
+		 ipa_str_from_num(eim_pkg_result_error_strings, err, "(unknown)"));
+
+	prvde_eim_pkg_rslt_res = ipa_esipa_prvde_eim_pkg_rslt(ctx, &prvde_eim_pkg_rslt_req);
+	if (!prvde_eim_pkg_rslt_res) {
+		IPA_LOGP(SIPA, LERROR,
+			 "unable to report the eIM package result error to the eIM, it will have to time the operation out\n");
+		return;
+	}
+	if (prvde_eim_pkg_rslt_res->prvde_eim_pkg_rslt_err)
+		IPA_LOGP(SIPA, LERROR, "the eIM rejected the eIM package result error report (error code %ld)\n",
+			 prvde_eim_pkg_rslt_res->prvde_eim_pkg_rslt_err);
+	ipa_esipa_prvde_eim_pkg_rslt_free(prvde_eim_pkg_rslt_res);
+}
+
 /*! Free results of function (ESipa): ProvideEimPackageResult.
  *  \param[in] res pointer to function result. */
 void ipa_esipa_prvde_eim_pkg_rslt_free(struct ipa_esipa_prvde_eim_pkg_rslt_res *res)

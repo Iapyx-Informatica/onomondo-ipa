@@ -37,11 +37,14 @@
 #include "src/ipa/libipa/es10b_execute_fallback.h"
 #include "src/ipa/libipa/es10b_return_from_fallback.h"
 #include "src/ipa/libipa/es10b_add_init_eim.h"
+#include "src/ipa/libipa/es10b_load_euicc_pkg.h"
 #include "tests/stubs/euicc_stub.h"
 
 /* Not declared in a header: the PSMO handlers are reached from the dispatch in the same file. */
 struct EuiccResultData *iot_emo_do_setDefaultDpAddress_psmo(struct ipa_context *ctx,
 							    const struct SGP32_SetDefaultDpAddressRequest *psmo);
+struct ipa_es10b_load_euicc_pkg_res *load_euicc_pkg_iot_emu(struct ipa_context *ctx,
+							    const struct ipa_es10b_load_euicc_pkg_req *req);
 
 /* ES10x request tags we expect to see on the wire. */
 #define TAG_SET_DEFAULT_DP_SGP22 0xBF3F	/* SGP.22 [63], what a consumer eUICC understands */
@@ -440,6 +443,75 @@ static void add_init_eim_errors_test(void)
 	free_ctx(ctx);
 }
 
+
+/* SGP.32 section 2.11.2: "If it was included in the signed eUICC Package, the eUICC SHALL include the
+ * same eimTransactionId in the signed eUICC Package Result and also euiccPackageErrorUnsigned and
+ * euiccPackageErrorSigned in case of errors."  Under the emulation this code is the eUICC, so the
+ * obligation lands here.  The success branch always honoured it; the error branch did not, which left
+ * a failed eUICC Package as the one outcome the eIM could not match to the package it sent.
+ *
+ * Both branches are checked, because the point is that they agree. */
+static void euicc_pkg_result_transaction_id_test(void)
+{
+	static const uint8_t tid_bytes[] = { 0xa1, 0xb2, 0xc3, 0xd4 };
+	struct ipa_context *ctx = emu_ctx();
+	struct ipa_es10b_load_euicc_pkg_req req;
+	struct ipa_es10b_load_euicc_pkg_res *res;
+	TransactionId_t tid = { 0 };
+	const TransactionId_t *echoed;
+
+	printf("== euicc_pkg_result_transaction_id_test ==\n");
+
+	/* Both result branches stamp the eIM's own id into what they build, which ipa_init() would have
+	 * taken from the eIM Configuration Data on the eUICC.  Nothing here reads it back; it just has to
+	 * be there. */
+	ctx->eim_id = strdup("eim.example.com");
+	assert(ctx->eim_id);
+
+	assert(OCTET_STRING_fromBuf(&tid, (const char *)tid_bytes, sizeof(tid_bytes)) == 0);
+
+	/* The error branch: an eUICC Package that is neither a psmoList nor an ecoList cannot be
+	 * executed, which is the failure that produces euiccPackageErrorUnsigned. */
+	memset(&req, 0, sizeof(req));
+	req.req.euiccPackageSigned.eimTransactionId = &tid;
+	req.req.euiccPackageSigned.euiccPackage.present = EuiccPackage_PR_NOTHING;
+	res = load_euicc_pkg_iot_emu(ctx, &req);
+	assert(res && res->res);
+	assert(res->res->present == EuiccPackageResult_PR_euiccPackageErrorUnsigned);
+	echoed = res->res->choice.euiccPackageErrorUnsigned.eimTransactionId;
+	assert(echoed && echoed->size == sizeof(tid_bytes));
+	assert(memcmp(echoed->buf, tid_bytes, sizeof(tid_bytes)) == 0);
+	printf("   euiccPackageErrorUnsigned    -> eimTransactionId echoed\n");
+	ipa_es10b_load_euicc_pkg_res_free(res);
+
+	/* An eIM that sent none must not have one invented for it: the field is OPTIONAL and the rule is
+	 * conditional on the package having carried one. */
+	memset(&req, 0, sizeof(req));
+	req.req.euiccPackageSigned.euiccPackage.present = EuiccPackage_PR_NOTHING;
+	res = load_euicc_pkg_iot_emu(ctx, &req);
+	assert(res && res->res);
+	assert(res->res->present == EuiccPackageResult_PR_euiccPackageErrorUnsigned);
+	assert(res->res->choice.euiccPackageErrorUnsigned.eimTransactionId == NULL);
+	printf("   package without one          -> none invented\n");
+	ipa_es10b_load_euicc_pkg_res_free(res);
+
+	/* The success branch, for comparison: an empty ecoList executes trivially. */
+	memset(&req, 0, sizeof(req));
+	req.req.euiccPackageSigned.eimTransactionId = &tid;
+	req.req.euiccPackageSigned.euiccPackage.present = EuiccPackage_PR_ecoList;
+	res = load_euicc_pkg_iot_emu(ctx, &req);
+	assert(res && res->res);
+	assert(res->res->present == EuiccPackageResult_PR_euiccPackageResultSigned);
+	echoed = res->res->choice.euiccPackageResultSigned.euiccPackageResultDataSigned.eimTransactionId;
+	assert(echoed && echoed->size == sizeof(tid_bytes));
+	assert(memcmp(echoed->buf, tid_bytes, sizeof(tid_bytes)) == 0);
+	printf("   euiccPackageResultSigned     -> eimTransactionId echoed\n");
+	ipa_es10b_load_euicc_pkg_res_free(res);
+
+	ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_TransactionId, &tid);
+	free_ctx(ctx);
+}
+
 int main(int argc, char **argv)
 {
 	(void)argc;
@@ -449,6 +521,7 @@ int main(int argc, char **argv)
 	set_default_dp_addr_psmo_test();
 	fallback_emu_test();
 	add_init_eim_errors_test();
+	euicc_pkg_result_transaction_id_test();
 
 	printf("euicc_emu_test: all checks passed\n");
 	return 0;

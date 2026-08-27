@@ -79,49 +79,6 @@ error:
 	return -EINVAL;
 }
 
-static const struct num_str_map eim_pkg_result_error_strings[] = {
-	{ EimPackageResultErrorCode_invalidPackageFormat, "invalidPackageFormat" },
-	{ EimPackageResultErrorCode_unknownPackage, "unknownPackage" },
-	{ EimPackageResultErrorCode_undefinedError, "undefinedError" },
-	{ 0, NULL }
-};
-
-/* Tell the eIM that an eIM Package it dispatched could not be used.
- *
- * SGP.32, sections 3.2.3.1 and 3.2.3.2, steps 3 and 4: "the IPA SHALL return invalidPackageFormat error
- * and the procedure SHALL stop."  Stopping on its own is not enough -- the eIM keeps the operation
- * pending until it times out, and from its side an IPA that goes quiet after GetEimPackage is
- * indistinguishable from one that lost power mid-download.
- *
- * The result travels as an eIM Package Result, which section 3.1.1.1 step 6 delivers with
- * ESipa.ProvideEimPackageResult -- the same function the successful paths use.
- *
- * A failure to deliver the report is logged and swallowed: the caller is already on its way out with
- * the original error, and replacing that error with a transport one would hide what actually went
- * wrong. */
-static void report_eim_pkg_err(struct ipa_context *ctx, long err, const TransactionId_t *eim_transaction_id)
-{
-	struct ipa_esipa_prvde_eim_pkg_rslt_req prvde_eim_pkg_rslt_req = { 0 };
-	struct ipa_esipa_prvde_eim_pkg_rslt_res *prvde_eim_pkg_rslt_res;
-
-	prvde_eim_pkg_rslt_req.eim_pkg_err = err;
-	prvde_eim_pkg_rslt_req.eim_transaction_id = eim_transaction_id;
-
-	IPA_LOGP(SIPA, LINFO, "reporting eIM package result error code %ld=%s to the eIM\n", err,
-		 ipa_str_from_num(eim_pkg_result_error_strings, err, "(unknown)"));
-
-	prvde_eim_pkg_rslt_res = ipa_esipa_prvde_eim_pkg_rslt(ctx, &prvde_eim_pkg_rslt_req);
-	if (!prvde_eim_pkg_rslt_res) {
-		IPA_LOGP(SIPA, LERROR,
-			 "unable to report the eIM package result error to the eIM, it will have to time the operation out\n");
-		return;
-	}
-	if (prvde_eim_pkg_rslt_res->prvde_eim_pkg_rslt_err)
-		IPA_LOGP(SIPA, LERROR, "the eIM rejected the eIM package result error report (error code %ld)\n",
-			 prvde_eim_pkg_rslt_res->prvde_eim_pkg_rslt_err);
-	ipa_esipa_prvde_eim_pkg_rslt_free(prvde_eim_pkg_rslt_res);
-}
-
 /* Relay package contents to suitable handler procedure */
 int eim_pkg_exec(struct ipa_context *ctx, const struct ipa_esipa_get_eim_pkg_res *get_eim_pkg_res)
 {
@@ -172,7 +129,7 @@ int eim_pkg_exec(struct ipa_context *ctx, const struct ipa_esipa_get_eim_pkg_res
 			 * the profile download is missing the IPA SHALL return invalidPackageFormat error". */
 			IPA_LOGP(SIPA, LERROR,
 				 "the ProfileDownloadTriggerRequest does not contain ProfileDownloadData -- cannot continue!\n");
-			report_eim_pkg_err(ctx, EimPackageResultErrorCode_invalidPackageFormat, eim_transaction_id);
+			ipa_esipa_report_eim_pkg_err(ctx, EimPackageResultErrorCode_invalidPackageFormat, eim_transaction_id);
 			rc = -EINVAL;
 			goto error;
 		}
@@ -181,13 +138,18 @@ int eim_pkg_exec(struct ipa_context *ctx, const struct ipa_esipa_get_eim_pkg_res
 			/* (see comment above) */
 			IPA_LOGP(SIPA, LERROR,
 				 "the ProfileDownloadData does not contain an activationCode -- cannot continue!\n");
-			report_eim_pkg_err(ctx, EimPackageResultErrorCode_invalidPackageFormat, eim_transaction_id);
+			ipa_esipa_report_eim_pkg_err(ctx, EimPackageResultErrorCode_invalidPackageFormat, eim_transaction_id);
 			rc = -EINVAL;
 			goto error;
 		}
 
 		rc = get_euicc_ci_pkid(ctx, &allowed_ca_pkid);
 		if (rc < 0) {
+			/* The trigger was usable; this IPA could not read what it needs from its own eUICC.
+			 * undefinedError says exactly that -- the package is not at fault, so the eIM should
+			 * not be told it was malformed. */
+			ipa_esipa_report_eim_pkg_err(ctx, EimPackageResultErrorCode_undefinedError,
+						     eim_transaction_id);
 			rc = -EINVAL;
 			goto error;
 		}
@@ -211,7 +173,7 @@ int eim_pkg_exec(struct ipa_context *ctx, const struct ipa_esipa_get_eim_pkg_res
 			 * so the sub-procedure only has to say which of the two kinds of failure it hit. */
 			IPA_LOGP(SIPA, LERROR,
 				 "the activationCode in the ProfileDownloadTriggerRequest could not be parsed -- cannot continue!\n");
-			report_eim_pkg_err(ctx, EimPackageResultErrorCode_invalidPackageFormat, eim_transaction_id);
+			ipa_esipa_report_eim_pkg_err(ctx, EimPackageResultErrorCode_invalidPackageFormat, eim_transaction_id);
 			goto error;
 		}
 		if (rc < 0)
@@ -219,6 +181,12 @@ int eim_pkg_exec(struct ipa_context *ctx, const struct ipa_esipa_get_eim_pkg_res
 	} else {
 		IPA_LOGP(SIPA, LERROR,
 			 "the GetEimPackageResponse contains an unsupported request -- cannot continue!\n");
+		/* unknownPackage is the code for this and not invalidPackageFormat: the response parsed, it
+		 * simply asked for something this IPA does not implement -- "The eIM Package is not supported
+		 * by the IPA", as SGP.32 section 5.14.4 Table 15a glosses the same code.  No eimTransactionId
+		 * to echo: the id lives inside the request type, and which one this is is the very thing that
+		 * could not be established. */
+		ipa_esipa_report_eim_pkg_err(ctx, EimPackageResultErrorCode_unknownPackage, NULL);
 		rc = -EINVAL;
 		goto error;
 	}
