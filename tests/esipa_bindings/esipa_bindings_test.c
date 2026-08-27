@@ -32,6 +32,23 @@
 #include "src/ipa/libipa/esipa_auth_clnt.h"
 #include "src/ipa/libipa/esipa_prvde_eim_pkg_rslt.h"
 #include "src/ipa/libipa/esipa_json.h"
+#include <EsipaMessageFromIpaToEim.h>
+#include <EimPackageResult.h>
+#include <EimPackageResultErrorCode.h>
+
+/* A DER sink both bindings need: the ASN.1 cases encode whole ESipa messages with it, and the JSON
+ * cases use it to build the EimPackageResult that the JSON body carries base64-encoded. */
+static uint8_t esipa_enc_buf[2048];
+static size_t esipa_enc_len;
+
+static int esipa_enc_sink(const void *b, size_t sz, void *key)
+{
+	(void)key;
+	assert(esipa_enc_len + sz <= sizeof(esipa_enc_buf));
+	memcpy(esipa_enc_buf + esipa_enc_len, b, sz);
+	esipa_enc_len += sz;
+	return 0;
+}
 
 static uint8_t transaction_id_bytes[] = { 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef };
 #define TRANSACTION_ID_HEX "\"transactionId\":\"0123456789ABCDEF\""
@@ -184,6 +201,7 @@ static void json_refuses_without_transaction_id_test(void)
 	req.prep_dwnld_res = NULL;
 	assert(ipa_esipa_json_enc_get_bnd_prfle_pkg_req(&req) == NULL);
 }
+
 
 #endif /* IPA_HAVE_ESIPA_JSON */
 
@@ -429,18 +447,6 @@ static void json_get_eim_pkg_test(void)
  * same file. */
 struct ipa_esipa_prvde_eim_pkg_rslt_res *dec_prvde_eim_pkg_rslt_res(const struct ipa_buf *encoded);
 
-static uint8_t esipa_enc_buf[2048];
-static size_t esipa_enc_len;
-
-static int esipa_enc_sink(const void *b, size_t sz, void *key)
-{
-	(void)key;
-	assert(esipa_enc_len + sz <= sizeof(esipa_enc_buf));
-	memcpy(esipa_enc_buf + esipa_enc_len, b, sz);
-	esipa_enc_len += sz;
-	return 0;
-}
-
 /* DER-encode an EsipaMessageFromEimToIpa the way the eIM would put it on the wire. */
 static struct ipa_buf *esipa_encode(const struct EsipaMessageFromEimToIpa *msg)
 {
@@ -507,16 +513,433 @@ static void asn1_prvde_eim_pkg_rslt_response_test(void)
 	ipa_esipa_prvde_eim_pkg_rslt_free(res);
 	ipa_buf_free(enc);
 }
+
+/* SGP.32 sections 3.2.3.1 and 3.2.3.2, steps 3 and 4: an eIM Package the IPA cannot use is answered with
+ * invalidPackageFormat, not with silence.  Section 6.3.2.7 adds that the eimTransactionId of the package
+ * has to come back with it -- without it the eIM has a rejection it cannot attribute to any of the
+ * operations it dispatched, which is no better than the timeout it was already going to get.
+ *
+ * This drives the encoder the reporting path uses and reads the result back out of the DER. */
+static void asn1_eim_pkg_err_report_test(void)
+{
+	struct ipa_esipa_prvde_eim_pkg_rslt_req req = { 0 };
+	struct EsipaMessageFromIpaToEim *msg = NULL;
+	struct EimPackageResultResponseError *err;
+	struct ipa_config cfg;
+	struct ipa_context *ctx = test_ctx(&cfg, IPA_ESIPA_BINDING_ASN1);
+	TransactionId_t eim_tid = { 0 };
+	asn_dec_rval_t dr;
+	struct ipa_buf *enc;
+
+	printf("== asn1_eim_pkg_err_report_test ==\n");
+	memcpy(ctx->eid, eid_bytes, IPA_LEN_EID);
+	set_transaction_id(&eim_tid);
+
+	req.eim_pkg_err = EimPackageResultErrorCode_invalidPackageFormat;
+	req.eim_transaction_id = &eim_tid;
+	enc = ipa_esipa_prvde_eim_pkg_rslt_enc_req(ctx, &req);
+	assert(enc);
+
+	dr = ber_decode(NULL, &asn_DEF_EsipaMessageFromIpaToEim, (void **)&msg, enc->data, enc->len);
+	assert(dr.code == RC_OK && msg);
+	assert(msg->present == EsipaMessageFromIpaToEim_PR_provideEimPackageResult);
+	assert(msg->choice.provideEimPackageResult.eimPackageResult.present ==
+	       EimPackageResult_PR_eimPackageResultResponseError);
+	err = &msg->choice.provideEimPackageResult.eimPackageResult.choice.eimPackageResultResponseError;
+	assert(err->eimPackageResultErrorCode == EimPackageResultErrorCode_invalidPackageFormat);
+	assert(err->eimTransactionId);
+	assert(err->eimTransactionId->size == sizeof(transaction_id_bytes));
+	assert(memcmp(err->eimTransactionId->buf, transaction_id_bytes, sizeof(transaction_id_bytes)) == 0);
+	printf("   invalidPackageFormat         -> reported, eimTransactionId echoed\n");
+	ASN_STRUCT_FREE(asn_DEF_EsipaMessageFromIpaToEim, msg);
+	ipa_buf_free(enc);
+
+	/* An eIM that sent no transaction id must not have one invented for it: the member is OPTIONAL and
+	 * section 6.3.2.7 conditions the echo on the package having carried one. */
+	msg = NULL;
+	req.eim_transaction_id = NULL;
+	enc = ipa_esipa_prvde_eim_pkg_rslt_enc_req(ctx, &req);
+	assert(enc);
+	dr = ber_decode(NULL, &asn_DEF_EsipaMessageFromIpaToEim, (void **)&msg, enc->data, enc->len);
+	assert(dr.code == RC_OK && msg);
+	err = &msg->choice.provideEimPackageResult.eimPackageResult.choice.eimPackageResultResponseError;
+	assert(err->eimPackageResultErrorCode == EimPackageResultErrorCode_invalidPackageFormat);
+	assert(err->eimTransactionId == NULL);
+	printf("   trigger without a transaction id -> reported, no eimTransactionId invented\n");
+	ASN_STRUCT_FREE(asn_DEF_EsipaMessageFromIpaToEim, msg);
+	ipa_buf_free(enc);
+
+	free(eim_tid.buf);
+	ipa_free_ctx(ctx);
+}
+
+
+/* eim_pkg_exec() is not declared in a header; the poll loop in the same file is its only caller. */
+int eim_pkg_exec(struct ipa_context *ctx, const struct ipa_esipa_get_eim_pkg_res *get_eim_pkg_res);
+
+/* The two encoder cases above prove the message can be built.  This proves the procedure actually builds
+ * it: an unusable ProfileDownloadTriggerRequest used to end the poll cycle with nothing sent, leaving the
+ * eIM to time the dispatched operation out.  Sections 3.2.3.1 / 3.2.3.2 step 3 require the IPA to answer.
+ *
+ * Driven through eim_pkg_exec() with the HTTP stub capturing what went out, so what is checked is the
+ * request the library put on the wire, not an encoder called directly. */
+static void asn1_trigger_rejection_test(void)
+{
+	static const struct {
+		const char *what;
+		bool with_download_data;
+	} cases[] = {
+		{ "no profileDownloadData    ", false },
+		{ "profileDownloadData != AC ", true },
+	};
+	struct ipa_config cfg;
+	struct ipa_context *ctx = test_ctx(&cfg, IPA_ESIPA_BINDING_ASN1);
+	unsigned int i;
+
+	printf("== asn1_trigger_rejection_test ==\n");
+	memcpy(ctx->eid, eid_bytes, IPA_LEN_EID);
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		struct ipa_esipa_get_eim_pkg_res get_eim_pkg_res = { 0 };
+		struct ProfileDownloadTriggerRequest trigger = { 0 };
+		struct ProfileDownloadData dwnld_data = { 0 };
+		struct EsipaMessageFromIpaToEim *msg = NULL;
+		struct EimPackageResultResponseError *err;
+		TransactionId_t eim_tid = { 0 };
+		asn_dec_rval_t dr;
+
+		set_transaction_id(&eim_tid);
+		trigger.eimTransactionId = &eim_tid;
+		if (cases[i].with_download_data) {
+			/* A branch this IPAd does not implement: the data is there, but not as an
+			 * Activation Code, so it still cannot start a download. */
+			dwnld_data.present = ProfileDownloadData_PR_contactDefaultSmdp;
+			trigger.profileDownloadData = &dwnld_data;
+		}
+		get_eim_pkg_res.dwnld_trigger_request = &trigger;
+
+		ipa_buf_free(captured_req);
+		captured_req = NULL;
+		assert(eim_pkg_exec(ctx, &get_eim_pkg_res) < 0);
+
+		/* The point of the whole fix: something was sent. */
+		assert(captured_req);
+		dr = ber_decode(NULL, &asn_DEF_EsipaMessageFromIpaToEim, (void **)&msg,
+				captured_req->data, captured_req->len);
+		assert(dr.code == RC_OK && msg);
+		assert(msg->present == EsipaMessageFromIpaToEim_PR_provideEimPackageResult);
+		assert(msg->choice.provideEimPackageResult.eimPackageResult.present ==
+		       EimPackageResult_PR_eimPackageResultResponseError);
+		err = &msg->choice.provideEimPackageResult.eimPackageResult.choice.eimPackageResultResponseError;
+		assert(err->eimPackageResultErrorCode == EimPackageResultErrorCode_invalidPackageFormat);
+		assert(err->eimTransactionId &&
+		       err->eimTransactionId->size == sizeof(transaction_id_bytes) &&
+		       memcmp(err->eimTransactionId->buf, transaction_id_bytes,
+			      sizeof(transaction_id_bytes)) == 0);
+		printf("   %s -> invalidPackageFormat sent, eimTransactionId echoed\n", cases[i].what);
+		ASN_STRUCT_FREE(asn_DEF_EsipaMessageFromIpaToEim, msg);
+		free(eim_tid.buf);
+	}
+
+	ipa_buf_free(captured_req);
+	captured_req = NULL;
+	ipa_free_ctx(ctx);
+}
+
 #endif /* IPA_HAVE_ESIPA_ASN1 */
+
+
+#ifdef IPA_HAVE_ESIPA_JSON
+/* The JSON binding used to decode any response body it could parse as a success: it allocated an "Ok"
+ * structure up front and attached it whatever the body turned out to contain.  An eIM reporting a
+ * failure therefore reached the procedure layer as a successful call with every field absent, and the
+ * "no Ok member" guard there could not catch it because the member was always present.
+ *
+ * These feed each decoder a response the eIM would send on failure and check two things: the code is
+ * reported, and no "Ok" structure is attached. */
+static struct ipa_buf *json_body(const char *text)
+{
+	struct ipa_buf *buf = ipa_buf_alloc(strlen(text));
+
+	memcpy(buf->data, text, strlen(text));
+	buf->len = strlen(text);
+	return buf;
+}
+
+/* Build a <JSON responseMessage>: the responseHeader of SGP.22 section 6.5.1.4, which SGP.32 section
+ * 6.1.2 binds the ESipa JSON responses to, followed by whatever body the function defines. */
+static struct ipa_buf *json_failed(const char *subject_code, const char *reason_code, const char *body)
+{
+	char buf[512];
+
+	snprintf(buf, sizeof(buf),
+		 "{\"header\":{\"functionExecutionStatus\":{\"status\":\"Failed\","
+		 "\"statusCodeData\":{\"subjectCode\":\"%s\",\"reasonCode\":\"%s\","
+		 "\"message\":\"test\"}}}%s%s}",
+		 subject_code, reason_code, body ? "," : "", body ? body : "");
+	return json_body(buf);
+}
+
+static void json_error_response_test(void)
+{
+	struct ipa_buf *body;
+
+	printf("== json_error_response_test ==\n");
+
+	{
+		struct ipa_esipa_init_auth_res *res;
+
+		/* Section 5.14.1, Table 9a: 8.8.1 / 3.10 "(maps to smdpAddressMismatch)". */
+		body = json_failed("8.8.1", "3.10", NULL);
+		res = ipa_esipa_json_dec_init_auth_res(body);
+		assert(res);
+		assert(res->init_auth_err ==
+		       InitiateAuthenticationResponseEsipa__initiateAuthenticationErrorEsipa_smdpAddressMismatch);
+		assert(res->init_auth_ok == NULL);
+		printf("   InitiateAuthentication  8.8.1/3.10  -> smdpAddressMismatch, no Ok attached\n");
+		ipa_esipa_init_auth_res_free(res);
+		ipa_buf_free(body);
+
+		/* 8.8 and 8.8.1 share a reason code and differ only in the subject, so a prefix match would
+		 * confuse the two. */
+		body = json_failed("8.8", "3.10", NULL);
+		res = ipa_esipa_json_dec_init_auth_res(body);
+		assert(res);
+		assert(res->init_auth_err ==
+		       InitiateAuthenticationResponseEsipa__initiateAuthenticationErrorEsipa_smdpOidMismatch);
+		printf("   InitiateAuthentication  8.8/3.10    -> smdpOidMismatch, not confused with 8.8.1\n");
+		ipa_esipa_init_auth_res_free(res);
+		ipa_buf_free(body);
+
+		/* A code Table 9a does not list still has to fail the call, as undefinedError. */
+		body = json_failed("1.3.1", "2.1", NULL);
+		res = ipa_esipa_json_dec_init_auth_res(body);
+		assert(res);
+		assert(res->init_auth_err ==
+		       InitiateAuthenticationResponseEsipa__initiateAuthenticationErrorEsipa_undefinedError);
+		assert(res->init_auth_ok == NULL);
+		printf("   InitiateAuthentication  unlisted    -> undefinedError, no Ok attached\n");
+		ipa_esipa_init_auth_res_free(res);
+		ipa_buf_free(body);
+	}
+
+	{
+		struct ipa_esipa_auth_clnt_res *res;
+
+		/* Section 5.14.3, Table 13a: 8.2.8 / 1.2 "(maps to pprNotAllowed)". */
+		body = json_failed("8.2.8", "1.2", NULL);
+		res = ipa_esipa_json_dec_auth_clnt_res(body, NULL);
+		assert(res);
+		assert(res->auth_clnt_err ==
+		       AuthenticateClientResponseEsipa__authenticateClientErrorEsipa_pprNotAllowed);
+		assert(res->auth_clnt_ok_dpe == NULL);
+		assert(res->auth_clnt_ok_dse == NULL);
+		printf("   AuthenticateClient      8.2.8/1.2   -> pprNotAllowed, no Ok attached\n");
+		ipa_esipa_auth_clnt_res_free(res);
+		ipa_buf_free(body);
+	}
+
+	{
+		struct ipa_esipa_get_bnd_prfle_pkg_res *res;
+
+		/* Section 5.14.2, Table 11a: 8.2.9 / 3.11 "(maps to metadataMismatch)".  The one with a
+		 * procedure consequence: section 3.2.3.3 requires the CancelSession that follows to carry
+		 * reason code metadataMismatch, which proc_prfle_dwnld.c derives from this field. */
+		body = json_failed("8.2.9", "3.11", NULL);
+		res = ipa_esipa_json_dec_get_bnd_prfle_pkg_res(body);
+		assert(res);
+		assert(res->get_bnd_prfle_pkg_err ==
+		       GetBoundProfilePackageResponseEsipa__getBoundProfilePackageErrorEsipa_metadataMismatch);
+		assert(res->get_bnd_prfle_pkg_ok == NULL);
+		printf("   GetBoundProfilePackage  8.2.9/3.11  -> metadataMismatch, no Ok attached\n");
+		ipa_esipa_get_bnd_prfle_pkg_res_free(res);
+		ipa_buf_free(body);
+	}
+
+	{
+		struct ipa_esipa_get_eim_pkg_res *res;
+
+		/* GetEimPackage is the only function with both mechanisms, so both are checked.  Section
+		 * 5.14.5 Table 18: 8.1.1 / 3.9 "(maps to eidNotFound)". */
+		body = json_failed("8.1.1", "3.9", NULL);
+		res = ipa_esipa_json_dec_get_eim_pkg_res(body);
+		assert(res);
+		assert(res->eim_pkg_err == GetEimPackageResponse__eimPackageError_eidNotFound);
+		assert(res->euicc_package_request == NULL);
+		assert(res->ipa_euicc_data_request == NULL);
+		assert(res->dwnld_trigger_request == NULL);
+		printf("   GetEimPackage           8.1.1/3.9   -> eidNotFound via the response header\n");
+		ipa_esipa_get_eim_pkg_free(res);
+		ipa_buf_free(body);
+
+		/* The body arm of section 6.4.1.5, which this function has in addition to the header. */
+		body = json_body("{\"eimPackageError\":2}");
+		res = ipa_esipa_json_dec_get_eim_pkg_res(body);
+		assert(res);
+		assert(res->eim_pkg_err == GetEimPackageResponse__eimPackageError_eidNotFound);
+		printf("   GetEimPackage           body arm    -> eidNotFound via eimPackageError\n");
+		ipa_esipa_get_eim_pkg_free(res);
+		ipa_buf_free(body);
+
+		/* A success must survive a header that says so, and still be decoded from the body. */
+		body = json_body("{\"header\":{\"functionExecutionStatus\":{\"status\":\"Executed-Success\"}},"
+				 "\"eimPackageError\":1}");
+		res = ipa_esipa_json_dec_get_eim_pkg_res(body);
+		assert(res);
+		assert(res->eim_pkg_err == GetEimPackageResponse__eimPackageError_noEimPackageAvailable);
+		printf("   GetEimPackage           success hdr -> body still decoded\n");
+		ipa_esipa_get_eim_pkg_free(res);
+		ipa_buf_free(body);
+	}
+
+	{
+		struct ipa_esipa_prvde_eim_pkg_rslt_res *res;
+
+		/* Section 5.14.6, Table 21: 8.1.1 / 2.2 "(maps to missingEid)".  A refusal and an acceptance
+		 * with nothing to acknowledge both leave eimAcknowledgements NULL, so this code is the only
+		 * thing that separates them -- and the caller must keep the result on a refusal. */
+		body = json_failed("8.1.1", "2.2", NULL);
+		res = ipa_esipa_json_dec_prvde_eim_pkg_rslt_res(body);
+		assert(res);
+		assert(res->prvde_eim_pkg_rslt_err ==
+		       ProvideEimPackageResultResponse__provideEimPackageResultError_missingEid);
+		assert(res->eim_acknowledgements == NULL);
+		printf("   ProvideEimPackageResult 8.1.1/2.2   -> missingEid, result must be kept\n");
+		ipa_esipa_prvde_eim_pkg_rslt_free(res);
+		ipa_buf_free(body);
+	}
+}
+
+/* A body that carries neither a result nor an error code must not become a success either.  This is
+ * the case the procedure layer's "no Ok member" guard was written for, and that the unconditional
+ * allocation defeated. */
+static void json_empty_response_test(void)
+{
+	struct ipa_buf *body = json_body("{}");
+	struct ipa_esipa_init_auth_res *ia;
+	struct ipa_esipa_auth_clnt_res *ac;
+	struct ipa_esipa_get_bnd_prfle_pkg_res *gb;
+
+	printf("== json_empty_response_test ==\n");
+
+	ia = ipa_esipa_json_dec_init_auth_res(body);
+	assert(ia && ia->init_auth_ok == NULL && ia->init_auth_err == 0);
+	ipa_esipa_init_auth_res_free(ia);
+
+	ac = ipa_esipa_json_dec_auth_clnt_res(body, NULL);
+	assert(ac && ac->auth_clnt_ok_dpe == NULL && ac->auth_clnt_ok_dse == NULL && ac->auth_clnt_err == 0);
+	ipa_esipa_auth_clnt_res_free(ac);
+
+	gb = ipa_esipa_json_dec_get_bnd_prfle_pkg_res(body);
+	assert(gb && gb->get_bnd_prfle_pkg_ok == NULL && gb->get_bnd_prfle_pkg_err == 0);
+	ipa_esipa_get_bnd_prfle_pkg_res_free(gb);
+
+	printf("   empty body              -> no Ok attached in any decoder\n");
+	ipa_buf_free(body);
+}
+/* The JSON binding carries the very same EimPackageResult, base64 of its DER (section 6.4.1.6), so the
+ * rejection and its echoed eimTransactionId have to survive that route unchanged.  Checking the bytes
+ * rather than a re-decode keeps the two bindings honest against one another: the expected value here is
+ * built independently and must come out identical to what the encoder produced. */
+static void json_eim_pkg_err_report_test(void)
+{
+	static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	struct ipa_esipa_prvde_eim_pkg_rslt_req req = { 0 };
+	struct EimPackageResult expected = { 0 };
+	struct ipa_config cfg;
+	struct ipa_context *ctx = test_ctx(&cfg, IPA_ESIPA_BINDING_JSON);
+	TransactionId_t eim_tid = { 0 };
+	char encoded[512];
+	asn_enc_rval_t er;
+	struct ipa_buf *enc;
+	size_t i, o = 0;
+
+	printf("== json_eim_pkg_err_report_test ==\n");
+	memcpy(ctx->eid, eid_bytes, IPA_LEN_EID);
+	set_transaction_id(&eim_tid);
+
+	/* What the wire should carry, built here rather than taken from the encoder under test. */
+	expected.present = EimPackageResult_PR_eimPackageResultResponseError;
+	expected.choice.eimPackageResultResponseError.eimPackageResultErrorCode =
+	    EimPackageResultErrorCode_invalidPackageFormat;
+	expected.choice.eimPackageResultResponseError.eimTransactionId = &eim_tid;
+	esipa_enc_len = 0;
+	er = der_encode(&asn_DEF_EimPackageResult, &expected, esipa_enc_sink, NULL);
+	assert(er.encoded > 0);
+
+	for (i = 0; i + 2 < esipa_enc_len; i += 3) {
+		uint32_t v = (esipa_enc_buf[i] << 16) | (esipa_enc_buf[i + 1] << 8) | esipa_enc_buf[i + 2];
+		encoded[o++] = b64[(v >> 18) & 0x3f];
+		encoded[o++] = b64[(v >> 12) & 0x3f];
+		encoded[o++] = b64[(v >> 6) & 0x3f];
+		encoded[o++] = b64[v & 0x3f];
+	}
+	if (esipa_enc_len - i == 1) {
+		encoded[o++] = b64[(esipa_enc_buf[i] >> 2) & 0x3f];
+		encoded[o++] = b64[(esipa_enc_buf[i] << 4) & 0x3f];
+		encoded[o++] = '=';
+		encoded[o++] = '=';
+	} else if (esipa_enc_len - i == 2) {
+		uint32_t v = (esipa_enc_buf[i] << 8) | esipa_enc_buf[i + 1];
+		encoded[o++] = b64[(v >> 10) & 0x3f];
+		encoded[o++] = b64[(v >> 4) & 0x3f];
+		encoded[o++] = b64[(v << 2) & 0x3f];
+		encoded[o++] = '=';
+	}
+	encoded[o] = '\0';
+
+	req.eim_pkg_err = EimPackageResultErrorCode_invalidPackageFormat;
+	req.eim_transaction_id = &eim_tid;
+	enc = ipa_esipa_json_enc_prvde_eim_pkg_rslt_req(ctx, &req);
+	assert(enc);
+	printf("   %.*s\n", (int)enc->len, (const char *)enc->data);
+	assert(req_contains(enc, "\"eidValue\":\"" EID_DIGITS "\"", strlen("\"eidValue\":\"" EID_DIGITS "\"")));
+	assert(req_contains(enc, encoded, o));
+	printf("   invalidPackageFormat         -> same EimPackageResult DER as the ASN.1 binding\n");
+	ipa_buf_free(enc);
+
+	free(eim_tid.buf);
+	ipa_free_ctx(ctx);
+}
+
+#endif /* IPA_HAVE_ESIPA_JSON */
+
+/* Both bindings must describe one error code by one name.  #25 fixed a case where the ASN.1 binding
+ * printed the wrong one; nothing should reintroduce a second table. */
+static void error_name_test(void)
+{
+	printf("== error_name_test ==\n");
+
+	assert(strcmp(ipa_esipa_auth_clnt_err_str(
+		      AuthenticateClientResponseEsipa__authenticateClientErrorEsipa_pprNotAllowed),
+		      "pprNotAllowed") == 0);
+	assert(strcmp(ipa_esipa_auth_clnt_err_str(
+		      AuthenticateClientResponseEsipa__authenticateClientErrorEsipa_eidMismatch),
+		      "eidMismatch") == 0);
+	assert(strcmp(ipa_esipa_init_auth_err_str(
+		      InitiateAuthenticationResponseEsipa__initiateAuthenticationErrorEsipa_smdpOidMismatch),
+		      "smdpOidMismatch") == 0);
+	assert(strcmp(ipa_esipa_get_bnd_prfle_pkg_err_str(
+		      GetBoundProfilePackageResponseEsipa__getBoundProfilePackageErrorEsipa_metadataMismatch),
+		      "metadataMismatch") == 0);
+	assert(strcmp(ipa_esipa_get_eim_pkg_err_str(
+		      GetEimPackageResponse__eimPackageError_missingEid), "missingEid") == 0);
+	/* A code the set does not define must not be given a neighbour's name. */
+	assert(strcmp(ipa_esipa_auth_clnt_err_str(9999), "(unknown)") == 0);
+	printf("   shared tables           -> both bindings name codes identically\n");
+}
 
 int main(int argc, char **argv)
 {
 	transaction_id_lookup_test();
 	rplmn_encoding_test();
+	error_name_test();
 #ifdef IPA_HAVE_ESIPA_ASN1
 	asn1_init_auth_transaction_id_test();
 	asn1_get_eim_pkg_test();
 	asn1_prvde_eim_pkg_rslt_response_test();
+	asn1_eim_pkg_err_report_test();
+	asn1_trigger_rejection_test();
 #else
 	printf("== ASN.1 binding not built, its encoder cases skipped ==\n");
 #endif
@@ -526,6 +949,9 @@ int main(int argc, char **argv)
 	json_refuses_without_transaction_id_test();
 	json_init_auth_transaction_id_test();
 	json_get_eim_pkg_test();
+	json_error_response_test();
+	json_empty_response_test();
+	json_eim_pkg_err_report_test();
 #else
 	printf("== JSON binding not built, its encoder cases skipped ==\n");
 #endif
@@ -552,6 +978,12 @@ struct ipa_buf *ipa_http_req_with_ct(void *http_ctx, const struct ipa_buf *req, 
 	ipa_buf_free(captured_req);
 	captured_req = ipa_buf_dup((struct ipa_buf *)req);
 	return NULL;
+}
+
+/* The stub above never lets a request complete, so there is never a status to report. */
+long ipa_http_last_status(void *http_ctx)
+{
+	return 0;
 }
 
 void ipa_http_close(void *http_ctx)
