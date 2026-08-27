@@ -457,6 +457,13 @@ bool ipa_esipa_json_exec_ok(const struct ipa_buf *body, const char *function_nam
 /* §6.4.1.1  InitiateAuthentication                                        */
 /* ---------------------------------------------------------------------- */
 
+/* DONE for v1.2: CR12013R00 / §6.4.1.1 — JSON binding alignment.  Request carries euiccChallenge,
+ * euiccInfo1, smdpAddress and eimTransactionId; response carries transactionId, serverSigned1,
+ * serverSignature1, euiccCiPKIdentifierToBeUsed, serverCertificate, matchingId and ctxParams1 —
+ * member for member what the v1.2 schema lists, with transactionId and eimTransactionId as hex
+ * (pattern "^[0-9,A-F]{2,32}$") and the rest as base64 of DER.  euiccChallenge is the exception the
+ * schema calls out: base64 of the OCTET STRING value, without its tag and length. */
+
 struct ipa_buf *ipa_esipa_json_enc_init_auth_req(const struct ipa_esipa_init_auth_req *req)
 {
 	json_t *obj = json_object();
@@ -727,6 +734,10 @@ struct ipa_esipa_auth_clnt_res *ipa_esipa_json_dec_auth_clnt_res(const struct ip
 /* ---------------------------------------------------------------------- */
 /* §6.4.1.3  GetBoundProfilePackage                                        */
 /* ---------------------------------------------------------------------- */
+
+/* DONE for v1.2: CR12013R00 / §6.4.1.3 — JSON binding alignment.  Request carries transactionId and
+ * prepareDownloadResponse, both required by the schema and both refused if absent; response carries
+ * transactionId and boundProfilePackage. */
 
 struct ipa_buf *ipa_esipa_json_enc_get_bnd_prfle_pkg_req(const struct ipa_esipa_get_bnd_prfle_pkg_req *req)
 {

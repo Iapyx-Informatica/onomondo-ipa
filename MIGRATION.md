@@ -67,8 +67,8 @@ Changes carry inline markers so each one is traceable back to the spec:
 | CR111005R00 | 6.1                 | Mandatory `User-Agent` value (`http_hdr.h`) |
 | CR111007R00 | 5.9.15 / 22 / 23    | eUICC-side only; the IPA conveys `refreshFlag`, which it already did |
 | CR12010R00  | 5.9.4               | Absent optional `EimConfigurationData` subfields get the mandated defaults; a supplied `euiccCiPKId` is validated |
-| CR12011R00  | 5.2.6 / 5.14 / 6.1  | JSON ↔ ASN.1 status code mapping, in the JSON binding |
-| CR12013R00  | 6.4.1.1 / 6.4.1.3   | JSON binding alignment |
+| CR12011R00  | 5.2.6 / 5.14 / 6.1  | JSON ↔ ASN.1 status code mapping, in the JSON binding, for every ESipa function the IPA calls; the table for the one it *provides* is not (see TransferEimPackage below) |
+| CR12013R00  | 6.4.1.1 / 6.4.1.3   | JSON binding alignment; both request and response bodies match the v1.2 schemas member for member |
 | CR12014R02  | 5.14.6 / 6.3.2.7    | `EidValue` always included, per §5.14.6 NOTE 1 |
 
 Both ESipa wire bindings are built: ASN.1/BER (§6.3) and JSON (§6.4), selected by
@@ -119,6 +119,15 @@ None of these blocks a v1.2 deployment against a real IoT eUICC.
 - **The SM-DS branch.** `AuthenticateClientOkDSEsipa` is decoded, but
   `proc_indirect_prfle_dwnld.c` requires the DP branch and stops otherwise, so
   `profileDownloadTrigger` on that response is never read.
+- **eIM Package Injection (§3.1.1.2) and ESipa.TransferEimPackage (§5.14.4 /
+  §6.3.3.1 / §6.4.1.4).** This is the one ESipa function the IPA *provides*
+  rather than calls, so it needs the IPA to accept an inbound request; there is
+  no HTTP server here and no ASN.1 codec for it. Only
+  `ipa_esipa_json_enc_transfer_eim_pkg_rsp()` exists, and nothing calls it. The
+  eIM Package Retrieval procedure (§3.1.1.1) covers the same ground by polling,
+  which is why this has not been needed. Knock-on: the CR12011R00 status code
+  mapping for this function (§5.14.4, Table 15a — `invalidPackageFormat`,
+  `unknownPackage`) is the one row of that mapping left unimplemented.
 
 **Out of scope for the IPA**, recorded because earlier drafts listed them as
 open review items:
