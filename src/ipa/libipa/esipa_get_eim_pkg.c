@@ -42,7 +42,6 @@
 #include "esipa_json.h"
 #include "esipa_get_eim_pkg.h"
 
-#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 static const struct num_str_map error_code_strings[] = {
 	{ GetEimPackageResponse__eimPackageError_noEimPackageAvailable, "noEimPackageAvailable" },
 	/* UPDATE for v1.1: 6.3.2.6 - new eIM error codes covering EID handling. */
@@ -52,6 +51,19 @@ static const struct num_str_map error_code_strings[] = {
 	{ GetEimPackageResponse__eimPackageError_undefinedError, "undefinedError" },
 	{ 0, NULL }
 };
+
+/*! Name of an ESipa.GetEimPackage error code, for log messages.
+ *  \param[in] err the error code as decoded from the eIM response.
+ *  \returns the code's name from the ASN.1 definition (section 6.3.2.6), or "(unknown)".
+ *
+ *  Shared by both wire bindings on purpose: the JSON binding carries the same codes, and the two
+ *  must not describe one code by two different names. */
+const char *ipa_esipa_get_eim_pkg_err_str(long err)
+{
+	return ipa_str_from_num(error_code_strings, err, "(unknown)");
+}
+
+#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 
 static struct ipa_buf *enc_get_eim_pkg_req(struct ipa_context *ctx, const void *req)
 {
@@ -244,5 +256,17 @@ void ipa_esipa_note_state_change(struct ipa_context *ctx, enum ipa_state_change_
  *  \param[in] res pointer to function result. */
 void ipa_esipa_get_eim_pkg_free(struct ipa_esipa_get_eim_pkg_res *res)
 {
+	/* The two bindings own their result members differently, and IPA_ESIPA_RES_FREE only knows the
+	 * ASN.1 model: there every member points into msg_to_ipa, so freeing that one tree frees
+	 * everything.  The JSON decoders allocate their members instead and leave msg_to_ipa NULL, which
+	 * is what distinguishes the two at run time -- both bindings are compiled in and the choice is
+	 * ctx->cfg->esipa_binding.  This is the "caller must free those first" case the macro's own
+	 * comment describes.
+	 */
+	if (res && !res->msg_to_ipa) {
+		ASN_STRUCT_FREE(asn_DEF_EuiccPackageRequest, res->euicc_package_request);
+		ASN_STRUCT_FREE(asn_DEF_IpaEuiccDataRequest, res->ipa_euicc_data_request);
+		ASN_STRUCT_FREE(asn_DEF_ProfileDownloadTriggerRequest, res->dwnld_trigger_request);
+	}
 	IPA_ESIPA_RES_FREE(res);
 }

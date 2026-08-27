@@ -62,6 +62,10 @@ struct ipa_buf *ipa_esipa_json_enc_handle_notif_req(const struct ipa_esipa_handl
 struct ipa_buf *ipa_esipa_json_enc_cancel_session_req(const struct ipa_esipa_cancel_session_req *req);
 struct ipa_buf *ipa_esipa_json_enc_transfer_eim_pkg_rsp(const struct ipa_esipa_prvde_eim_pkg_rslt_req *req);
 
+/* Report whether the eIM's response header says the function succeeded.  For ESipa.CancelSession,
+ * which section 6.4.1.8 gives no response body, that header is the whole response. */
+bool ipa_esipa_json_exec_ok(const struct ipa_buf *body, const char *function_name);
+
 /* ---- Decoders (eIM -> IPA responses) ---------------------------------- */
 
 /* All decoders allocate the result struct via IPA_ALLOC_ZERO and return it

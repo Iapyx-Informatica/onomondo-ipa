@@ -20,6 +20,7 @@
 #include "length.h"
 #include "context.h"
 #include "esipa.h"
+#include "esipa_json.h"
 #include "esipa_cancel_session.h"
 
 #ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
@@ -100,17 +101,26 @@ static struct ipa_buf *json_enc_cancel_session_req(struct ipa_context *ctx, cons
 	return ipa_esipa_json_enc_cancel_session_req(req);
 }
 
-/* CancelSession has no response body in the JSON binding: a successful
- * transport is itself the acknowledgement, so synthesise an "ok" result. */
+/* CancelSession has no response body in the JSON binding -- section 6.4.1.8 says so in as many words --
+ * which leaves the response header of section 6.1.2 as the whole response, and as the only place the
+ * eIM can report that the function failed.  A successful transport is therefore not the
+ * acknowledgement: the header still has to say "Executed-Success".
+ *
+ * Section 5.14.8 lists no Specific Status Codes, so there is no code to map onto cancel_session_err the
+ * way the ASN.1 binding fills it from cancelSessionError.  undefinedError says what is known: the eIM
+ * refused, and did not say anything this interface can name. */
 static void *json_dec_cancel_session_res(const struct ipa_buf *res_buf, const void *req)
 {
 	struct ipa_esipa_cancel_session_res *res;
-	(void)res_buf;
 	(void)req;
 
 	res = IPA_ALLOC_ZERO(struct ipa_esipa_cancel_session_res);
-	if (res)
+	if (!res)
+		return NULL;
+	if (ipa_esipa_json_exec_ok(res_buf, "CancelSession"))
 		res->cancel_session_ok = true;
+	else
+		res->cancel_session_err = CancelSessionResponseEsipa__cancelSessionError_undefinedError;
 	return res;
 }
 

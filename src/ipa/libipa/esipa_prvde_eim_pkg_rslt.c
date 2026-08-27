@@ -224,7 +224,6 @@ err:
  *     <eim_pkg_der> EimPackageResult  (CHOICE, no outer tag — built by
  *                                      ipa_esipa_build_eim_pkg_result_der)
  */
-#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 /* Why the eIM refused the eIM Package Result (SGP.32, section 6.3.2.7). All three named codes say the
  * eIM could not work out which eUICC the result belongs to, which is what eidValue exists to prevent. */
 #define PEPR_ERR(name) \
@@ -237,6 +236,19 @@ static const struct num_str_map error_code_strings[] = {
 	PEPR_ERR(undefinedError),
 	{ 0, NULL }
 };
+
+/*! Name of an ESipa.ProvideEimPackageResult error code, for log messages.
+ *  \param[in] err the error code as decoded from the eIM response.
+ *  \returns the code's name from the ASN.1 definition (section 6.3.2.7), or "(unknown)".
+ *
+ *  Shared by both wire bindings on purpose: the JSON binding carries the same codes, and the two
+ *  must not describe one code by two different names. */
+const char *ipa_esipa_prvde_eim_pkg_rslt_err_str(long err)
+{
+	return ipa_str_from_num(error_code_strings, err, "(unknown)");
+}
+
+#ifdef IPA_HAVE_ESIPA_ASN1		/* ESipa ASN.1 binding, SGP.32 section 6.3 */
 #undef PEPR_ERR
 static struct ipa_buf *enc_prvde_eim_pkg_rslt_req_passthru(
 	const struct ipa_context *ctx,
@@ -337,6 +349,13 @@ static struct ipa_buf *enc_prvde_eim_pkg_rslt_req(const struct ipa_context *ctx,
 		pepr->eimPackageResult.present = EimPackageResult_PR_eimPackageResultResponseError;
 		pepr->eimPackageResult.choice.eimPackageResultResponseError.eimPackageResultErrorCode =
 		    req->eim_pkg_err;
+		/* Section 6.3.2.7: "If eimTransactionId was present in the eIM Package, the IPA SHALL
+		 * return the same eimTransactionId". Without it the eIM cannot tell which of the
+		 * operations it dispatched this rejection belongs to, which is the whole reason it sent
+		 * an id in the first place. The cast drops const the same way eidValue does above; the
+		 * encoder only reads it. */
+		pepr->eimPackageResult.choice.eimPackageResultResponseError.eimTransactionId =
+		    (TransactionId_t *) req->eim_transaction_id;
 	} else if (req->euicc_package_result && req->sgp32_notification_list) {
 		pepr->eimPackageResult.present = EimPackageResult_PR_ePRAndNotifications;
 		pepr->eimPackageResult.choice.ePRAndNotifications.euiccPackageResult =
@@ -367,6 +386,8 @@ static struct ipa_buf *enc_prvde_eim_pkg_rslt_req(const struct ipa_context *ctx,
 		pepr->eimPackageResult.present = EimPackageResult_PR_eimPackageResultResponseError;
 		pepr->eimPackageResult.choice.eimPackageResultResponseError.eimPackageResultErrorCode =
 		    EimPackageResultErrorCode_undefinedError;
+		pepr->eimPackageResult.choice.eimPackageResultResponseError.eimTransactionId =
+		    (TransactionId_t *) req->eim_transaction_id;
 	}
 
 	enc = ipa_esipa_msg_to_eim_enc(&msg_to_eim, "ProvideEimPackageResult");
@@ -417,7 +438,7 @@ struct ipa_esipa_prvde_eim_pkg_rslt_res *dec_prvde_eim_pkg_rslt_res(const struct
 	return res;
 }
 
-static struct ipa_buf *enc_prvde_eim_pkg_rslt_req_cb(struct ipa_context *ctx, const void *req)
+struct ipa_buf *ipa_esipa_prvde_eim_pkg_rslt_enc_req(struct ipa_context *ctx, const void *req)
 {
 	return enc_prvde_eim_pkg_rslt_req(ctx, req);
 }
@@ -455,7 +476,7 @@ struct ipa_esipa_prvde_eim_pkg_rslt_res *ipa_esipa_prvde_eim_pkg_rslt(struct ipa
 		       "Providing eUICC package result and eUICC notifications to eIM\n");
 
 	return ipa_esipa_call(ctx, "ProvideEimPackageResult", req,
-			      IPA_ESIPA_ASN1_CB(enc_prvde_eim_pkg_rslt_req_cb, dec_prvde_eim_pkg_rslt_res_cb),
+			      IPA_ESIPA_ASN1_CB(ipa_esipa_prvde_eim_pkg_rslt_enc_req, dec_prvde_eim_pkg_rslt_res_cb),
 			      IPA_ESIPA_JSON_CB(json_enc_prvde_eim_pkg_rslt_req, json_dec_prvde_eim_pkg_rslt_res));
 }
 
@@ -463,5 +484,14 @@ struct ipa_esipa_prvde_eim_pkg_rslt_res *ipa_esipa_prvde_eim_pkg_rslt(struct ipa
  *  \param[in] res pointer to function result. */
 void ipa_esipa_prvde_eim_pkg_rslt_free(struct ipa_esipa_prvde_eim_pkg_rslt_res *res)
 {
+	/* The two bindings own their result members differently, and IPA_ESIPA_RES_FREE only knows the
+	 * ASN.1 model: there every member points into msg_to_ipa, so freeing that one tree frees
+	 * everything.  The JSON decoders allocate their members instead and leave msg_to_ipa NULL, which
+	 * is what distinguishes the two at run time -- both bindings are compiled in and the choice is
+	 * ctx->cfg->esipa_binding.  This is the "caller must free those first" case the macro's own
+	 * comment describes.
+	 */
+	if (res && !res->msg_to_ipa)
+		ASN_STRUCT_FREE(asn_DEF_EimAcknowledgements, res->eim_acknowledgements);
 	IPA_ESIPA_RES_FREE(res);
 }

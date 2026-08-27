@@ -772,8 +772,10 @@ static void json_error_response_test(void)
 		ipa_esipa_get_eim_pkg_free(res);
 		ipa_buf_free(body);
 
-		/* The body arm of section 6.4.1.5, which this function has in addition to the header. */
-		body = json_body("{\"eimPackageError\":2}");
+		/* The body arm of section 6.4.1.5, which this function has in addition to the header.  The
+		 * header is mandatory either way, so a conforming eIM using the body arm still sends one. */
+		body = json_body("{\"header\":{\"functionExecutionStatus\":{\"status\":\"Executed-Success\"}},"
+				 "\"eimPackageError\":2}");
 		res = ipa_esipa_json_dec_get_eim_pkg_res(body);
 		assert(res);
 		assert(res->eim_pkg_err == GetEimPackageResponse__eimPackageError_eidNotFound);
@@ -813,28 +815,88 @@ static void json_error_response_test(void)
 /* A body that carries neither a result nor an error code must not become a success either.  This is
  * the case the procedure layer's "no Ok member" guard was written for, and that the unconditional
  * allocation defeated. */
-static void json_empty_response_test(void)
+/* The response header of SGP.22 section 6.5.1.4 is mandatory on every ESipa response (SGP.32 section
+ * 6.1.2), and it is what says whether the function succeeded.  A response that omits it, or that
+ * reports a status this interface does not define, cannot be read as a success -- and must not be
+ * read as one just because it never said otherwise. */
+static void json_malformed_header_test(void)
 {
-	struct ipa_buf *body = json_body("{}");
-	struct ipa_esipa_init_auth_res *ia;
-	struct ipa_esipa_auth_clnt_res *ac;
-	struct ipa_esipa_get_bnd_prfle_pkg_res *gb;
+	static const struct {
+		const char *what;
+		const char *body;
+	} cases[] = {
+		{ "no header at all       ", "{}" },
+		{ "header, no status      ", "{\"header\":{\"functionExecutionStatus\":{}}}" },
+		{ "status of another kind ", "{\"header\":{\"functionExecutionStatus\":"
+					     "{\"status\":\"Executed-WithWarning\"}}}" },
+		{ "status not a string    ", "{\"header\":{\"functionExecutionStatus\":{\"status\":7}}}" },
+		{ "header not an object   ", "{\"header\":\"Executed-Success\"}" },
+		/* statusCodeData is OPTIONAL, so a bare "Failed" is conforming -- it just does not say why. */
+		{ "failed, no status code ", "{\"header\":{\"functionExecutionStatus\":{\"status\":\"Failed\"}}}" },
+		/* subjectCode and reasonCode are required together; one alone says no more than neither. */
+		{ "reasonCode missing     ", "{\"header\":{\"functionExecutionStatus\":{\"status\":\"Failed\","
+					     "\"statusCodeData\":{\"subjectCode\":\"8.8.1\"}}}}" },
+	};
+	unsigned int i;
 
-	printf("== json_empty_response_test ==\n");
+	printf("== json_malformed_header_test ==\n");
 
-	ia = ipa_esipa_json_dec_init_auth_res(body);
-	assert(ia && ia->init_auth_ok == NULL && ia->init_auth_err == 0);
-	ipa_esipa_init_auth_res_free(ia);
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		struct ipa_buf *body = json_body(cases[i].body);
+		struct ipa_esipa_init_auth_res *ia;
+		struct ipa_esipa_auth_clnt_res *ac;
+		struct ipa_esipa_get_bnd_prfle_pkg_res *gb;
 
-	ac = ipa_esipa_json_dec_auth_clnt_res(body, NULL);
-	assert(ac && ac->auth_clnt_ok_dpe == NULL && ac->auth_clnt_ok_dse == NULL && ac->auth_clnt_err == 0);
-	ipa_esipa_auth_clnt_res_free(ac);
+		ia = ipa_esipa_json_dec_init_auth_res(body);
+		assert(ia && ia->init_auth_ok == NULL);
+		assert(ia->init_auth_err ==
+		       InitiateAuthenticationResponseEsipa__initiateAuthenticationErrorEsipa_undefinedError);
+		ipa_esipa_init_auth_res_free(ia);
 
-	gb = ipa_esipa_json_dec_get_bnd_prfle_pkg_res(body);
-	assert(gb && gb->get_bnd_prfle_pkg_ok == NULL && gb->get_bnd_prfle_pkg_err == 0);
-	ipa_esipa_get_bnd_prfle_pkg_res_free(gb);
+		ac = ipa_esipa_json_dec_auth_clnt_res(body, NULL);
+		assert(ac && ac->auth_clnt_ok_dpe == NULL && ac->auth_clnt_ok_dse == NULL);
+		assert(ac->auth_clnt_err ==
+		       AuthenticateClientResponseEsipa__authenticateClientErrorEsipa_undefinedError);
+		ipa_esipa_auth_clnt_res_free(ac);
 
-	printf("   empty body              -> no Ok attached in any decoder\n");
+		gb = ipa_esipa_json_dec_get_bnd_prfle_pkg_res(body);
+		assert(gb && gb->get_bnd_prfle_pkg_ok == NULL);
+		assert(gb->get_bnd_prfle_pkg_err ==
+		       GetBoundProfilePackageResponseEsipa__getBoundProfilePackageErrorEsipa_undefinedError);
+		ipa_esipa_get_bnd_prfle_pkg_res_free(gb);
+
+		printf("   %s -> undefinedError, no Ok attached\n", cases[i].what);
+		ipa_buf_free(body);
+	}
+}
+
+/* CancelSession has no response body of its own (section 6.4.1.8), so the header is the entire
+ * response and the only place a refusal can appear.  The JSON decoder used to ignore the body outright
+ * and report success unconditionally. */
+static void json_cancel_session_status_test(void)
+{
+	struct ipa_buf *body;
+
+	printf("== json_cancel_session_status_test ==\n");
+
+	body = json_body("{\"header\":{\"functionExecutionStatus\":{\"status\":\"Executed-Success\"}}}");
+	assert(ipa_esipa_json_exec_ok(body, "CancelSession"));
+	printf("   Executed-Success        -> accepted\n");
+	ipa_buf_free(body);
+
+	body = json_failed("1.3.1", "2.1", NULL);
+	assert(!ipa_esipa_json_exec_ok(body, "CancelSession"));
+	printf("   Failed                  -> refused\n");
+	ipa_buf_free(body);
+
+	body = json_body("{}");
+	assert(!ipa_esipa_json_exec_ok(body, "CancelSession"));
+	printf("   no header               -> refused\n");
+	ipa_buf_free(body);
+
+	body = json_body("not json at all");
+	assert(!ipa_esipa_json_exec_ok(body, "CancelSession"));
+	printf("   unparseable             -> refused\n");
 	ipa_buf_free(body);
 }
 /* The JSON binding carries the very same EimPackageResult, base64 of its DER (section 6.4.1.6), so the
@@ -950,7 +1012,8 @@ int main(int argc, char **argv)
 	json_init_auth_transaction_id_test();
 	json_get_eim_pkg_test();
 	json_error_response_test();
-	json_empty_response_test();
+	json_malformed_header_test();
+	json_cancel_session_status_test();
 	json_eim_pkg_err_report_test();
 #else
 	printf("== JSON binding not built, its encoder cases skipped ==\n");

@@ -364,52 +364,93 @@ struct esipa_json_status_map {
 static long json_exec_status(json_t *obj, const struct esipa_json_status_map *map, long undefined_err,
 			     const char *function_name)
 {
-	json_t *hdr, *fes, *status, *scd, *subject, *reason;
-	const char *subject_str, *reason_str;
+	json_t *hdr, *fes, *status, *scd, *subject, *reason, *message;
+	const char *status_str, *subject_str, *reason_str;
 	unsigned int i;
 
+	/* header, header.functionExecutionStatus and its status are each "required" in SGP.22 section
+	 * 6.5.1.4, and section 6.1.2 puts that header on every ESipa response.  A response missing any of
+	 * them is not the message this interface defines, and cannot be read as a success just because it
+	 * failed to say otherwise.  json_is_object() and json_is_string() are NULL-safe, so the whole
+	 * chain collapses into one check. */
 	hdr = json_object_get(obj, "header");
-	if (!hdr || !json_is_object(hdr)) {
-		/* The header is mandatory, but a response missing it is not treated as a failure here: the
-		 * mandatory-member check each decoder performs on the body is the backstop, and it reports a
-		 * response that carries no result whether or not a header explained why. */
-		IPA_LOGP_ESIPA(function_name, LDEBUG,
-			       "response carries no JSON responseHeader, judging it by its body alone\n");
-		return 0;
-	}
 	fes = json_object_get(hdr, "functionExecutionStatus");
-	status = fes ? json_object_get(fes, "status") : NULL;
-	if (!status || !json_is_string(status)) {
+	status = json_object_get(fes, "status");
+	if (!json_is_string(status)) {
 		IPA_LOGP_ESIPA(function_name, LERROR,
-			       "response header carries no functionExecutionStatus.status\n");
+			       "response carries no header.functionExecutionStatus.status, so there is no saying whether the function succeeded\n");
 		return undefined_err;
 	}
-	if (strcmp(json_string_value(status), "Executed-Success") == 0)
-		return 0;
 
-	/* Anything that is not the one success value is a failure.  SGP.22 section 5.2.5 leaves "Failed"
-	 * as the only other permitted value, so an unrecognised one is a malformed response rather than a
-	 * state the IPA should try to interpret. */
-	scd = json_object_get(fes, "statusCodeData");
-	subject = scd ? json_object_get(scd, "subjectCode") : NULL;
-	reason = scd ? json_object_get(scd, "reasonCode") : NULL;
-	if (!subject || !json_is_string(subject) || !reason || !json_is_string(reason)) {
+	status_str = json_string_value(status);
+	if (strcmp(status_str, "Executed-Success") == 0)
+		return 0;
+	if (strcmp(status_str, "Failed") != 0) {
+		/* SGP.22 section 5.2.5 forbids Executed-WithWarning and Expired here, leaving "Failed" as the
+		 * only other value.  Anything else is a response this interface does not define; report the
+		 * value received so a non-conforming eIM can be identified from the log. */
 		IPA_LOGP_ESIPA(function_name, LERROR,
-			       "function failed, but the response carries no usable statusCodeData\n");
+			       "response reports function execution status \"%s\", which this interface does not define\n",
+			       status_str);
+		return undefined_err;
+	}
+
+	/* statusCodeData is optional -- section 6.5.1.4 requires only status -- so a bare "Failed" is a
+	 * conforming answer that does not say why.  Where it is present, subjectCode and reasonCode are
+	 * both required, and one without the other says no more than neither. */
+	scd = json_object_get(fes, "statusCodeData");
+	subject = json_object_get(scd, "subjectCode");
+	reason = json_object_get(scd, "reasonCode");
+	if (!json_is_string(subject) || !json_is_string(reason)) {
+		IPA_LOGP_ESIPA(function_name, LERROR,
+			       "function failed, without a status code saying why\n");
 		return undefined_err;
 	}
 	subject_str = json_string_value(subject);
 	reason_str = json_string_value(reason);
 
+	/* message is optional and purely human-readable, which makes it worth logging and nothing else. */
+	message = json_object_get(scd, "message");
+
 	for (i = 0; map && map[i].subject_code; i++) {
-		if (strcmp(map[i].subject_code, subject_str) == 0 && strcmp(map[i].reason_code, reason_str) == 0)
-			return map[i].err;
+		if (strcmp(map[i].subject_code, subject_str) != 0 || strcmp(map[i].reason_code, reason_str) != 0)
+			continue;
+		if (json_is_string(message))
+			IPA_LOGP_ESIPA(function_name, LDEBUG, "eIM says: %s\n", json_string_value(message));
+		return map[i].err;
 	}
 
+	/* A status code outside this function's table.  The generic codes of SGP.22 section 5.2.6 can turn
+	 * up on any function, and the ASN.1 error enums have no room for them, so they collapse onto
+	 * undefinedError -- which still fails the call, only less precisely. */
 	IPA_LOGP_ESIPA(function_name, LERROR,
-		       "function failed with status code %s/%s, which this function does not define\n",
-		       subject_str, reason_str);
+		       "function failed with status code %s/%s, which it does not define%s%s\n",
+		       subject_str, reason_str, json_is_string(message) ? ": " : "",
+		       json_is_string(message) ? json_string_value(message) : "");
 	return undefined_err;
+}
+
+/* Did the eIM report a failure, for a function with no response body of its own?
+ *
+ * ESipa.CancelSession is the only one: section 6.4.1.8 ends with "ESipa.CancelSession function has no
+ * <JSON responseBody>", which leaves the response header of section 6.1.2 as the entire response, and
+ * therefore as the only place a failure can be stated.  Section 5.14.8 defines no Specific Status Codes
+ * for it, so there is nothing to map -- the question is only whether it failed.
+ *
+ * \returns true when the eIM reported success. */
+bool ipa_esipa_json_exec_ok(const struct ipa_buf *body, const char *function_name)
+{
+	json_t *obj = json_load_from_buf(body);
+	long err;
+
+	if (!obj) {
+		IPA_LOGP_ESIPA(function_name, LERROR,
+			       "response is not the JSON responseHeader this function is supposed to carry\n");
+		return false;
+	}
+	err = json_exec_status(obj, NULL, -1, function_name);
+	json_decref(obj);
+	return err == 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -536,12 +577,16 @@ struct ipa_esipa_init_auth_res *ipa_esipa_json_dec_init_auth_res(const struct ip
 	/* matchingId: plain string (optional) */
 	j = json_object_get(obj, "matchingId");
 	if (j && json_is_string(j)) {
-		static UTF8String_t mid;
+		/* Heap, not a function-static.  A static would be shared by every response decoded in this
+		 * process -- each call overwriting the previous result's matchingId and orphaning its buffer
+		 * -- and, worse, would make the enclosing "Ok" unfreeable, because ASN_STRUCT_FREE would
+		 * reach a free() of an object that was never allocated. */
+		UTF8String_t *mid = IPA_ALLOC_ZERO(UTF8String_t);
 		size_t l = strlen(json_string_value(j));
-		mid.buf = IPA_ALLOC_N(l);
-		memcpy(mid.buf, json_string_value(j), l);
-		mid.size = l;
-		ok->matchingId = &mid;
+		mid->buf = IPA_ALLOC_N(l);
+		memcpy(mid->buf, json_string_value(j), l);
+		mid->size = l;
+		ok->matchingId = mid;
 	}
 	/* ctxParams1: base64(DER) (optional) */
 	CtxParams1_t *cp1 = json_get_asn1_b64(obj, "ctxParams1", &asn_DEF_CtxParams1);
