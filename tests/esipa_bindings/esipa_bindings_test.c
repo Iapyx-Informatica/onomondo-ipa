@@ -517,7 +517,7 @@ static void asn1_prvde_eim_pkg_rslt_response_test(void)
 
 	/* eimAcknowledgements: accepted, and the sequence numbers come back. */
 	r->present = ProvideEimPackageResultResponse_PR_eimAcknowledgements;
-	seq = calloc(1, sizeof(*seq));
+	seq = IPA_CALLOC(1, sizeof(*seq));
 	assert(seq);
 	*seq = 7;
 	ASN_SEQUENCE_ADD(&r->choice.eimAcknowledgements.list, seq);

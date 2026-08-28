@@ -585,7 +585,9 @@ struct EuiccResultData *iot_emo_do_updateEim_eco(struct ipa_context *ctx,
 	struct ipa_es10b_add_init_eim_res *add_init_eim_res = NULL;
 	unsigned int i;
 	struct EimConfigurationData *eim_cfg_data_item;
-	struct EimConfigurationData *eim_cfg_data_item_updated;
+	/* NULL, because the error path below frees this unconditionally and two of the ways in reach it
+	 * without ever assigning it: the eimConfigurationData read failing, and the eIM not being found. */
+	struct EimConfigurationData *eim_cfg_data_item_updated = NULL;
 	bool eimFound = false;
 
 	euicc_result_data->present = EuiccResultData_PR_updateEimResult;

@@ -16,8 +16,14 @@ endif()
 # The input is read from the source tree and the output written to this test's
 # own binary directory, so the test holds for any build directory name and for
 # a build tree outside the source tree.
+#
+# The "====>" lines the -DMEM_EMIT_DEBUG=ON allocation tracer writes to stderr are stripped from both
+# captured streams before the comparisons below read them.  See tests/activation_code/CMakeLists.txt.
 add_test(NAME bpp_segments_test
-    COMMAND sh -c "'$<TARGET_FILE:bpp_segments_test>' '${CMAKE_CURRENT_SOURCE_DIR}/bpp.ber' > bpp_segments_test.out 2> bpp_segments_test.err"
+    COMMAND sh -c "'$<TARGET_FILE:bpp_segments_test>' '${CMAKE_CURRENT_SOURCE_DIR}/bpp.ber' > raw.out 2> raw.err; rc=$?; \
+                   sed '/^====>/d' raw.out > bpp_segments_test.out; \
+                   sed '/^====>/d' raw.err > bpp_segments_test.err; \
+                   exit $rc"
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 add_test(NAME bpp_segments_compare_stdout

@@ -6,6 +6,10 @@
 
 #pragma once
 
+#include <assert.h>
+#include <inttypes.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #ifdef __APPLE__
 #include <malloc/malloc.h>
@@ -25,8 +29,8 @@ extern long int ___mem_peak;
 	___ptr = malloc(n); \
 	___mem_counter += malloc_usable_size(___ptr); \
 	if (___mem_counter > ___mem_peak) ___mem_peak = ___mem_counter;	\
-	printf("====> %p=malloc(%zu): %li bytes total, %li bytes peak\n", \
-	       ___ptr, (size_t)n, ___mem_counter, ___mem_peak);	\
+	fprintf(stderr, "====> %p=malloc(%zu): %li bytes total, %li bytes peak\n", \
+		___ptr, (size_t)n, ___mem_counter, ___mem_peak); \
 	assert(___mem_counter >= 0); \
 	___ptr; \
 })
@@ -40,8 +44,8 @@ extern long int ___mem_peak;
 	___ptr = calloc(nmemb, n);		      \
 	___mem_counter += malloc_usable_size(___ptr); \
 	if (___mem_counter > ___mem_peak) ___mem_peak = ___mem_counter;	\
-	printf("====> %p=calloc(%zu, %ld): %li bytes total, %li bytes peak\n", \
-	       ___ptr, (size_t)nmemb, (long unsigned int)n, ___mem_counter, ___mem_peak); \
+	fprintf(stderr, "====> %p=calloc(%zu, %ld): %li bytes total, %li bytes peak\n", \
+		___ptr, (size_t)nmemb, (long unsigned int)n, ___mem_counter, ___mem_peak); \
 	assert(___mem_counter >= 0); \
 	___ptr; \
 })
@@ -52,12 +56,17 @@ extern long int ___mem_peak;
 #ifdef MEM_EMIT_DEBUG
 #define IPA_REALLOC(obj, n) ({			\
 	void *___ptr;	  \
+	/* The trace below reports the old address.  realloc() may free it, and the pointer value is
+	 * indeterminate from that moment on, so the address is captured as an integer beforehand and
+	 * printed as one.  Casting it back to void * for %p would re-create a pointer into freed
+	 * memory, which is what -Wuse-after-free objects to. */ \
+	uintptr_t ___old = (uintptr_t)(obj); \
 	___mem_counter -= malloc_usable_size(obj); \
 	___ptr = realloc(obj, n); \
 	___mem_counter += malloc_usable_size(___ptr); \
 	if (___mem_counter > ___mem_peak) ___mem_peak = ___mem_counter;	\
-	printf("====> %p=realloc(%p, %ld): %li bytes total, %li bytes peak\n", \
-	       ___ptr, obj, (long unsigned int)n, ___mem_counter, ___mem_peak); \
+	fprintf(stderr, "====> %p=realloc(0x%" PRIxPTR ", %ld): %li bytes total, %li bytes peak\n", \
+		___ptr, ___old, (long unsigned int)n, ___mem_counter, ___mem_peak); \
 	assert(___mem_counter >= 0); \
 	___ptr; \
 })
@@ -68,8 +77,8 @@ extern long int ___mem_peak;
 #ifdef MEM_EMIT_DEBUG
 #define IPA_FREE(obj) ({ \
 	___mem_counter -= malloc_usable_size(obj); \
-	printf("====> free(%p): %li bytes total, %li bytes peak, %zu bytes freed\n", \
-	       obj, ___mem_counter, ___mem_peak, malloc_usable_size(obj)); \
+	fprintf(stderr, "====> free(%p): %li bytes total, %li bytes peak, %zu bytes freed\n", \
+		obj, ___mem_counter, ___mem_peak, malloc_usable_size(obj)); \
 	assert(___mem_counter >= 0); \
 	free(obj); \
 })

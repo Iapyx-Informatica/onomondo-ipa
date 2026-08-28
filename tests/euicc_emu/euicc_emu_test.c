@@ -142,12 +142,15 @@ static void queue_profiles(long state_op, long state_fb)
 
 	res.present = ProfileInfoListResponse_PR_profileInfoListOk;
 	for (i = 0; i < 2; i++) {
-		p = calloc(1, sizeof(*p));
+		/* IPA_* allocators throughout: every fixture here is released through the asn1c free
+		 * functions, whose FREEMEM is IPA_FREE (asn_internal.h).  Allocating outside that
+		 * accounting and freeing inside it drives the -DMEM_EMIT_DEBUG=ON counter negative. */
+		p = IPA_CALLOC(1, sizeof(*p));
 		assert(p);
-		p->iccid = calloc(1, sizeof(*p->iccid));
+		p->iccid = IPA_CALLOC(1, sizeof(*p->iccid));
 		assert(p->iccid);
 		assert(OCTET_STRING_fromBuf(p->iccid, (const char *)iccids[i], IPA_LEN_ICCID) == 0);
-		p->profileState = calloc(1, sizeof(*p->profileState));
+		p->profileState = IPA_CALLOC(1, sizeof(*p->profileState));
 		assert(p->profileState);
 		*p->profileState = states[i];
 		ASN_SEQUENCE_ADD(&res.choice.profileInfoListOk.list, p);
@@ -355,17 +358,17 @@ static void queue_euicc_info2(const uint8_t *const *ci_pk_ids, const size_t *ci_
 	assert(OCTET_STRING_fromBuf(&res.extCardResource, (const char *)empty, sizeof(empty)) == 0);
 	assert(OCTET_STRING_fromBuf(&res.ppVersion, (const char *)version, sizeof(version)) == 0);
 	assert(OCTET_STRING_fromBuf(&res.sasAcreditationNumber, "TEST", 4) == 0);
-	res.uiccCapability.buf = calloc(1, 1);
+	res.uiccCapability.buf = IPA_CALLOC(1, 1);
 	assert(res.uiccCapability.buf);
 	res.uiccCapability.size = 1;
 	res.uiccCapability.bits_unused = 7;
-	res.rspCapability.buf = calloc(1, 1);
+	res.rspCapability.buf = IPA_CALLOC(1, 1);
 	assert(res.rspCapability.buf);
 	res.rspCapability.size = 1;
 	res.rspCapability.bits_unused = 7;
 
 	for (i = 0; i < count; i++) {
-		id = calloc(1, sizeof(*id));
+		id = IPA_CALLOC(1, sizeof(*id));
 		assert(id);
 		assert(OCTET_STRING_fromBuf(id, (const char *)ci_pk_ids[i], (int)ci_pk_id_lens[i]) == 0);
 		ASN_SEQUENCE_ADD(&res.euiccCiPKIdListForSigning.list, id);
@@ -380,24 +383,24 @@ static struct AddInitialEimRequest *add_init_eim_req(long counter_value, const u
 						     size_t ci_pk_id_len)
 {
 	static const uint8_t oid_ec_public_key[] = { 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01 };
-	struct AddInitialEimRequest *req = calloc(1, sizeof(*req));
-	struct EimConfigurationData *cfg_eim = calloc(1, sizeof(*cfg_eim));
-	struct EimConfigurationData__eimPublicKeyData *pk = calloc(1, sizeof(*pk));
+	struct AddInitialEimRequest *req = IPA_CALLOC(1, sizeof(*req));
+	struct EimConfigurationData *cfg_eim = IPA_CALLOC(1, sizeof(*cfg_eim));
+	struct EimConfigurationData__eimPublicKeyData *pk = IPA_CALLOC(1, sizeof(*pk));
 
 	assert(req && cfg_eim && pk);
 	assert(OCTET_STRING_fromBuf(&cfg_eim->eimId, "eim.example.com", 15) == 0);
-	cfg_eim->counterValue = calloc(1, sizeof(*cfg_eim->counterValue));
+	cfg_eim->counterValue = IPA_CALLOC(1, sizeof(*cfg_eim->counterValue));
 	assert(cfg_eim->counterValue);
 	*cfg_eim->counterValue = counter_value;
 
 	/* The OID is an OBJECT IDENTIFIER, not an OCTET STRING, so it is filled in by hand.  It has to be
 	 * set at all because validate_eim_cfg() runs asn_check_constraints() over the whole entry. */
 	pk->present = EimConfigurationData__eimPublicKeyData_PR_eimPublicKey;
-	pk->choice.eimPublicKey.algorithm.algorithm.buf = malloc(sizeof(oid_ec_public_key));
+	pk->choice.eimPublicKey.algorithm.algorithm.buf = IPA_ALLOC_N(sizeof(oid_ec_public_key));
 	assert(pk->choice.eimPublicKey.algorithm.algorithm.buf);
 	memcpy(pk->choice.eimPublicKey.algorithm.algorithm.buf, oid_ec_public_key, sizeof(oid_ec_public_key));
 	pk->choice.eimPublicKey.algorithm.algorithm.size = sizeof(oid_ec_public_key);
-	pk->choice.eimPublicKey.subjectPublicKey.buf = calloc(1, 1);
+	pk->choice.eimPublicKey.subjectPublicKey.buf = IPA_CALLOC(1, 1);
 	assert(pk->choice.eimPublicKey.subjectPublicKey.buf);
 	pk->choice.eimPublicKey.subjectPublicKey.size = 1;
 	cfg_eim->eimPublicKeyData = pk;
@@ -661,7 +664,7 @@ static void euicc_pkg_no_spurious_removal_test(void)
 	msg.present = EsipaMessageFromEimToIpa_PR_provideEimPackageResultResponse;
 	msg.choice.provideEimPackageResultResponse.present =
 	    ProvideEimPackageResultResponse_PR_eimAcknowledgements;
-	ack = calloc(1, sizeof(*ack));
+	ack = IPA_CALLOC(1, sizeof(*ack));
 	assert(ack);
 	*ack = seq;
 	ASN_SEQUENCE_ADD(&msg.choice.provideEimPackageResultResponse.choice.eimAcknowledgements.list, ack);

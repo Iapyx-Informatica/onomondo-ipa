@@ -91,7 +91,10 @@ static size_t tlv_hdr(const uint8_t *p, size_t avail, size_t *value_len)
  * to fill in completely. */
 static struct SGP32_PendingNotification *encodable_notification(void)
 {
-	struct SGP32_PendingNotification *n = calloc(1, sizeof(*n));
+	/* IPA_CALLOC, not calloc: everything this builds is released through the asn1c free functions,
+	 * whose FREEMEM is IPA_FREE (asn_internal.h).  Allocating outside that accounting and freeing
+	 * inside it drives the -DMEM_EMIT_DEBUG=ON counter negative. */
+	struct SGP32_PendingNotification *n = IPA_CALLOC(1, sizeof(*n));
 	struct CompactOtherSignedNotification *c;
 	static const uint8_t sig[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
 	static const uint8_t event[1] = { 0x40 };	/* one bit set, as NotificationEvent requires */
@@ -102,7 +105,7 @@ static struct SGP32_PendingNotification *encodable_notification(void)
 	c->tbsOtherNotification.seqNumber = 42;
 	/* NotificationEvent is a BIT STRING, so it is filled in by hand rather than through
 	 * OCTET_STRING_fromBuf(): bits_unused has to be set alongside the buffer. */
-	c->tbsOtherNotification.profileManagementOperation.buf = malloc(sizeof(event));
+	c->tbsOtherNotification.profileManagementOperation.buf = IPA_ALLOC_N(sizeof(event));
 	assert(c->tbsOtherNotification.profileManagementOperation.buf);
 	memcpy(c->tbsOtherNotification.profileManagementOperation.buf, event, sizeof(event));
 	c->tbsOtherNotification.profileManagementOperation.size = sizeof(event);
@@ -114,7 +117,7 @@ static struct SGP32_PendingNotification *encodable_notification(void)
 
 static struct SGP32_RetrieveNotificationsListResponse *notif_list(int count)
 {
-	struct SGP32_RetrieveNotificationsListResponse *lst = calloc(1, sizeof(*lst));
+	struct SGP32_RetrieveNotificationsListResponse *lst = IPA_CALLOC(1, sizeof(*lst));
 	int i;
 
 	assert(lst);
@@ -256,8 +259,8 @@ static void length_boundary_test(void)
 static void unencodable_notifications_test(void)
 {
 	struct ipa_buf *raw = raw_epr(32);
-	struct SGP32_RetrieveNotificationsListResponse *lst = calloc(1, sizeof(*lst));
-	struct SGP32_PendingNotification *empty = calloc(1, sizeof(*empty));
+	struct SGP32_RetrieveNotificationsListResponse *lst = IPA_CALLOC(1, sizeof(*lst));
+	struct SGP32_PendingNotification *empty = IPA_CALLOC(1, sizeof(*empty));
 	struct ipa_buf *out;
 
 	printf("== unencodable_notifications_test ==\n");
@@ -280,7 +283,7 @@ static void unencodable_notifications_test(void)
 	 * writing any of it, so the good member never reaches the callback either and the buffer comes
 	 * back empty; the list is dropped whole rather than shipped short. */
 	lst = notif_list(1);
-	empty = calloc(1, sizeof(*empty));
+	empty = IPA_CALLOC(1, sizeof(*empty));
 	assert(empty);
 	empty->present = SGP32_PendingNotification_PR_NOTHING;
 	ASN_SEQUENCE_ADD(&lst->choice.notificationList.list, empty);
