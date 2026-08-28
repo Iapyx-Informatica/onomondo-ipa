@@ -28,6 +28,8 @@
 #include <ProfileInfoListResponse.h>
 #include <EsipaMessageFromEimToIpa.h>
 #include <EnableProfileResponse.h>
+#include <ImmediateEnableResponse.h>
+#include <ConfigureImmediateProfileEnablingResponse.h>
 #include <ExecuteFallbackMechanismResponse.h>
 #include <ReturnFromFallbackResponse.h>
 #include <EuiccResultData.h>
@@ -42,6 +44,8 @@
 #include "src/ipa/libipa/es10b_load_euicc_pkg.h"
 #include "src/ipa/libipa/proc_euicc_pkg_dwnld_exec.h"
 #include "src/ipa/libipa/es10b_prfle_rollback.h"
+#include "src/ipa/libipa/es10b_immediate_enable.h"
+#include "src/ipa/libipa/es10b_cfg_immediate_enable.h"
 #include "tests/stubs/euicc_stub.h"
 
 /* Not declared in a header: the PSMO handlers are reached from the dispatch in the same file. */
@@ -666,6 +670,120 @@ static void euicc_pkg_no_spurious_removal_test(void)
 	free_ctx(ctx);
 }
 
+
+/* SGP.32 section 5.9.17, emulation branch.  A consumer eUICC has nowhere to keep an immediate-enable
+ * configuration, so the emulation keeps it in nvstate and answers without touching the card at all --
+ * which is the first thing worth asserting, since a version that did talk to the card would be sending
+ * an ES10b function the card does not implement. */
+static void cfg_immediate_enable_emu_test(void)
+{
+	static const char smdp_address[] = "smdp.example.com";
+	struct ipa_context *ctx = emu_ctx();
+	int rc;
+
+	printf("== cfg_immediate_enable_emu_test ==\n");
+
+	rc = ipa_es10b_cfg_immediate_enable(ctx, true, "1.3.6.1.4.1.1", smdp_address);
+	assert(rc == ConfigureImmediateProfileEnablingResponse__configImmediateEnableResult_ok);
+	assert(euicc_stub_requests() == 0);
+	assert(ctx->nvstate.iot_euicc_emu.immediate_enable.flag == true);
+	assert(ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_oid);
+	assert(ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_address);
+	assert(ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_address->len == strlen(smdp_address));
+	assert(!memcmp(ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_address->data, smdp_address,
+		       strlen(smdp_address)));
+	printf("   configured               -> kept in nvstate, no ES10x traffic\n");
+
+	/* Turning it off keeps the addresses but clears the flag, which is what immediate_enable_emu()
+	 * checks first. */
+	rc = ipa_es10b_cfg_immediate_enable(ctx, false, NULL, NULL);
+	assert(rc == ConfigureImmediateProfileEnablingResponse__configImmediateEnableResult_ok);
+	assert(ctx->nvstate.iot_euicc_emu.immediate_enable.flag == false);
+	printf("   turned off               -> flag cleared\n");
+
+	/* An eUICC that already has eIM configuration data refuses: section 5.9.17 gives that its own
+	 * code, added in v1.1. */
+	ctx->nvstate.iot_euicc_emu.eim_cfg_ber = ipa_buf_alloc_data(2, (uint8_t *)"\x01\x02");
+	assert(ctx->nvstate.iot_euicc_emu.eim_cfg_ber);
+	rc = ipa_es10b_cfg_immediate_enable(ctx, true, "1.3.6.1.4.1.1", smdp_address);
+	assert(rc ==
+	       ConfigureImmediateProfileEnablingResponse__configImmediateEnableResult_associatedEimAlreadyExists);
+	printf("   eIM config already there -> associatedEimAlreadyExists\n");
+
+	free_ctx(ctx);
+}
+
+/* SGP.32 section 5.9.15, emulation branch.  Here the emulation is doing the eUICC's job: it checks the
+ * configuration against the session the download left behind, and only then enables the profile through
+ * the consumer ES10c function.  None of that runs against a real IoT eUICC. */
+static void immediate_enable_emu_test(void)
+{
+	static const uint8_t aid[] = { 0xa0, 0x00, 0x00, 0x05, 0x59, 0x10, 0x10 };
+	static const char smdp_address[] = "smdp.example.com";
+	struct ipa_context *ctx;
+	int rc;
+
+	printf("== immediate_enable_emu_test ==\n");
+
+	/* Never configured: nothing to enable against. */
+	ctx = emu_ctx();
+	rc = ipa_es10b_immediate_enable(ctx, true);
+	assert(rc == ImmediateEnableResponse__immediateEnableResult_immediateEnableNotAvailable);
+	assert(euicc_stub_requests() == 0);
+	printf("   not configured           -> immediateEnableNotAvailable, card untouched\n");
+	free_ctx(ctx);
+
+	/* Configured, but no download session left anything behind to enable. */
+	ctx = emu_ctx();
+	assert(ipa_es10b_cfg_immediate_enable(ctx, true, "1.3.6.1.4.1.1", smdp_address) == 0);
+	rc = ipa_es10b_immediate_enable(ctx, true);
+	assert(rc == ImmediateEnableResponse__immediateEnableResult_noSessionContext);
+	printf("   no session context       -> noSessionContext\n");
+	free_ctx(ctx);
+
+	/* Configured, session present, everything agrees: the profile is enabled through ES10c. */
+	ctx = emu_ctx();
+	assert(ipa_es10b_cfg_immediate_enable(ctx, true, "1.3.6.1.4.1.1", smdp_address) == 0);
+	ctx->iot_euicc_emu.immediate_enable.smdp_oid =
+	    ipa_buf_alloc_and_cpy(ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_oid->data,
+				  ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_oid->len);
+	ctx->iot_euicc_emu.immediate_enable.smdp_address =
+	    ipa_buf_alloc_data(strlen(smdp_address), (uint8_t *)smdp_address);
+	ctx->iot_euicc_emu.immediate_enable.profile_aid = ipa_buf_alloc_data(sizeof(aid), (uint8_t *)aid);
+	euicc_stub_reset();
+	queue_enable_profile_res(EnableProfileResponse__enableResult_ok);
+
+	rc = ipa_es10b_immediate_enable(ctx, true);
+	assert(rc == ImmediateEnableResponse__immediateEnableResult_ok);
+	assert(euicc_stub_request_has_tag(0, TAG_ENABLE_PROFILE));
+	assert(ctx->nvstate.state_change_cause == IPA_STATE_CHANGE_IMMEDIATE_ENABLE_PROFILE);
+	/* The session is one-shot: whatever the outcome, it must not be reusable. */
+	assert(ctx->iot_euicc_emu.immediate_enable.smdp_oid == NULL);
+	assert(ctx->iot_euicc_emu.immediate_enable.smdp_address == NULL);
+	assert(ctx->iot_euicc_emu.immediate_enable.profile_aid == NULL);
+	printf("   session matches          -> ES10c EnableProfile sent, session consumed\n");
+	free_ctx(ctx);
+
+	/* The check that makes the rest of it worth doing: a session naming a different SM-DP+ than the one
+	 * configured must not enable anything.  Same length as the configured address on purpose, so it is
+	 * the comparison of the bytes that has to catch this and not the length check in front of it. */
+	ctx = emu_ctx();
+	assert(ipa_es10b_cfg_immediate_enable(ctx, true, "1.3.6.1.4.1.1", smdp_address) == 0);
+	ctx->iot_euicc_emu.immediate_enable.smdp_oid =
+	    ipa_buf_alloc_and_cpy(ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_oid->data,
+				  ctx->nvstate.iot_euicc_emu.immediate_enable.smdp_oid->len);
+	ctx->iot_euicc_emu.immediate_enable.smdp_address =
+	    ipa_buf_alloc_data(strlen("smdq.example.com"), (uint8_t *)"smdq.example.com");
+	ctx->iot_euicc_emu.immediate_enable.profile_aid = ipa_buf_alloc_data(sizeof(aid), (uint8_t *)aid);
+	euicc_stub_reset();
+
+	rc = ipa_es10b_immediate_enable(ctx, true);
+	assert(rc == ImmediateEnableResponse__immediateEnableResult_immediateEnableNotAvailable);
+	assert(euicc_stub_requests() == 0);
+	printf("   session names another SM-DP+ -> refused, nothing enabled\n");
+	free_ctx(ctx);
+}
+
 int main(int argc, char **argv)
 {
 	(void)argc;
@@ -679,6 +797,8 @@ int main(int argc, char **argv)
 	fallback_profile_query_emu_test();
 	euicc_pkg_seq_number_test();
 	euicc_pkg_no_spurious_removal_test();
+	cfg_immediate_enable_emu_test();
+	immediate_enable_emu_test();
 
 	printf("euicc_emu_test: all checks passed\n");
 	return 0;
