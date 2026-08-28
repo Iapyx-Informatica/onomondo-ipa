@@ -35,3 +35,7 @@ void ipa_esipa_note_state_change(struct ipa_context *ctx, enum ipa_state_change_
  *  onomondo/ipa/ipad.h. */
 int ipa_esipa_set_rplmn(struct ipa_context *ctx, const char *mcc, const char *mnc);
 void ipa_esipa_get_eim_pkg_free(struct ipa_esipa_get_eim_pkg_res *res);
+
+/*! Name of an ESipa.GetEimPackage error code, for log messages.  Shared by the ASN.1 and
+ *  JSON bindings so that one code is never described by two different names. */
+const char *ipa_esipa_get_eim_pkg_err_str(long err);
