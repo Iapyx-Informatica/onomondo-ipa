@@ -20,7 +20,10 @@
 /* A signed eUICC Package Result carrying the given result branches. */
 static struct EuiccPackageResult *result_with(const EuiccResultData_PR *branches, int count, long seq_number)
 {
-	struct EuiccPackageResult *res = calloc(1, sizeof(*res));
+	/* IPA_CALLOC, not calloc: these fixtures are released through the asn1c free functions, whose
+	 * FREEMEM is IPA_FREE (asn_internal.h).  Allocating outside that accounting and freeing inside it
+	 * is what makes -DMEM_EMIT_DEBUG=ON abort on its allocation counter. */
+	struct EuiccPackageResult *res = IPA_CALLOC(1, sizeof(*res));
 	int i;
 
 	assert(res);
@@ -28,7 +31,7 @@ static struct EuiccPackageResult *result_with(const EuiccResultData_PR *branches
 	res->choice.euiccPackageResultSigned.euiccPackageResultDataSigned.seqNumber = seq_number;
 
 	for (i = 0; i < count; i++) {
-		struct EuiccResultData *data = calloc(1, sizeof(*data));
+		struct EuiccResultData *data = IPA_CALLOC(1, sizeof(*data));
 
 		assert(data);
 		data->present = branches[i];
@@ -37,6 +40,31 @@ static struct EuiccPackageResult *result_with(const EuiccResultData_PR *branches
 	}
 
 	return res;
+}
+
+/*
+ * The fixtures below are throwaway: nothing outlives the call that inspects them, so each one is
+ * released as soon as its question has been answered.  The two wrappers exist so that a fixture is
+ * never built inside an assert() expression, where there would be no name left to free it by --
+ * which is how this file came to leak every fixture it built.  Everything result_with() allocates
+ * is owned by the tree it returns, so the asn1c free function is enough.
+ */
+static bool contains_psmo(const EuiccResultData_PR *branches, int count)
+{
+	struct EuiccPackageResult *res = result_with(branches, count, 5);
+	bool contains = ipa_euicc_pkg_contains_psmo(res);
+
+	ASN_STRUCT_FREE(asn_DEF_EuiccPackageResult, res);
+	return contains;
+}
+
+static long seq_number_of(const EuiccResultData_PR *branches, int count, long seq_number)
+{
+	struct EuiccPackageResult *res = result_with(branches, count, seq_number);
+	long read_back = ipa_euicc_pkg_result_seq_number(res);
+
+	ASN_STRUCT_FREE(asn_DEF_EuiccPackageResult, res);
+	return read_back;
 }
 
 /* Step 9: "if the eUICC Package contains PSMO(s), the IPAd SHALL retrieve pending Notifications". */
@@ -69,29 +97,29 @@ static void psmo_detection_test(void)
 
 	/* Each PSMO on its own is enough to make the retrieval mandatory. */
 	for (i = 0; i < sizeof(psmo) / sizeof(psmo[0]); i++)
-		assert(ipa_euicc_pkg_contains_psmo(result_with(&psmo[i], 1, 5)) == true);
+		assert(contains_psmo(&psmo[i], 1) == true);
 
 	/* No eCO ever is. */
 	for (i = 0; i < sizeof(eco) / sizeof(eco[0]); i++)
-		assert(ipa_euicc_pkg_contains_psmo(result_with(&eco[i], 1, 5)) == false);
+		assert(contains_psmo(&eco[i], 1) == false);
 
 	/* A whole package of eCOs -- the addEim / deleteEim / updateEim / listEim case that used to cost an
 	 * ES10b round trip for nothing. */
-	assert(ipa_euicc_pkg_contains_psmo(result_with(eco, sizeof(eco) / sizeof(eco[0]), 5)) == false);
+	assert(contains_psmo(eco, sizeof(eco) / sizeof(eco[0])) == false);
 
 	/* All PSMOs together, and a mixed package: one PSMO anywhere in the list is enough. */
-	assert(ipa_euicc_pkg_contains_psmo(result_with(psmo, sizeof(psmo) / sizeof(psmo[0]), 5)) == true);
+	assert(contains_psmo(psmo, sizeof(psmo) / sizeof(psmo[0])) == true);
 	{
 		EuiccResultData_PR mixed[] = {
 			EuiccResultData_PR_addEimResult,
 			EuiccResultData_PR_updateEimResult,
 			EuiccResultData_PR_enableResult,	/* last position on purpose */
 		};
-		assert(ipa_euicc_pkg_contains_psmo(result_with(mixed, 3, 5)) == true);
+		assert(contains_psmo(mixed, 3) == true);
 	}
 
 	/* An empty result list has no PSMO either. */
-	assert(ipa_euicc_pkg_contains_psmo(result_with(NULL, 0, 5)) == false);
+	assert(contains_psmo(NULL, 0) == false);
 	assert(ipa_euicc_pkg_contains_psmo(NULL) == false);
 }
 
@@ -104,8 +132,8 @@ static void error_choice_test(void)
 	printf("== error_choice_test ==\n");
 
 	/* The signed branch: sequence number readable, PSMO visible. */
-	assert(ipa_euicc_pkg_result_seq_number(result_with(&enable, 1, 42)) == 42);
-	assert(ipa_euicc_pkg_result_seq_number(result_with(&enable, 1, 0)) == 0);
+	assert(seq_number_of(&enable, 1, 42) == 42);
+	assert(seq_number_of(&enable, 1, 0) == 0);
 
 	/* The eUICC refused the package: nothing was executed, so nothing is asked of it afterwards. Reading
 	 * the union without checking the CHOICE is what used to produce a garbage sequence number here. */
@@ -142,7 +170,7 @@ static void notification_list_test(void)
 	assert(ipa_notification_list_is_useful(&lst) == false);
 
 	/* One pending notification is enough to make it worth sending. */
-	item = calloc(1, sizeof(*item));
+	item = IPA_CALLOC(1, sizeof(*item));
 	assert(item);
 	item->present = SGP32_PendingNotification_PR_otherSignedNotification;
 	ASN_SEQUENCE_ADD(&lst.choice.notificationList.list, item);
@@ -157,6 +185,9 @@ static void notification_list_test(void)
 
 	lst.present = SGP32_RetrieveNotificationsListResponse_PR_NOTHING;
 	assert(ipa_notification_list_is_useful(&lst) == false);
+
+	/* lst itself is on the stack; only the list its notificationList branch grew is on the heap. */
+	ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_SGP32_PendingNotificationList, &lst.choice.notificationList);
 }
 
 int main(int argc, char **argv)

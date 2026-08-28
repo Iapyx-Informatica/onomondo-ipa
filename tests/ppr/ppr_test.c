@@ -27,41 +27,101 @@ static uint8_t mcc_mnc_a_partial[3] = { 0x42, 0xf6, 0x1e };
 static uint8_t gid_1[2] = { 0x01, 0x02 };
 static uint8_t gid_2[2] = { 0x03, 0x04 };
 
+/*
+ * Fixture bookkeeping.
+ *
+ * The cases below build their fixtures inline inside the assertions, which is what makes a table of
+ * matching rules readable -- and which leaves no name to free them by, so this file used to leak every
+ * one of them.  Rather than lift a hundred allocations out into locals, each builder records the root
+ * it produced and gives up the ones it absorbs, and every test releases what is left on the way out.
+ *
+ * Two rules make that work.  Ownership is tracked here, in the builders, because a fixture handed to
+ * another builder becomes part of that tree and must not be freed twice -- the same OperatorId_t is
+ * given to more than one rule below.  And every fixture owns its bytes: the builders copy their
+ * inputs, since the arrays they are called with are static and asn1c's free functions would otherwise
+ * be handed a pointer to file-scope storage.
+ */
+static struct {
+	asn_TYPE_descriptor_t *def;
+	void *obj;
+} fixtures[256];
+static unsigned int fixture_count;
+
+static void *track(asn_TYPE_descriptor_t *def, void *obj)
+{
+	assert(fixture_count < sizeof(fixtures) / sizeof(fixtures[0]));
+	fixtures[fixture_count].def = def;
+	fixtures[fixture_count].obj = obj;
+	fixture_count++;
+	return obj;
+}
+
+/* obj now belongs to another fixture, which will free it. */
+static void untrack(const void *obj)
+{
+	unsigned int i;
+
+	if (!obj)
+		return;
+	for (i = 0; i < fixture_count; i++) {
+		if (fixtures[i].obj == obj) {
+			fixtures[i] = fixtures[--fixture_count];
+			return;
+		}
+	}
+	assert(!"untracking a fixture that was never tracked");
+}
+
+static void free_fixtures(void)
+{
+	while (fixture_count--)
+		ASN_STRUCT_FREE(*fixtures[fixture_count].def, fixtures[fixture_count].obj);
+	fixture_count = 0;
+}
+
 static OCTET_STRING_t *octet_string(uint8_t *buf, int size)
 {
-	OCTET_STRING_t *str = calloc(1, sizeof(*str));
+	OCTET_STRING_t *str = IPA_CALLOC(1, sizeof(*str));
 
 	assert(str);
-	str->buf = buf;
+	if (size > 0) {
+		str->buf = IPA_ALLOC_N(size);
+		assert(str->buf);
+		memcpy(str->buf, buf, size);
+	}
 	str->size = size;
-	return str;
+	return track(&asn_DEF_OCTET_STRING, str);
 }
 
 static OperatorId_t *operator_id(uint8_t *mcc_mnc, OCTET_STRING_t *gid1, OCTET_STRING_t *gid2)
 {
-	OperatorId_t *op = calloc(1, sizeof(*op));
+	OperatorId_t *op = IPA_CALLOC(1, sizeof(*op));
 
 	assert(op);
-	op->mccMnc.buf = mcc_mnc;
+	op->mccMnc.buf = IPA_ALLOC_N(3);
+	assert(op->mccMnc.buf);
+	memcpy(op->mccMnc.buf, mcc_mnc, 3);
 	op->mccMnc.size = 3;
 	op->gid1 = gid1;
 	op->gid2 = gid2;
-	return op;
+	untrack(gid1);
+	untrack(gid2);
+	return track(&asn_DEF_OperatorId, op);
 }
 
 /* A PprIds / pprFlags BIT STRING built from a bit mask, MSB first: bit 0 is 0x80 of the first byte. Only one byte
  * is ever needed for the rules this specification defines. */
 static BIT_STRING_t *bit_string(uint8_t bits, int bits_unused)
 {
-	BIT_STRING_t *bs = calloc(1, sizeof(*bs));
-	uint8_t *buf = calloc(1, 1);
+	BIT_STRING_t *bs = IPA_CALLOC(1, sizeof(*bs));
+	uint8_t *buf = IPA_CALLOC(1, 1);
 
 	assert(bs && buf);
 	buf[0] = bits;
 	bs->buf = buf;
 	bs->size = 1;
 	bs->bits_unused = bits_unused;
-	return bs;
+	return track(&asn_DEF_BIT_STRING, bs);
 }
 
 #define BIT(n) (0x80 >> (n))
@@ -70,30 +130,40 @@ static BIT_STRING_t *bit_string(uint8_t bits, int bits_unused)
  * NULL terminated array. */
 static ProfilePolicyAuthorisationRule_t *ppar(uint8_t ppr_bits, bool consent_required, OperatorId_t **operators)
 {
-	ProfilePolicyAuthorisationRule_t *rule = calloc(1, sizeof(*rule));
+	ProfilePolicyAuthorisationRule_t *rule = IPA_CALLOC(1, sizeof(*rule));
 	BIT_STRING_t *ppr_ids = bit_string(ppr_bits, 5);
 	BIT_STRING_t *flags = bit_string(consent_required ? BIT(0) : 0x00, 7);
 	int i;
 
 	assert(rule);
+	/* Both members are values, not pointers, so the struct is copied and the two containers are done
+	 * with -- but the bytes they point at now belong to the rule, so only the containers go. */
 	rule->pprIds = *ppr_ids;
 	rule->pprFlags = *flags;
-	for (i = 0; operators[i]; i++)
+	untrack(ppr_ids);
+	untrack(flags);
+	IPA_FREE(ppr_ids);
+	IPA_FREE(flags);
+	for (i = 0; operators[i]; i++) {
 		ASN_SEQUENCE_ADD(&rule->allowedOperators.list, operators[i]);
+		untrack(operators[i]);
+	}
 
-	return rule;
+	return track(&asn_DEF_ProfilePolicyAuthorisationRule, rule);
 }
 
 static RulesAuthorisationTable_t *rat(ProfilePolicyAuthorisationRule_t **rules)
 {
-	RulesAuthorisationTable_t *table = calloc(1, sizeof(*table));
+	RulesAuthorisationTable_t *table = IPA_CALLOC(1, sizeof(*table));
 	int i;
 
 	assert(table);
-	for (i = 0; rules[i]; i++)
+	for (i = 0; rules[i]; i++) {
 		ASN_SEQUENCE_ADD(&table->list, rules[i]);
+		untrack(rules[i]);
+	}
 
-	return table;
+	return track(&asn_DEF_RulesAuthorisationTable, table);
 }
 
 static void operator_matching_test(void)
@@ -133,6 +203,8 @@ static void operator_matching_test(void)
 
 	/* The profile owner is what the RAT is compared against; without one nothing can match. */
 	assert(ipa_ppr_operator_matches(operator_id(mcc_mnc_any, NULL, NULL), NULL) == false);
+
+	free_fixtures();
 }
 
 static void no_ppr_test(void)
@@ -153,6 +225,8 @@ static void no_ppr_test(void)
 	consent.ppr1 = consent.ppr2 = true;
 	assert(ipa_ppr_check_against_rat(bit_string(BIT(PprIds_pprUpdateControl), 5), NULL, NULL, &consent) == 0);
 	assert(consent.ppr1 == false && consent.ppr2 == false);
+
+	free_fixtures();
 }
 
 static void ppr_authorisation_test(void)
@@ -233,6 +307,8 @@ static void ppr_authorisation_test(void)
 			  (OperatorId_t *[]) { operator_id(mcc_mnc_any, NULL, NULL), NULL }),
 		     NULL });
 	assert(ipa_ppr_check_against_rat(ppr1, NULL, table, &consent) == -EPERM);
+
+	free_fixtures();
 }
 
 /* A rule this version of the specification does not know cannot be evaluated, so the profile must not be installed
@@ -251,6 +327,8 @@ static void unknown_ppr_test(void)
 
 	/* Bits past the end of the BIT STRING are absent, not set, so a short string is not "unknown rules set". */
 	assert(ipa_ppr_check_against_rat(bit_string(BIT(PprIds_ppr1), 5), owner, table, &consent) == 0);
+
+	free_fixtures();
 }
 
 int main(int argc, char **argv)

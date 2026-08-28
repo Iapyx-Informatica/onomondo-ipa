@@ -69,6 +69,18 @@ static struct ipa_config cfg;
 static uint8_t eim_enc_buf[2048];
 static size_t eim_enc_len;
 
+/* ipa_free_ctx() releases these strings with IPA_FREE, and the library fills them in with
+ * IPA_STR_FROM_ASN (IPA_ALLOC_N underneath).  strdup() would allocate outside that accounting and be
+ * freed inside it, which drives the -DMEM_EMIT_DEBUG=ON counter negative. */
+static char *test_strdup(const char *s)
+{
+	char *copy = IPA_ALLOC_N(strlen(s) + 1);
+
+	assert(copy);
+	strcpy(copy, s);
+	return copy;
+}
+
 static int eim_enc_sink(const void *b, size_t sz, void *k)
 {
 	(void)k;
@@ -499,7 +511,7 @@ static void euicc_pkg_result_transaction_id_test(void)
 	/* Both result branches stamp the eIM's own id into what they build, which ipa_init() would have
 	 * taken from the eIM Configuration Data on the eUICC.  Nothing here reads it back; it just has to
 	 * be there. */
-	ctx->eim_id = strdup("eim.example.com");
+	ctx->eim_id = test_strdup("eim.example.com");
 	assert(ctx->eim_id);
 
 	assert(OCTET_STRING_fromBuf(&tid, (const char *)tid_bytes, sizeof(tid_bytes)) == 0);
@@ -592,7 +604,7 @@ static void euicc_pkg_seq_number_test(void)
 	long first, second;
 
 	printf("== euicc_pkg_seq_number_test ==\n");
-	ctx->eim_id = strdup("eim.example.com");
+	ctx->eim_id = test_strdup("eim.example.com");
 	assert(ctx->eim_id);
 
 	memset(&req, 0, sizeof(req));
@@ -635,7 +647,7 @@ static void euicc_pkg_no_spurious_removal_test(void)
 	unsigned int i;
 
 	printf("== euicc_pkg_no_spurious_removal_test ==\n");
-	ctx->eim_id = strdup("eim.example.com");
+	ctx->eim_id = test_strdup("eim.example.com");
 	assert(ctx->eim_id);
 
 	memset(&req, 0, sizeof(req));

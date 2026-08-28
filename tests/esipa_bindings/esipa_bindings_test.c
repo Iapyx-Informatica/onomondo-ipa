@@ -42,6 +42,18 @@
 static uint8_t esipa_enc_buf[2048];
 static size_t esipa_enc_len;
 
+/* ipa_free_ctx() releases these strings with IPA_FREE, and the library fills them in with
+ * IPA_STR_FROM_ASN (IPA_ALLOC_N underneath).  strdup() would allocate outside that accounting and be
+ * freed inside it, which drives the -DMEM_EMIT_DEBUG=ON counter negative. */
+static char *test_strdup(const char *s)
+{
+	char *copy = IPA_ALLOC_N(strlen(s) + 1);
+
+	assert(copy);
+	strcpy(copy, s);
+	return copy;
+}
+
 static int esipa_enc_sink(const void *b, size_t sz, void *key)
 {
 	(void)key;
@@ -54,18 +66,25 @@ static int esipa_enc_sink(const void *b, size_t sz, void *key)
 static uint8_t transaction_id_bytes[] = { 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef };
 #define TRANSACTION_ID_HEX "\"transactionId\":\"0123456789ABCDEF\""
 
+/*
+ * Fixtures here are released through the asn1c free functions, so they are allocated through the
+ * asn1c allocators: CALLOC is IPA_CALLOC and MALLOC is IPA_ALLOC_N (asn_internal.h), and FREEMEM is
+ * IPA_FREE.  Mixing plain calloc()/malloc() with those frees balances out under a normal build but
+ * drives the -DMEM_EMIT_DEBUG=ON allocation counter negative.
+ */
 static void set_transaction_id(TransactionId_t *tid)
 {
-	tid->buf = malloc(sizeof(transaction_id_bytes));
-	assert(tid->buf);
-	memcpy(tid->buf, transaction_id_bytes, sizeof(transaction_id_bytes));
-	tid->size = sizeof(transaction_id_bytes);
+	/* Not inside the assert(): the copy has to happen under NDEBUG too. */
+	int rc = OCTET_STRING_fromBuf(tid, (const char *)transaction_id_bytes, sizeof(transaction_id_bytes));
+
+	assert(rc == 0);
+	(void)rc;
 }
 
 /* A PrepareDownloadResponse complete enough to be DER encoded. */
 static struct PrepareDownloadResponse *response_ok(void)
 {
-	struct PrepareDownloadResponse *pdr = calloc(1, sizeof(*pdr));
+	struct PrepareDownloadResponse *pdr = IPA_CALLOC(1, sizeof(*pdr));
 	static uint8_t otpk[] = { 0x04, 0xaa, 0xbb };
 	static uint8_t sig[] = { 0xde, 0xad, 0xbe, 0xef };
 
@@ -81,7 +100,7 @@ static struct PrepareDownloadResponse *response_ok(void)
 
 static struct PrepareDownloadResponse *response_error(void)
 {
-	struct PrepareDownloadResponse *pdr = calloc(1, sizeof(*pdr));
+	struct PrepareDownloadResponse *pdr = IPA_CALLOC(1, sizeof(*pdr));
 
 	assert(pdr);
 	pdr->present = PrepareDownloadResponse_PR_downloadResponseError;
@@ -95,17 +114,23 @@ static struct PrepareDownloadResponse *response_error(void)
 static void transaction_id_lookup_test(void)
 {
 	struct PrepareDownloadResponse empty = { 0 };
+	struct PrepareDownloadResponse *pdr;
 	const TransactionId_t *tid;
 
 	printf("== transaction_id_lookup_test ==\n");
 
-	tid = ipa_esipa_get_bnd_prfle_pkg_transaction_id(response_ok());
+	/* The fixture has to outlive the lookup: tid points into it, not at a copy. */
+	pdr = response_ok();
+	tid = ipa_esipa_get_bnd_prfle_pkg_transaction_id(pdr);
 	assert(tid && tid->size == (int)sizeof(transaction_id_bytes));
 	assert(memcmp(tid->buf, transaction_id_bytes, sizeof(transaction_id_bytes)) == 0);
+	ASN_STRUCT_FREE(asn_DEF_PrepareDownloadResponse, pdr);
 
-	tid = ipa_esipa_get_bnd_prfle_pkg_transaction_id(response_error());
+	pdr = response_error();
+	tid = ipa_esipa_get_bnd_prfle_pkg_transaction_id(pdr);
 	assert(tid && tid->size == (int)sizeof(transaction_id_bytes));
 	assert(memcmp(tid->buf, transaction_id_bytes, sizeof(transaction_id_bytes)) == 0);
+	ASN_STRUCT_FREE(asn_DEF_PrepareDownloadResponse, pdr);
 
 	/* Neither branch selected: there is no transaction id to find. */
 	empty.present = PrepareDownloadResponse_PR_NOTHING;
@@ -119,26 +144,34 @@ static void transaction_id_lookup_test(void)
 static void json_request_test(void)
 {
 	struct ipa_esipa_get_bnd_prfle_pkg_req req = { 0 };
+	struct PrepareDownloadResponse *pdr;
 	struct ipa_buf *buf;
 
 	printf("== json_request_test ==\n");
 
+	/* The request holds prep_dwnld_res as const -- the encoder does not own it -- so the fixture is
+	 * kept in a second, non-const handle to free it by. */
+
 	/* The downloadResponseOk branch. */
-	req.prep_dwnld_res = response_ok();
+	pdr = response_ok();
+	req.prep_dwnld_res = pdr;
 	buf = ipa_esipa_json_enc_get_bnd_prfle_pkg_req(&req);
 	assert(buf);
 	assert(memmem(buf->data, buf->len, TRANSACTION_ID_HEX, strlen(TRANSACTION_ID_HEX)));
 	assert(memmem(buf->data, buf->len, "\"prepareDownloadResponse\"", 25));
 	printf("   ok:    %.*s\n", (int)buf->len, (const char *)buf->data);
 	ipa_buf_free(buf);
+	ASN_STRUCT_FREE(asn_DEF_PrepareDownloadResponse, pdr);
 
 	/* The downloadResponseError branch carries the transaction id somewhere else, and must still emit it. */
-	req.prep_dwnld_res = response_error();
+	pdr = response_error();
+	req.prep_dwnld_res = pdr;
 	buf = ipa_esipa_json_enc_get_bnd_prfle_pkg_req(&req);
 	assert(buf);
 	assert(memmem(buf->data, buf->len, TRANSACTION_ID_HEX, strlen(TRANSACTION_ID_HEX)));
 	printf("   error: %.*s\n", (int)buf->len, (const char *)buf->data);
 	ipa_buf_free(buf);
+	ASN_STRUCT_FREE(asn_DEF_PrepareDownloadResponse, pdr);
 }
 
 /* AuthenticateClient carries an SGP32-AuthenticateServerResponse.  Where no raw eUICC bytes are available the
@@ -172,7 +205,9 @@ static void json_auth_clnt_descriptor_test(void)
 	ipa_buf_free(buf);
 
 	/* The compact branch exists only in the SGP.32 type.  Under the SGP.22 descriptor der_encode() fails and
-	 * the whole request comes back NULL; under the right one it encodes. */
+	 * the whole request comes back NULL; under the right one it encodes.  The error branch built above is
+	 * released first: the memset that follows would otherwise drop its two OCTET STRINGs. */
+	ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_SGP32_AuthenticateServerResponse, asr);
 	memset(asr, 0, sizeof(*asr));
 	asr->present = SGP32_AuthenticateServerResponse_PR_compactAuthenticateResponseOk;
 	compact = &asr->choice.compactAuthenticateResponseOk;
@@ -185,6 +220,10 @@ static void json_auth_clnt_descriptor_test(void)
 	assert(memmem(buf->data, buf->len, "\"authenticateServerResponse\"", 28));
 	printf("   compact branch: encoded\n");
 	ipa_buf_free(buf);
+
+	/* req is on the stack; both of these are members of it, so only their contents are released. */
+	ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_SGP32_AuthenticateServerResponse, asr);
+	ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_TransactionId, &req.req.transactionId);
 }
 
 /* Without a transaction id the request cannot satisfy the schema, so no request is produced at all. */
@@ -236,6 +275,7 @@ static void asn1_init_auth_transaction_id_test(void)
 	assert(memmem(buf->data, buf->len, encoded_tid, sizeof(encoded_tid)));
 	printf("   with:    %s\n", ipa_hexdump(buf->data, buf->len));
 	ipa_buf_free(buf);
+	ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_TransactionId, &tid);
 }
 
 #endif /* IPA_HAVE_ESIPA_ASN1 */
@@ -271,6 +311,7 @@ static void json_init_auth_transaction_id_test(void)
 	assert(memmem(buf->data, buf->len, "\"eimTransactionId\":\"0123456789ABCDEF\"", 37));
 	printf("   with:    %.*s\n", (int)buf->len, (const char *)buf->data);
 	ipa_buf_free(buf);
+	ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_TransactionId, &tid);
 }
 
 #endif /* IPA_HAVE_ESIPA_JSON */
@@ -314,7 +355,7 @@ static struct ipa_context *test_ctx(struct ipa_config *cfg, int binding)
 	/* ipa_new_ctx() must not leave this at the zero value, which would be IPA_STATE_CHANGE_OTHER_EIM
 	 * and would have every first poll blame another eIM for a change that never happened. */
 	assert(ctx->nvstate.state_change_cause == IPA_STATE_CHANGE_NONE);
-	ctx->eim_fqdn = strdup("eim.example.com");
+	ctx->eim_fqdn = test_strdup("eim.example.com");
 	assert(ctx->eim_fqdn);
 	return ctx;
 }
@@ -571,7 +612,7 @@ static void asn1_eim_pkg_err_report_test(void)
 	ipa_buf_free(enc);
 
 	free(eim_tid.buf);
-	ipa_free_ctx(ctx);
+	ipa_buf_free(ipa_free_ctx(ctx));
 }
 
 
@@ -644,7 +685,7 @@ static void asn1_trigger_rejection_test(void)
 
 	ipa_buf_free(captured_req);
 	captured_req = NULL;
-	ipa_free_ctx(ctx);
+	ipa_buf_free(ipa_free_ctx(ctx));
 }
 
 
@@ -686,7 +727,7 @@ static void asn1_unknown_package_test(void)
 
 	ipa_buf_free(captured_req);
 	captured_req = NULL;
-	ipa_free_ctx(ctx);
+	ipa_buf_free(ipa_free_ctx(ctx));
 }
 
 
@@ -734,7 +775,7 @@ static void asn1_euicc_pkg_failure_test(void)
 	free(eim_tid.buf);
 	ipa_buf_free(captured_req);
 	captured_req = NULL;
-	ipa_free_ctx(ctx);
+	ipa_buf_free(ipa_free_ctx(ctx));
 }
 
 #endif /* IPA_HAVE_ESIPA_ASN1 */
@@ -1052,7 +1093,7 @@ static void json_eim_pkg_err_report_test(void)
 	ipa_buf_free(enc);
 
 	free(eim_tid.buf);
-	ipa_free_ctx(ctx);
+	ipa_buf_free(ipa_free_ctx(ctx));
 }
 
 #endif /* IPA_HAVE_ESIPA_JSON */

@@ -83,6 +83,7 @@ static void ecall_profile_enabled_test(void)
 	res = result_of(p, 2);
 	assert(ipa_es10c_ecall_prfle_enabled(res) == false);
 	printf("   no ecallIndication anywhere      -> false\n");
+	ipa_es10c_get_prfle_info_res_free(res);
 
 	/* Present but disabled: the Profile exists, the mechanism is not active, so requests proceed. */
 	p[0] = profile(ICCID_A, ProfileState_enabled, -1);
@@ -90,6 +91,7 @@ static void ecall_profile_enabled_test(void)
 	res = result_of(p, 2);
 	assert(ipa_es10c_ecall_prfle_enabled(res) == false);
 	printf("   Emergency Profile disabled       -> false\n");
+	ipa_es10c_get_prfle_info_res_free(res);
 
 	/* Present and enabled: this is the state that gates the refusal. */
 	p[0] = profile(ICCID_A, ProfileState_disabled, -1);
@@ -97,12 +99,14 @@ static void ecall_profile_enabled_test(void)
 	res = result_of(p, 2);
 	assert(ipa_es10c_ecall_prfle_enabled(res) == true);
 	printf("   Emergency Profile enabled        -> true\n");
+	ipa_es10c_get_prfle_info_res_free(res);
 
 	/* Present-and-false is not the same as present: BOOLEAN, not NULL. */
 	p[0] = profile(ICCID_A, ProfileState_enabled, 0);
 	res = result_of(p, 1);
 	assert(ipa_es10c_ecall_prfle_enabled(res) == false);
 	printf("   ecallIndication present but FALSE -> false\n");
+	ipa_es10c_get_prfle_info_res_free(res);
 
 	/* An enabled ordinary Profile alongside a disabled Emergency one must not be mistaken for it. */
 	p[0] = profile(ICCID_A, ProfileState_enabled, 0);
@@ -110,6 +114,7 @@ static void ecall_profile_enabled_test(void)
 	res = result_of(p, 2);
 	assert(ipa_es10c_ecall_prfle_enabled(res) == false);
 	printf("   enabled ordinary + disabled eCall -> false\n");
+	ipa_es10c_get_prfle_info_res_free(res);
 }
 
 /* The helper is reached on paths where the eUICC may not have answered at all. */
@@ -191,6 +196,11 @@ static void degenerate_input_test(void)
 	assert(ipa_es10c_ecall_prfle_enabled(empty) == false);
 	assert(ipa_es10c_fallback_prfle(empty) == NULL);
 	printf("   empty profile list               -> false\n");
+	ipa_es10c_get_prfle_info_res_free(empty);
+
+	/* res is on the stack, so only the arm built above is released here.  The library helper cannot
+	 * be used for that: it frees the containing struct too. */
+	ASN_STRUCT_FREE(asn_DEF_SGP32_ProfileInfoListResponse, res.sgp32_res);
 }
 
 int main(int argc, char **argv)
