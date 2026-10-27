@@ -231,7 +231,7 @@ License
 
 Copyright (c) 2025 Onomondo ApS & sysmocom - s.f.m.c. GmbH.
 
-Migration to SGP.32 v1.2 is supported by Iapyx Informática Ltda. and an independent startup that will be named here once it launches publicly.
+Migration to SGP.32 v1.2 is supported by [Iapyx Informática Ltda.](https://iapyx.com.br) and [Veritsys Tecnologia Ltda.](https://veritsys.com)
 
 Many thanks also to [Michael O'Connor](https://www.linkedin.com/in/mikeoconnorirl/) from [DomainsIntel](https://domainsintel.com/) for the code conversion contained in the first commit (1b1756a) to the `sgp.32-v1.2` branch.
 
